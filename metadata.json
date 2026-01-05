@@ -1,6 +1,5 @@
-
 {
-  "name": "PPB3.3 video chiamata",
+  "name": "PPB 4.0 analisi dei testi senza AI ma solo con il brouser",
   "description": "Sistema professionale per il monitoraggio del ciclo finanziario con cifratura AES-256-GCM e protezione anti-manomissione.",
   "requestFramePermissions": [
     "microphone"
