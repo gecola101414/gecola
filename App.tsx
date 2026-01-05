@@ -15,6 +15,8 @@ import Manual from './components/Manual';
 import PlanningModule from './components/PlanningModule';
 import AuditLog from './components/AuditLog';
 import Messenger from './components/Messenger';
+import { RedattoreAtti } from './components/RedattoreAtti';
+import { AssitenteRisposte } from './components/AssitenteRisposte';
 
 const SYSTEM_SECRET = "CME_LOMB_SECURE_VAULT_2026_V21_MASTER";
 const ENCRYPTION_PREFIX = "PPB_CRYPT_V21:";
@@ -69,7 +71,7 @@ const App: React.FC = () => {
   const [redoHistory, setRedoHistory] = useState<AppState[]>([]);
   const [fileHandle, setFileHandle] = useState<any | null>(null);
   const [activeFileName, setActiveFileName] = useState<string>("");
-  const [view, setView] = useState<'gateway' | 'login' | 'setup' | 'dashboard' | 'idvs' | 'works' | 'planning' | 'comms' | 'admin' | 'audit' | 'chapter-detail' | 'manual' | 'add-idv' | 'add-work' | 'change-password'>('gateway');
+  const [view, setView] = useState<'gateway' | 'login' | 'setup' | 'dashboard' | 'idvs' | 'works' | 'planning' | 'comms' | 'admin' | 'audit' | 'chapter-detail' | 'manual' | 'add-idv' | 'add-work' | 'change-password' | 'drafter' | 'assistant'>('gateway');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'remote-update' | 'conflict-resolved'>('synced');
   const [savedHandleExists, setSavedHandleExists] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -85,13 +87,11 @@ const App: React.FC = () => {
     getHandleFromIDB().then(h => { if(h) setSavedHandleExists(true); });
   }, []);
 
-  // OTTIMIZZAZIONE: CIFRATURA ACCELERATA CON BUFFER DIRETTI
   const encrypt = (data: any): string => {
     try {
       const text = JSON.stringify(data);
       const uint8 = new TextEncoder().encode(text);
       const keyUint8 = new TextEncoder().encode(SYSTEM_SECRET);
-      // XOR In-place per evitare allocazioni extra
       for (let i = 0; i < uint8.length; i++) {
         uint8[i] ^= keyUint8[i % keyUint8.length];
       }
@@ -177,7 +177,6 @@ const App: React.FC = () => {
         action: log.action,
         details: log.details
       };
-      // OTTIMIZZAZIONE: Ridotto limite log a 5000 per fluidità
       finalUpdates.auditLog = [newEntry, ...(currentState.auditLog || [])].slice(0, 5000);
     }
     if (currentUser) {
@@ -189,26 +188,19 @@ const App: React.FC = () => {
     await writeToDisk(newState);
   };
 
-  // OTTIMIZZAZIONE: LOGIN NON BLOCCANTE
   const handleLogin = async (userId: string, p: string) => {
     if (!state) return;
     setIsLoggingIn(true);
-    
-    // Timeout breve per permettere al thread UI di mostrare il caricamento
     setTimeout(async () => {
       const user = state.users.find(usr => usr.id === userId && usr.passwordHash === p);
       if (user) {
         const now = new Date().toISOString();
         const updatedUsers = state.users.map(u => u.id === userId ? { ...u, lastActive: now, loginCount: (u.loginCount || 0) + 1 } : u);
         const loggedUser = updatedUsers.find(u => u.id === userId)!;
-        
-        // Transizione UI immediata
         setCurrentUser(loggedUser);
         if (loggedUser.mustChangePassword) setView('change-password');
         else setView('dashboard');
         setIsLoggingIn(false);
-
-        // Operazione disco delegata in background
         updateVault({ users: updatedUsers }, { 
           action: 'Accesso Vault', 
           details: `Accesso autorizzato per ${loggedUser.username}. Protocollo V21 Master attivo.` 
@@ -220,7 +212,6 @@ const App: React.FC = () => {
     }, 50);
   };
 
-  // Fix: Implemented handleSendMessage to allow users to send messages in the Messenger component
   const handleSendMessage = (msg: Partial<ChatMessage>) => {
     if (!state || !currentUser) return;
     const newMessage: ChatMessage = {
@@ -231,12 +222,12 @@ const App: React.FC = () => {
       workgroup: currentUser.workgroup,
       text: msg.text || '',
       timestamp: msg.timestamp || new Date().toISOString(),
-      recipientId: msg.recipientId
+      recipientId: msg.recipientId,
+      attachments: msg.attachments
     };
     updateVault({ chatMessages: [...(state.chatMessages || []), newMessage] });
   };
 
-  // Fix: Implemented handleMarkChatRead to track the last time a user viewed a specific chat
   const handleMarkChatRead = (chatId: string) => {
     if (!state || !currentUser) return;
     const now = new Date().toISOString();
@@ -252,8 +243,6 @@ const App: React.FC = () => {
       }
       return u;
     });
-    
-    // Update local state and disk without cluttering audit log for every chat switch
     const newState = { ...state, users: updatedUsers, version: state.version + 1 };
     setState(newState);
     writeToDisk(newState);
@@ -379,6 +368,8 @@ const App: React.FC = () => {
             { id: 'works', label: 'Lavori' }, 
             { id: 'idvs', label: 'Fondi' }, 
             { id: 'planning', label: 'Obiettivi' }, 
+            { id: 'assistant', label: 'Assistente IA' },
+            { id: 'drafter', label: 'Redattore Atti' },
             { id: 'comms', label: 'Tactical Comms' },
             { id: 'audit', label: 'Ledger' }, 
             { id: 'manual', label: 'Guida' }
@@ -428,7 +419,9 @@ const App: React.FC = () => {
           <div className="max-w-[1400px] mx-auto w-full h-full">
             {view === 'dashboard' && <Dashboard idvs={state.idvs} orders={state.orders} onChapterClick={(c) => { }} />}
             {view === 'works' && <Catalog orders={state.orders} idvs={state.idvs} onAdd={() => {}} onStageClick={() => {}} onToggleLock={() => {}} onDelete={() => {}} onChapterClick={() => {}} currentUser={currentUser} />}
-            {view === 'comms' && <Messenger messages={state.chatMessages || []} currentUser={currentUser} allUsers={state.users} onSendMessage={handleSendMessage} onReadChat={handleMarkChatRead} />}
+            {view === 'drafter' && <RedattoreAtti orders={state.orders} idvs={state.idvs} currentUser={currentUser} />}
+            {view === 'assistant' && <AssitenteRisposte messages={state.chatMessages || []} currentUser={currentUser} />}
+            {view === 'comms' && <Messenger messages={state.chatMessages || []} currentUser={currentUser} allUsers={state.users} idvs={state.idvs} orders={state.orders} onSendMessage={handleSendMessage} onReadChat={handleMarkChatRead} />}
             {view === 'audit' && <AuditLog log={state.auditLog} />}
             {view === 'manual' && <Manual />}
           </div>
