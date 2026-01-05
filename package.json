@@ -1,5 +1,5 @@
 {
-  "name": "gecola-ai_spw_1.2",
+  "name": "ppb3.3-video-chiamata",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,15 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "@google/genai": "^1.30.0",
-    "lucide-react": "^0.555.0",
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.8.2",
-    "vite": "^7.2.6",
-    "@vitejs/plugin-react": "^5.1.1",
-    "firebase": "^12.6.0"
+    "react": "^19.2.3",
+    "@google/genai": "^1.34.0",
+    "react-dom": "^19.2.3",
+    "recharts": "^3.6.0",
+    "pptxgenjs": "3.12.0",
+    "html-to-image": "1.11.11",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

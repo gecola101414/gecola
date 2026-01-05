@@ -1,7 +1,9 @@
+
 {
-  "name": "GeCoLa AI_SPW_1.2",
-  "description": "A professional construction estimate application (Computo Metrico Estimativo) tailored for Italian standards, featuring dynamic calculations, categorization, and AI-assisted item generation.",
+  "name": "PPB3.3 video chiamata",
+  "description": "Sistema professionale per il monitoraggio del ciclo finanziario con cifratura AES-256-GCM e protezione anti-manomissione.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera"
   ]
 }
