@@ -155,6 +155,7 @@ const App: React.FC = () => {
   const [paymentModalOrder, setPaymentModalOrder] = useState<WorkOrder | null>(null);
 
   const [videoProof, setVideoProof] = useState<string | null>(null);
+  const [playingVideo, setPlayingVideo] = useState<{ url: string, user: string } | null>(null);
 
   const isWritingRef = useRef(false);
   const stateRef = useRef<AppState | null>(null);
@@ -683,7 +684,35 @@ const App: React.FC = () => {
                       if(u && g) { updateVault((prev) => ({ users: [...prev.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }), { action: 'Accreditamento Nuovo Operatore', details: `Procedura di provisioning completata. Creata utenza per l'operatore ${u} con ruolo ${r} all'interno dell'organico dell'Ufficio ${g}. Password di primo accesso generata e in attesa di rotazione obbligatoria.` }); alert(`Password di default: ${DEFAULT_PASSWORD}`); }
                    }} className="bg-indigo-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg tracking-widest">Aggiungi Staff</button>
                 </div>
-                <div className="space-y-3">{state.users.map(u => (<div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div><div><p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">{u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span></p><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p></div></div><button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Abilitazioni Operatore', details: `Accesso negato e utenza disabilitata per l'operatore ${u.username} (${u.role}). Tutte le chiavi crittografiche associate sono state revocate dal sistema centrale per disposizione dell'Amministratore.` }); }} className="text-rose-400 hover:text-rose-600">Elimina</button></div>))}</div>
+                <div className="space-y-3">
+                  {state.users.map(u => {
+                    const latestVideo = state.auditLog.find(log => log.userId === u.id && log.videoProof)?.videoProof;
+                    return (
+                      <div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between hover:shadow-md transition-all">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div>
+                          <div>
+                            <p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">
+                              {u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span>
+                            </p>
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          {latestVideo && (
+                            <button 
+                              onClick={() => setPlayingVideo({ url: latestVideo, user: u.username })}
+                              className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[8px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 animate-pulse"
+                            >
+                              🎥 ACCREDITAMENTO
+                            </button>
+                          )}
+                          <button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Abilitazioni Operatore', details: `Accesso negato e utenza disabilitata per l'operatore ${u.username} (${u.role}). Tutte le chiavi crittografiche associate sono state revocate dal sistema centrale per disposizione dell'Amministratore.` }); }} className="text-rose-400 hover:text-rose-600 text-[10px] font-black uppercase">Elimina</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
             {view === 'chapter-detail' && selectedChapter && (
@@ -712,6 +741,23 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* VIDEO PLAYER FORENSE UNIFICATO */}
+      {playingVideo && (
+        <div className="fixed inset-0 z-[250] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8">
+          <div className="bg-white rounded-[3rem] p-4 shadow-2xl max-w-2xl w-full border-4 border-indigo-600 animate-in zoom-in duration-300">
+            <div className="aspect-video bg-black rounded-2xl overflow-hidden mb-4 relative">
+              <video src={playingVideo.url} autoPlay controls className="w-full h-full object-cover" />
+              <div className="absolute top-4 left-4 bg-indigo-600 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">Reperto Biometrico Forense: {playingVideo.user.toUpperCase()}</div>
+            </div>
+            <div className="flex justify-between items-center px-4">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Integrità Verificata dal Sistema Vault</span>
+              <button onClick={() => setPlayingVideo(null)} className="px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700">✕ Termina Visione</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bidModalOrder && <BidModal order={bidModalOrder} onSave={(b) => { 
         updateVault((prev) => ({ orders: prev.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }), { action: 'Registrazione Aggiudicazione Gara', details: `Fase 2 completata per la pratica ${bidModalOrder.orderNumber}. L'appalto è stato formalmente affidato alla ditta "${b.winner}" per un importo contrattuale definitivo di €${b.bidValue.toLocaleString()}. La variazione tra stima iniziale ed affidamento ha generato un'economia di gara ricalcolata in tempo reale dal protocollo.` }); 
         setBidModalOrder(null); 
