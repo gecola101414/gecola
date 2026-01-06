@@ -21,7 +21,7 @@ interface IdvListProps {
 
 const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterClick, onAdd, onToggleLock, onDelete, userRole }) => {
   const currentResiduals = calculateAllResiduals(idvs, orders);
-  const sortedIdvs = useMemo(() => [...idvs].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()), [idvs]);
+  const sortedIdvs = useMemo(() => [...idvs].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [idvs]); // Ordinati per più recenti
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   
   const canManageFunds = userRole === UserRole.ADMIN || userRole === UserRole.COMANDANTE || userRole === UserRole.REPPE;
@@ -33,7 +33,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.text(commandName.toUpperCase(), 105, 15, { align: "center" });
-    doc.text("REGISTRO ASSET FONDIARI (IDV)", 105, 22, { align: "center" });
+    doc.text("REGISTRO ANALITICO ASSET FONDIARI (IDV)", 105, 22, { align: "center" });
 
     const tableRows = sortedIdvs.map((i, idx) => [
       idx + 1,
@@ -42,16 +42,17 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
       i.assignedWorkgroup,
       `€ ${i.amount.toLocaleString()}`,
       `€ ${(currentResiduals[i.id] || 0).toLocaleString()}`,
+      new Date(i.createdAt).toLocaleString('it-IT'),
       i.locked ? 'SI' : 'NO'
     ]);
 
     autoTable(doc, {
       startY: 30,
-      head: [['#', 'Codice IDV', 'Capitolo', 'Ufficio', 'Assegnato', 'Residuo', 'Locked']],
+      head: [['#', 'Codice IDV', 'Capitolo', 'Ufficio', 'Assegnato', 'Residuo', 'Data Creazione', 'Locked']],
       body: tableRows,
       theme: 'grid',
       headStyles: { fillColor: [6, 78, 59] },
-      styles: { fontSize: 8 }
+      styles: { fontSize: 7 }
     });
 
     setPdfPreviewUrl(doc.output('bloburl'));
@@ -71,7 +72,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                </div>
                <h2 className="text-xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">Registro Asset Fondiari</h2>
             </div>
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1 ml-8 italic">{commandName} - Gestione Finanziaria</p>
+            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1 ml-8 italic">{commandName} - Protocollo Operativo</p>
           </div>
 
           {canManageFunds && (
@@ -96,7 +97,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
 
       <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-2xl flex flex-col overflow-hidden m-2 min-h-0 mt-4">
         <div className="bg-slate-50 px-8 py-3 flex justify-between items-center border-b border-slate-100 flex-shrink-0 z-10">
-          <span className="text-[10px] font-black text-slate-500 uppercase italic tracking-widest">Database Risorse Economiche (IDV)</span>
+          <span className="text-[10px] font-black text-slate-500 uppercase italic tracking-widest">Database Risorse Economiche (IDV) - Ordinamento Cronologico</span>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3 bg-white min-h-0">
@@ -113,20 +114,21 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                    <span className="text-sm">{(index + 1).toString().padStart(2, '0')}</span>
                 </div>
 
-                <div className="w-48 flex flex-col">
+                <div className="w-56 flex flex-col">
                   <div className="flex items-center gap-2">
                      <button onClick={() => onChapterClick(idv.capitolo)} className={`px-2 py-0.5 rounded bg-${color}-500 text-white text-[9px] font-black uppercase shadow-sm`}>Cap. {idv.capitolo}</button>
                      <span className="text-xs font-black text-slate-800 uppercase italic tracking-tighter">{idv.idvCode}</span>
                   </div>
+                  <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase italic">Creato: {new Date(idv.createdAt).toLocaleString('it-IT')}</span>
                 </div>
 
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-slate-600 italic leading-tight truncate uppercase pr-4">"{idv.motivation}"</p>
-                  <p className="text-[7px] font-black text-slate-400 mt-1 uppercase tracking-widest">Assegnato a: {idv.assignedWorkgroup}</p>
+                  <p className="text-[7px] font-black text-slate-400 mt-1 uppercase tracking-widest">Responsabilità: {idv.assignedWorkgroup}</p>
                 </div>
 
                 <div className="text-right flex flex-col min-w-[150px] pr-4 border-r border-slate-100">
-                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic mb-1 leading-none">Residuo Operativo</span>
+                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic mb-1 leading-none">Disponibilità Reale</span>
                    <p className={`text-lg font-black tracking-tighter italic ${isCritical ? 'text-rose-600' : 'text-emerald-700'}`}>€{residual.toLocaleString()}</p>
                 </div>
 
@@ -144,7 +146,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                           <button 
                             onClick={(e) => { 
                               e.stopPropagation();
-                              if(confirm("Cancellare definitivamente questo fondo? L'azione è irreversibile.")) {
+                              if(window.confirm("PROCEDURA DI ELIMINAZIONE ASSET:\n\nConferma la rimozione definitiva del fondo " + idv.idvCode + "?\nQuesta azione lascerà una traccia indelebile nel registro audit.")) {
                                 onDelete(idv.id);
                               }
                             }} 
@@ -154,7 +156,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                             🗑️
                           </button>
                         )}
-                        {isUsed && <span className="text-[10px] opacity-20 grayscale cursor-help" title="Impossibile cancellare: fondo già utilizzato per dei lavori">🚫</span>}
+                        {isUsed && <span className="text-[10px] opacity-20 grayscale cursor-help" title="Asset in uso: Impossibile cancellare finché collegato a pratiche attive">🚫</span>}
                      </>
                    )}
                 </div>
@@ -162,8 +164,9 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
             );
           })}
           {sortedIdvs.length === 0 && (
-            <div className="p-20 text-center text-slate-300 italic opacity-50">
-              Nessun fondo registrato in archivio.
+            <div className="p-20 text-center text-slate-300 italic opacity-50 flex flex-col items-center gap-4">
+              <span className="text-6xl opacity-20">🏦</span>
+              <p className="text-[10px] font-black uppercase tracking-widest">Nessuna risorsa economica censita in questo archivio.</p>
             </div>
           )}
         </div>

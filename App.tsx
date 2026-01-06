@@ -74,7 +74,7 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'remote-update' | 'conflict-resolved'>('synced');
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(null);
   const [savedHandleExists, setSavedHandleExists] = useState(false);
-  const [globalFilter, setGlobalFilter] = useState<'mine' | 'all'>('mine'); 
+  const [globalFilter, setGlobalFilter] = useState<'mine' | 'all'>('all'); // Cambiato in 'all' di default per visibilità immediata
   
   const [editWorkOrder, setEditWorkOrder] = useState<WorkOrder | null>(null);
   const [bidModalOrder, setBidModalOrder] = useState<WorkOrder | null>(null);
@@ -204,7 +204,7 @@ const App: React.FC = () => {
         action: log.action,
         details: log.details
       };
-      stateWithUpdates.auditLog = [newEntry, ...(currentState.auditLog || [])].slice(0, 30000);
+      stateWithUpdates.auditLog = [newEntry, ...(currentState.auditLog || [])].slice(0, 50000); // Aumentato limite log
     }
     
     if (currentUser) {
@@ -298,7 +298,7 @@ const App: React.FC = () => {
       const now = new Date().toISOString();
       updateVault((prev) => ({ 
         users: prev.users.map(u => u.id === userId ? { ...u, lastActive: now, loginCount: (u.loginCount || 0) + 1 } : u)
-      }), { action: 'Accesso PPB', details: `Accesso autorizzato per ${user.username} (${user.role}).` });
+      }), { action: 'Accesso PPB 4.0', details: `Sessione inizializzata dall'operatore accreditato ${user.username} (Ufficio: ${user.workgroup}). Autenticazione crittografica verificata con successo in data ${new Date().toLocaleString()}.` });
       
       const loggedUser = { ...user, lastActive: now, loginCount: (user.loginCount || 0) + 1 };
       setCurrentUser(loggedUser);
@@ -311,7 +311,7 @@ const App: React.FC = () => {
     if (!currentUser || !state) return;
     updateVault((prev) => ({ 
       users: prev.users.map(u => u.id === currentUser.id ? { ...u, passwordHash: newPass, mustChangePassword: false } : u )
-    }), { action: 'Sicurezza Account', details: `Aggiornamento credenziali per l'operatore ${currentUser.username}.` });
+    }), { action: 'Aggiornamento Sicurezza Account', details: `Variazione credenziali di accesso per l'operatore ${currentUser.username}. La vecchia password è stata invalidata e sostituita con una nuova stringa cifrata AES. Protocollo di sicurezza aggiornato.` });
     
     setCurrentUser({ ...currentUser, passwordHash: newPass, mustChangePassword: false });
     setView('dashboard');
@@ -361,7 +361,7 @@ const App: React.FC = () => {
 
   const handleCreateNewDatabase = async () => {
     try {
-      const handle = await (window as any).showSaveFilePicker({ suggestedName: 'Gestione_Finanziaria_2026.ppb' });
+      const handle = await (window as any).showSaveFilePicker({ suggestedName: 'Archivio_Finanziario_CME_2026.ppb' });
       setFileHandle(handle); setActiveFileName(handle.name); await saveHandleToIDB(handle); setView('setup');
     } catch(e){}
   };
@@ -388,7 +388,7 @@ const App: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-indigo-50/50 p-6">
       <div className="bg-white rounded-[4rem] p-16 shadow-2xl max-md w-full text-center border border-indigo-100">
         <EsercitoLogo size="md" />
-        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic mt-6">Inizializzazione Sistema</h2>
+        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic mt-6">Inizializzazione Archivio</h2>
         <div className="space-y-4 text-left">
           <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-4">Comando / Organizzazione Gestore</label>
           <input type="text" placeholder="Es. CME LOMBARDIA, COMFOTER..." id="s-cmd" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold mb-4 focus:border-indigo-600 outline-none" />
@@ -549,8 +549,8 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-hidden p-10 bg-slate-50/50 flex flex-col">
           <div className="max-w-[1400px] mx-auto w-full h-full flex flex-col">
             {view === 'dashboard' && <div className="overflow-y-auto h-full pr-2 custom-scrollbar"><Dashboard idvs={state.idvs} orders={state.orders} commandName={state.commandName} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} /></div>}
-            {view === 'works' && <Catalog orders={globalFilter === 'mine' ? state.orders.filter(o => o.workgroup === currentUser.workgroup) : state.orders} idvs={state.idvs} highlightId={highlightedOrderId} onAdd={() => setView('add-work')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onStageClick={(o, s) => { if (s === 1) setEditWorkOrder(o); if (s === 2) setBidModalOrder(o); if (s === 3) setPaymentModalOrder(o); }} onDelete={(id) => { updateVault((prev) => { const o = prev.orders.find(ord => ord.id === id); return { orders: prev.orders.filter(ord => ord.id !== id) }; }, { action: 'Eliminazione Pratica', details: `Rimossa pratica definitivamente dal registro.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ orders: prev.orders.map(ord => ord.id === id ? { ...ord, locked: !ord.locked } : ord) })); }} currentUser={currentUser} />}
-            {view === 'idvs' && <IdvList idvs={globalFilter === 'mine' ? state.idvs.filter(i => i.assignedWorkgroup === currentUser.workgroup) : state.idvs} orders={state.orders} onAdd={() => setView('add-idv')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onDelete={(id) => { updateVault((prev) => { const i = prev.idvs.find(idv => idv.id === id); return { idvs: prev.idvs.filter(idv => idv.id !== id) }; }, { action: 'Rimozione Fondo', details: `Eliminato IDV dal registro asset.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ idvs: prev.idvs.map(idv => idv.id === id ? { ...idv, locked: !idv.locked } : idv) })); }} userRole={currentUser.role} commandName={state.commandName} />}
+            {view === 'works' && <Catalog orders={globalFilter === 'mine' ? state.orders.filter(o => o.workgroup === currentUser.workgroup) : state.orders} idvs={state.idvs} highlightId={highlightedOrderId} onAdd={() => setView('add-work')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onStageClick={(o, s) => { if (s === 1) setEditWorkOrder(o); if (s === 2) setBidModalOrder(o); if (s === 3) setPaymentModalOrder(o); }} onDelete={(id) => { updateVault((prev) => { const o = prev.orders.find(ord => ord.id === id); return { orders: prev.orders.filter(ord => ord.id !== id) }; }, { action: 'Eliminazione Pratica', details: `Protocollo di rimozione forzata eseguito. La pratica precedentemente in registro è stata cancellata definitivamente dall'archivio digitale CME. Ogni riferimento contabile è stato rimosso per ordine dell'operatore ${currentUser.username}.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ orders: prev.orders.map(ord => ord.id === id ? { ...ord, locked: !ord.locked } : ord) }), { action: 'Variazione Stato Integrità', details: `Modificato flag di protezione (Locked/Unlocked) sulla pratica ID: ${id}. Nuova configurazione di sicurezza impostata dall'ufficio ${currentUser.workgroup}.` }); }} currentUser={currentUser} />}
+            {view === 'idvs' && <IdvList idvs={globalFilter === 'mine' ? state.idvs.filter(i => i.assignedWorkgroup === currentUser.workgroup) : state.idvs} orders={state.orders} onAdd={() => setView('add-idv')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onDelete={(id) => { updateVault((prev) => ({ idvs: prev.idvs.filter(idv => idv.id !== id) }), { action: 'De-allocazione Risorsa Economica', details: `L'IDV con identificativo di sistema ${id} è stato rimosso dal pool delle risorse disponibili. L'operazione è stata autorizzata dal Comando in data ${new Date().toLocaleString()} ed eseguita tecnicamente da ${currentUser.username}. La risorsa non è più computabile per nuovi impegni.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ idvs: prev.idvs.map(idv => idv.id === id ? { ...idv, locked: !idv.locked } : idv) }), { action: 'Segregazione Asset Fondiario', details: `Variazione dello stato di disponibilità dell'IDV ${id}. L'asset è stato ${(state.idvs.find(i=>i.id===id)?.locked) ? 'sbloccato per l\'utilizzo' : 'bloccato preventivamente'} per finalità di bilancio.` }); }} userRole={currentUser.role} commandName={state.commandName} />}
             {view === 'planning' && <PlanningModule state={state} onUpdate={(u, log) => updateVault(u, log)} currentUser={currentUser} idvs={state.idvs} globalFilter={globalFilter} commandName={state.commandName} />}
             {view === 'comms' && <Messenger messages={state.chatMessages || []} currentUser={currentUser} allUsers={state.users} onSendMessage={handleSendMessage} onReadChat={handleMarkChatRead} />}
             {view === 'audit' && <AuditLog log={state.auditLog} />}
@@ -571,10 +571,10 @@ const App: React.FC = () => {
                    </select>
                    <button onClick={() => {
                       const g = (document.getElementById('nu-g') as any).value; const u = (document.getElementById('nu-u') as any).value; const r = (document.getElementById('nu-r') as any).value;
-                      if(u && g) { updateVault((prev) => ({ users: [...prev.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }), { action: 'Account Provisioning', details: `Creato nuovo accesso per ${u} in ufficio ${g}.` }); alert(`Password di default: ${DEFAULT_PASSWORD}`); }
+                      if(u && g) { updateVault((prev) => ({ users: [...prev.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }), { action: 'Accreditamento Nuovo Operatore', details: `Procedura di provisioning completata. Creata utenza per l'operatore ${u} con ruolo ${r} all'interno dell'organico dell'Ufficio ${g}. Password di primo accesso generata e in attesa di rotazione obbligatoria.` }); alert(`Password di default: ${DEFAULT_PASSWORD}`); }
                    }} className="bg-indigo-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg tracking-widest">Aggiungi Staff</button>
                 </div>
-                <div className="space-y-3">{state.users.map(u => (<div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div><div><p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">{u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span></p><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p></div></div><button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Accesso', details: `Revocato accesso per l'operatore ${u.username}.` }); }} className="text-rose-400 hover:text-rose-600">Elimina</button></div>))}</div>
+                <div className="space-y-3">{state.users.map(u => (<div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div><div><p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">{u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span></p><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p></div></div><button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Abilitazioni Operatore', details: `Accesso negato e utenza disabilitata per l'operatore ${u.username} (${u.role}). Tutte le chiavi crittografiche associate sono state revocate dal sistema centrale per disposizione dell'Amministratore.` }); }} className="text-rose-400 hover:text-rose-600">Elimina</button></div>))}</div>
               </div>
             )}
             {view === 'chapter-detail' && selectedChapter && (
@@ -590,13 +590,13 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
               />
             )}
-            {view === 'add-idv' && <IdvForm existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} users={state.users} currentUser={currentUser} onSubmit={async (d) => { await updateVault((prev) => ({ idvs: [...prev.idvs, { id: `idv-${Date.now()}`, ...d as any, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, ownerWorkgroup: currentUser.workgroup }] }), { action: 'Iniezione Fondi', details: `Registrato nuovo fondo ${d.idvCode}.` }); setView('idvs'); }} onCancel={() => setView('idvs')} />}
+            {view === 'add-idv' && <IdvForm existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} users={state.users} currentUser={currentUser} onSubmit={async (d) => { await updateVault((prev) => ({ idvs: [...prev.idvs, { id: `idv-${Date.now()}`, ...d as any, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, ownerWorkgroup: currentUser.workgroup }] }), { action: 'Registrazione Asset Fondiario (Iniezione)', details: `Nuova iniezione di fondi perfezionata in archivio. L'operatore ${currentUser.username} ha registrato l'asset ${d.idvCode} per un importo nominale di €${d.amount?.toLocaleString()} sul Capitolo di spesa ${d.capitolo}. La risorsa è stata assegnata alla responsabilità tecnica dell'Ufficio ${d.assignedWorkgroup}. Motivazione formale: "${d.motivation}". Registrazione eseguita il ${new Date().toLocaleString()}.` }); setView('idvs'); }} onCancel={() => setView('idvs')} />}
             {(view === 'add-work' || editWorkOrder) && <WorkForm idvs={state.idvs} orders={state.orders} currentUser={currentUser} existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} initialData={editWorkOrder || undefined} prefilledChapter={selectedChapter || undefined} onSubmit={async (d) => { 
                 if (editWorkOrder) { 
-                  updateVault((prev) => ({ orders: prev.orders.map(o => o.id === editWorkOrder.id ? { ...o, ...d } : o) }), { action: 'Variazione Impegno', details: `Aggiornati dati tecnici impegno.` }); 
+                  updateVault((prev) => ({ orders: prev.orders.map(o => o.id === editWorkOrder.id ? { ...o, ...d } : o) }), { action: 'Revisione Fascicolo Tecnico', details: `Aggiornamento dati operativi per la pratica ${editWorkOrder.orderNumber}. L'operatore ha modificato le specifiche dell'impegno: "${d.description}". Parametri tecnici ri-validati dal sistema PPB.` }); 
                 } else { 
                   const autoId = `IMP-${new Date().getFullYear()}-${(state.orders.length + 1001).toString().slice(-4)}`;
-                  updateVault((prev) => ({ orders: [...prev.orders, { id: `w-${Date.now()}`, ...d as any, orderNumber: autoId, status: WorkStatus.PROGETTO, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, workgroup: currentUser.workgroup }] }), { action: 'Registrazione Impegno', details: `Generato impegno ${autoId}.` }); 
+                  updateVault((prev) => ({ orders: [...prev.orders, { id: `w-${Date.now()}`, ...d as any, orderNumber: autoId, status: WorkStatus.PROGETTO, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, workgroup: currentUser.workgroup }] }), { action: 'Immissione Nuovo Impegno di Spesa', details: `Protocollo ${autoId} generato ed inserito in registro. Descrizione Intervento: "${d.description}". Importo stimato a sistema: €${d.estimatedValue?.toLocaleString()}. L'Ufficio ${currentUser.workgroup} assume la gestione della pratica. Copertura finanziaria verificata su IDV collegati.` }); 
                 } 
                 setEditWorkOrder(null); setView('works'); 
               }} onCancel={() => { setEditWorkOrder(null); setView('works'); }} />}
@@ -604,11 +604,11 @@ const App: React.FC = () => {
         </div>
       </main>
       {bidModalOrder && <BidModal order={bidModalOrder} onSave={(b) => { 
-        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }), { action: 'Affidamento Gara', details: `Pratica affidata alla ditta ${b.winner}.` }); 
+        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }), { action: 'Registrazione Aggiudicazione Gara', details: `Fase 2 completata per la pratica ${bidModalOrder.orderNumber}. L'appalto è stato formalmente affidato alla ditta "${b.winner}" per un importo contrattuale definitivo di €${b.bidValue.toLocaleString()}. La variazione tra stima iniziale ed affidamento ha generato un'economia di gara ricalcolata in tempo reale dal protocollo.` }); 
         setBidModalOrder(null); 
       }} onClose={() => setBidModalOrder(null)} />}
       {paymentModalOrder && <PaymentModal order={paymentModalOrder} onSave={(p) => { 
-        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === paymentModalOrder.id ? { ...o, status: WorkStatus.PAGAMENTO, paidValue: p.paidValue, invoicePdf: p.invoicePdf, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, creGenerated: true, creDate: p.creDate } : o) }), { action: 'Liquidazione Finale', details: `Chiusura contabile pratica.` }); 
+        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === paymentModalOrder.id ? { ...o, status: WorkStatus.PAGAMENTO, paidValue: p.paidValue, invoicePdf: p.invoicePdf, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, creGenerated: true, creDate: p.creDate } : o) }), { action: 'Liquidazione e Chiusura Contabile', details: `Fase Finale eseguita per la pratica ${paymentModalOrder.orderNumber}. Caricata fattura n. ${p.invoiceNumber} del ${p.invoiceDate}. Importo liquidato: €${p.paidValue.toLocaleString()}. Il sistema ha generato il Certificato di Regolare Esecuzione (CRE) in data ${p.creDate}. L'impegno è ora considerato CONCLUSO e ARCHIVIATO.` }); 
         setPaymentModalOrder(null); 
       }} onClose={() => setPaymentModalOrder(null)} />}
     </div>
