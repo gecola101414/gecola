@@ -1,7 +1,11 @@
 
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { WorkOrder, WorkStatus, FundingIDV, UserRole, User } from '../types';
 import { getChapterColor } from './ChaptersSummary';
+// @ts-ignore
+import { jsPDF } from 'jspdf';
+// @ts-ignore
+import autoTable from 'jspdf-autotable';
 
 interface CatalogProps {
   orders: WorkOrder[];
@@ -21,6 +25,7 @@ const Catalog: React.FC<CatalogProps> = ({
   const sortedOrders = useMemo(() => [...orders].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()), [orders]);
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
   const isAdmin = currentUser.role === UserRole.ADMIN;
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (highlightId && refs.current[highlightId]) {
@@ -31,73 +36,57 @@ const Catalog: React.FC<CatalogProps> = ({
   }, [highlightId]);
 
   const generateCRE = (order: WorkOrder) => {
-    const win = window.open('', '_blank');
-    if (!win) return;
-    win.document.write(`
-      <html>
-        <head><title>CRE - ${order.orderNumber}</title></head>
-        <body style="font-family: serif; padding: 40px;">
-          <h1 style="text-align:center">Certificato Regolare Esecuzione</h1>
-          <p>Pratica: ${order.orderNumber}</p>
-          <p>Oggetto: ${order.description}</p>
-          <p>Ditta: ${order.winner || '---'}</p>
-          <p>Importo: € ${order.paidValue?.toLocaleString()}</p>
-          <script>window.print();</script>
-        </body>
-      </html>
-    `);
-    win.document.close();
+    const doc = new jsPDF();
+    doc.setFontSize(22);
+    doc.setFont("serif", "bold");
+    doc.text("CERTIFICATO DI REGOLARE ESECUZIONE", 105, 40, { align: "center" });
+    
+    doc.setFontSize(12);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Identificativo Pratica: ${order.orderNumber}`, 20, 60);
+    doc.text(`Descrizione: ${order.description}`, 20, 70);
+    doc.text(`Ditta Esecutrice: ${order.winner || '---'}`, 20, 80);
+    doc.text(`Importo Liquidato: € ${order.paidValue?.toLocaleString()}`, 20, 90);
+    doc.text(`Data Chiusura: ${order.creDate || new Date().toLocaleDateString()}`, 20, 100);
+    
+    doc.text("Si certifica la regolare esecuzione della prestazione in conformità alle norme vigenti.", 20, 130);
+    
+    doc.setFontSize(10);
+    doc.text("Firma del Responsabile", 150, 180);
+    doc.line(140, 185, 190, 185);
+
+    setPdfPreviewUrl(doc.output('bloburl'));
   };
 
-  const handleExportPDF = (preview: boolean = false) => {
-    const win = window.open('', '_blank');
-    if (!win) return;
-    const rows = sortedOrders.map((o, i) => {
-       const chapter = idvs.find(idv => o.linkedIdvIds.includes(idv.id))?.capitolo || '-';
-       return `
-        <tr>
-          <td style="border: 1px solid #ddd; padding: 6px; text-align: center;">${i+1}</td>
-          <td style="border: 1px solid #ddd; padding: 6px; font-weight: bold;">${o.orderNumber}</td>
-          <td style="border: 1px solid #ddd; padding: 6px;">Cap. ${chapter}</td>
-          <td style="border: 1px solid #ddd; padding: 6px;">${o.description}</td>
-          <td style="border: 1px solid #ddd; padding: 6px;">${o.status.split(' ')[0]}</td>
-          <td style="border: 1px solid #ddd; padding: 6px; text-align: right;">€ ${(o.paidValue || o.contractValue || o.estimatedValue).toLocaleString()}</td>
-        </tr>
-      `;
-    }).join('');
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("REGISTRO GENERALE PRATICHE PPB 4.0", 105, 15, { align: "center" });
 
-    win.document.write(`
-      <html>
-        <head>
-          <title>Registro Lavori CME LOMB</title>
-          <style>
-            body { font-family: sans-serif; padding: 30px; }
-            h1 { text-align: center; text-transform: uppercase; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; font-size: 11px; }
-            th { background: #eee; border: 1px solid #ddd; padding: 8px; }
-          </style>
-        </head>
-        <body>
-          <h1>Registro Generale Pratiche PPB</h1>
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Pratica</th>
-                <th>Capitolo</th>
-                <th>Descrizione</th>
-                <th>Stato</th>
-                <th>Valore Attuale</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <p style="text-align: right; margin-top: 20px; font-weight: bold;">Generato il: ${new Date().toLocaleString()}</p>
-          ${preview ? '' : '<script>window.print();</script>'}
-        </body>
-      </html>
-    `);
-    win.document.close();
+    const tableRows = sortedOrders.map((o, i) => {
+      const chapter = idvs.find(idv => o.linkedIdvIds.includes(idv.id))?.capitolo || '-';
+      return [
+        i + 1,
+        o.orderNumber,
+        `Cap. ${chapter}`,
+        o.description,
+        o.status.split(' ')[0],
+        `€ ${(o.paidValue || o.contractValue || o.estimatedValue).toLocaleString()}`
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 25,
+      head: [['#', 'Pratica', 'Capitolo', 'Descrizione', 'Stato', 'Valore']],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [15, 23, 42], fontSize: 8 },
+      columnStyles: { 5: { halign: 'right' } },
+      styles: { fontSize: 8 }
+    });
+
+    setPdfPreviewUrl(doc.output('bloburl'));
   };
 
   return (
@@ -110,8 +99,7 @@ const Catalog: React.FC<CatalogProps> = ({
             <span className="text-xs font-bold text-slate-800 uppercase">{sortedOrders.length} Lavori in Registro</span>
          </div>
          <div className="flex gap-2">
-            <button onClick={() => handleExportPDF(true)} className="px-5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-[9px] font-black uppercase hover:bg-slate-50 transition-all">Anteprima PDF 👁️</button>
-            <button onClick={() => handleExportPDF(false)} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase hover:bg-indigo-700 shadow-lg transition-all">Salva PDF 💾</button>
+            <button onClick={handleExportPDF} className="px-5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-[9px] font-black uppercase hover:border-indigo-600 hover:text-indigo-600 transition-all shadow-sm">ANTEPRIMA PDF</button>
          </div>
       </div>
 
@@ -192,6 +180,23 @@ const Catalog: React.FC<CatalogProps> = ({
         <button onClick={onAdd} className="fixed bottom-14 right-8 w-16 h-16 bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-2xl hover:bg-indigo-600 hover:scale-110 active:scale-90 transition-all z-50 border-4 border-white group">
           <svg className="w-8 h-8 group-hover:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M12 4v16m8-8H4" /></svg>
         </button>
+      )}
+
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
+           <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
+             <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Operational Registry - PPB 4.0</span>
+               <button 
+                onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} 
+                className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all"
+               >
+                 ✕ Chiudi Anteprima
+               </button>
+             </div>
+             <iframe src={pdfPreviewUrl} className="flex-1 border-0" />
+           </div>
+        </div>
       )}
     </div>
   );

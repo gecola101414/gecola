@@ -178,7 +178,7 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, commandName, onChap
             onClick={handleExportPDF}
             className="flex items-center gap-2 px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-black uppercase text-[9px] shadow-sm hover:border-indigo-600 hover:text-indigo-600 transition-all active:scale-95"
           >
-            Anteprima Registro PDF 👁️
+            ANTEPRIMA PDF
           </button>
           <button 
             onClick={generatePresentation}

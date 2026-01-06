@@ -149,7 +149,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
     });
 
     doc.setFontSize(7);
-    doc.text(`Vault V21 - Security Protocol - Generato il ${new Date().toLocaleString()}`, 15, 285);
+    doc.text(`PPB 4.0 - Generato il ${new Date().toLocaleString()}`, 15, 285);
 
     setPdfPreviewUrl(doc.output('bloburl'));
   };
@@ -296,7 +296,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         </div>
 
         <div className="flex items-center gap-3">
-           <button onClick={generatePDFPreview} className="px-5 py-2.5 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-black uppercase text-[9px] shadow-sm hover:border-indigo-600 hover:text-indigo-600 transition-all flex items-center gap-2">👁️ REGISTRO PDF</button>
+           <button onClick={generatePDFPreview} className="px-5 py-2.5 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-black uppercase text-[9px] shadow-sm hover:border-indigo-600 hover:text-indigo-600 transition-all flex items-center gap-2">ANTEPRIMA PDF</button>
            <div className="bg-white px-5 py-2.5 rounded-xl shadow-sm border border-slate-200 flex flex-col items-end">
              <span className="text-[7px] font-black text-slate-400 uppercase italic tracking-widest mb-1">Massa Gruppo</span>
              <span className="text-base font-black text-slate-900 italic tracking-tighter">€{stats.total.toLocaleString()}</span>
@@ -395,6 +395,39 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         </div>
       </div>
 
+      {editingList && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl p-10 border border-slate-200 flex flex-col gap-6">
+            <h3 className="text-2xl font-black text-slate-800 italic uppercase tracking-tighter">Configurazione Obiettivo</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-4 mb-2 block">Nome Sottogruppo / Lista</label>
+                <input 
+                  value={editingList.name || ''} 
+                  onChange={e => setEditingList({...editingList, name: e.target.value})} 
+                  placeholder="Es. Straordinari Infrastrutture"
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-indigo-600" 
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-4 mb-2 block">Intendimento Strategico (Opzionale)</label>
+                <textarea 
+                  value={editingList.description || ''} 
+                  onChange={e => setEditingList({...editingList, description: e.target.value})} 
+                  placeholder="Note operative..."
+                  rows={4}
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium italic outline-none focus:border-indigo-600" 
+                />
+              </div>
+            </div>
+            <div className="flex gap-4 pt-4 border-t border-slate-100">
+               <button onClick={() => setEditingList(null)} className="flex-1 py-4 text-slate-400 font-bold uppercase text-[10px] tracking-widest hover:text-rose-600">Annulla</button>
+               <button onClick={handleSaveList} className="flex-[2] py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-indigo-700 transition-all">Salva Configurazione</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingNeed && (
         <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8 animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-[1500px] h-full max-h-[96vh] rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200">
@@ -405,7 +438,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                  <div>
                    <h3 className="text-xl font-black text-slate-950 italic uppercase tracking-tighter">Fascicolo Strategico Progetto</h3>
                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[8px] font-black text-indigo-500 uppercase tracking-[0.2em]">Revisione 3.6 Tactical Flow</span>
+                      <span className="text-[8px] font-black text-indigo-500 uppercase tracking-[0.2em]">Revisione 4.0 PPB</span>
                    </div>
                  </div>
                </div>
@@ -516,7 +549,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
            <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
              <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
-               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Report - VAULT V21</span>
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Report - PPB 4.0</span>
                <button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all">✕ Chiudi Registro</button>
              </div>
              <iframe src={pdfPreviewUrl} className="flex-1 border-0" />

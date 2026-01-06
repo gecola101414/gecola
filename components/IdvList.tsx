@@ -69,6 +69,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
             const residual = currentResiduals[idv.id] ?? 0;
             const color = getChapterColor(idv.capitolo);
             const isCritical = residual < (idv.amount * 0.1);
+            const isUsed = (idv.amount - residual) > 0;
 
             return (
               <div key={idv.id} className={`group bg-white rounded-2xl p-5 border-2 transition-all flex items-center gap-8 relative hover:shadow-lg cursor-default ${idv.locked ? 'bg-slate-50 border-slate-100' : 'border-slate-50 hover:border-indigo-100'}`}>
@@ -86,11 +87,36 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
 
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-slate-600 italic leading-tight truncate uppercase pr-4">"{idv.motivation}"</p>
+                  <p className="text-[7px] font-black text-slate-400 mt-1 uppercase tracking-widest">Assegnato a: {idv.assignedWorkgroup}</p>
                 </div>
 
-                <div className="text-right flex flex-col min-w-[150px]">
+                <div className="text-right flex flex-col min-w-[150px] pr-4 border-r border-slate-100">
                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest italic mb-1 leading-none">Residuo Operativo</span>
                    <p className={`text-lg font-black tracking-tighter italic ${isCritical ? 'text-rose-600' : 'text-emerald-700'}`}>€{residual.toLocaleString()}</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                   {isAdmin && (
+                     <>
+                        <button 
+                          onClick={() => onToggleLock(idv.id)} 
+                          className={`p-2.5 rounded-xl transition-all ${idv.locked ? 'bg-slate-800 text-white shadow-lg' : 'bg-slate-50 text-slate-300 hover:bg-indigo-500 hover:text-white'}`}
+                          title={idv.locked ? "Sblocca Asset" : "Blocca Asset"}
+                        >
+                          {idv.locked ? '🔒' : '🔓'}
+                        </button>
+                        {!isUsed && !idv.locked && (
+                          <button 
+                            onClick={() => { if(confirm("Cancellare definitivamente questo fondo? L'azione è irreversibile.")) onDelete(idv.id) }} 
+                            className="p-2.5 bg-rose-50 text-rose-300 hover:bg-rose-500 hover:text-white rounded-xl transition-all shadow-sm group-hover:opacity-100 opacity-0"
+                            title="Elimina Fondo"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                        {isUsed && <span className="text-[10px] opacity-20 grayscale" title="Impossibile cancellare: fondo già utilizzato">🚫</span>}
+                     </>
+                   )}
                 </div>
               </div>
             );

@@ -372,7 +372,7 @@ const App: React.FC = () => {
         <div className="flex-1 flex flex-col gap-4 justify-center">
           {savedHandleExists && ( <button onClick={handleDirectAccess} className="p-10 bg-indigo-600 text-white rounded-[2.5rem] hover:bg-indigo-700 transition-all text-left shadow-2xl group active:scale-[0.98] border-b-[6px] border-indigo-900 flex flex-col items-center justify-center text-center"> <span className="text-[10px] font-black uppercase opacity-70 mb-2 block tracking-widest">Memoria Locale Rilevata</span> <p className="text-2xl font-black italic tracking-tighter uppercase">RIPRENDI LAVORO</p> </button> )}
           <button onClick={handleOpenFilePicker} className="w-full py-6 bg-slate-100 text-slate-700 border-2 border-slate-200 rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-md hover:bg-slate-200 transition-all flex flex-col items-center"> <span className="text-[8px] opacity-50 mb-1">Hai già un file .ppb?</span> APRI ARCHIVIO ESISTENTE 📂 </button>
-          <button onClick={handleCreateNewDatabase} className="w-full py-6 bg-emerald-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-md hover:bg-emerald-700 transition-all flex flex-col items-center"> <span className="text-[8px] opacity-50 mb-1">Nuova installazione?</span> CREA NUOVO REGISTRO ➕ </button>
+          <button onClick={handleCreateNewDatabase} className="w-full py-6 bg-emerald-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-md hover:bg-emerald-700 transition-all flex flex-col items-center"> <span className="text-[8px] opacity-50 mb-1">Nuova installazione?</span> CREA NUOVO ARCHIVIO ➕ </button>
         </div>
       </div>
     </div>
