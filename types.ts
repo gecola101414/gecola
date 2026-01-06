@@ -153,6 +153,7 @@ export interface ChatMessage {
 
 export interface AppState {
   version: number;
+  commandName: string; // Il nome del Comando/Organizzazione che gestisce il file
   users: User[];
   idvs: FundingIDV[];
   orders: WorkOrder[];

@@ -13,6 +13,7 @@ interface PlanningModuleProps {
   currentUser: User;
   idvs: FundingIDV[];
   globalFilter: 'mine' | 'all';
+  commandName: string;
 }
 
 const PriorityBadge = ({ priority }: { priority: 1 | 2 | 3 }) => {
@@ -30,7 +31,7 @@ const PriorityBadge = ({ priority }: { priority: 1 | 2 | 3 }) => {
   );
 };
 
-const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, currentUser, idvs, globalFilter }) => {
+const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, currentUser, idvs, globalFilter, commandName }) => {
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [editingNeed, setEditingNeed] = useState<Partial<PlanningNeed> | null>(null);
   const [editingList, setEditingList] = useState<Partial<PlanningList> | null>(null);
@@ -86,9 +87,9 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
     
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("COMANDO MILITARE ESERCITO LOMBARDIA", 105, 15, { align: "center" });
+    doc.text(commandName.toUpperCase(), 105, 15, { align: "center" });
     doc.setFontSize(10);
-    doc.text(`REGISTRO PIANIFICAZIONE STRATEGICA PPB`, 105, 21, { align: "center" });
+    doc.text(`REGISTRO PIANIFICAZIONE STRATEGICA`, 105, 21, { align: "center" });
     doc.setFontSize(11);
     doc.text(`OBIETTIVO: ${listName.toUpperCase()}`, 105, 27, { align: "center" });
     
@@ -147,11 +148,8 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
       }
     });
 
-    const approvedBy = activeList?.isApprovedByComandante ? "Comandante (CDR)" : (activeList?.isApprovedByReppe ? "REPPE" : "In corso");
-    doc.setFontSize(8);
-    doc.text(`STATO VALIDAZIONE GRUPPO: ${approvedBy.toUpperCase()}`, 15, (doc as any).lastAutoTable.finalY + 15);
     doc.setFontSize(7);
-    doc.text(`Vault V21 - Tactical Security Protocol - Generato il ${new Date().toLocaleString()}`, 15, 285);
+    doc.text(`Vault V21 - Security Protocol - Generato il ${new Date().toLocaleString()}`, 15, 285);
 
     setPdfPreviewUrl(doc.output('bloburl'));
   };
@@ -232,7 +230,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
       };
       updatedLists = [...lists, newList];
     }
-    onUpdate({ planningLists: updatedLists }, { action: 'Definizione Strategica', details: `Orientamento del Sottogruppo "${editingList.name}" aggiornato dal Comando.` });
+    onUpdate({ planningLists: updatedLists }, { action: 'Definizione Strategica', details: `Orientamento del Sottogruppo "${editingList.name}" aggiornato.` });
     setEditingList(null);
   };
 
@@ -251,7 +249,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
       [isReppe ? 'isApprovedByReppe' : 'isApprovedByComandante']: true,
       [isReppe ? 'approvalDateReppe' : 'approvalDateComandante']: new Date().toISOString()
     } : n);
-    onUpdate({ planningNeeds: updatedNeeds }, { action: 'Firma Decretazione', details: `Protocollo decisionale apposto da ${currentUser.username} (${currentUser.role}) su progetto "${editingNeed.description}".` });
+    onUpdate({ planningNeeds: updatedNeeds }, { action: 'Firma Decisionale', details: `Protocollo decisionale apposto da ${currentUser.username} su progetto "${editingNeed.description}".` });
     setEditingNeed({ ...editingNeed, decretations: updatedDecretations });
     setNewDecretationText('');
   };
@@ -263,14 +261,14 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
     } : l);
     onUpdate({ planningLists: updatedLists }, { 
       action: seal ? `Sigillo Strategico` : `Sblocco Revisione`, 
-      details: seal ? `L'obiettivo "${activeList?.name}" è stato sigillato. Modifiche inibite.` : `Il Comando ha riaperto l'obiettivo "${activeList?.name}" per integrazioni tecniche.`
+      details: seal ? `L'obiettivo "${activeList?.name}" è stato sigillato.` : `Il Comando ha riaperto l'obiettivo "${activeList?.name}".`
     });
   };
 
   return (
     <div className="h-full flex flex-col relative animate-in fade-in duration-500 overflow-hidden font-['Inter']">
       
-      {/* TOP BAR AZIONI - MINIMALE */}
+      {/* TOP BAR AZIONI */}
       <div className="sticky top-0 z-[45] bg-slate-50 pb-4 flex items-center justify-between border-b border-slate-200 px-2 flex-shrink-0">
         <div className="flex items-center gap-3">
           <button 
@@ -318,7 +316,6 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         </div>
       </div>
 
-      {/* NAV SOTTOGRUPPI - DRAG AREA */}
       <div className="flex items-center gap-2 py-3 overflow-x-auto no-scrollbar flex-shrink-0 px-2 border-b border-slate-100 bg-slate-50 z-[40]">
         {lists.map(list => {
           const count = needs.filter(n => n.listId === list.id).length;
@@ -346,13 +343,12 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         })}
       </div>
 
-      {/* AREA LISTA - CARICAMENTO DIRETTO */}
       <div className="flex-1 bg-white rounded-[2rem] border border-slate-200 shadow-2xl flex flex-col overflow-hidden m-2 min-h-0">
         <div className="bg-slate-50 px-8 py-3 flex justify-between items-center border-b border-slate-100 flex-shrink-0 z-10">
           <div className="flex flex-col">
             <h3 className="text-[10px] font-black text-slate-900 uppercase italic tracking-tighter flex items-center gap-3">
               {activeListId ? activeList?.name : 'Brogliaccio Generale'} 
-              {activeListId && <button onClick={() => setEditingList(activeList)} className="text-[7px] font-black text-indigo-500 border border-indigo-200 px-2 py-0.5 rounded bg-white hover:bg-indigo-500 hover:text-white transition-all">ORIENTAMENTO ⚙️</button>}
+              {activeListId && <button onClick={() => setEditingList(activeList)} className="text-[7px] font-black text-indigo-500 border border-indigo-200 px-2 py-0.5 rounded bg-white hover:bg-indigo-500 hover:text-white transition-all">CONFIG ⚙️</button>}
             </h3>
             {activeList?.description && <p className="text-[8px] font-bold text-slate-400 italic mt-0.5 truncate max-w-xl">{activeList.description}</p>}
           </div>
@@ -384,7 +380,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                 </div>
                 <div className="flex-1 min-w-0 grid grid-cols-12 gap-4 items-center">
                   <div className="col-span-1"><span className="bg-slate-100 text-slate-500 px-2 py-1 rounded text-[7px] font-black uppercase italic block text-center">CAP. {need.chapter}</span></div>
-                  <div className="col-span-6"><h4 className="text-xs font-black text-slate-800 tracking-tight italic truncate uppercase leading-none">{need.description}</h4><p className="text-[7px] font-bold text-slate-400 uppercase italic mt-1">{need.workgroup} / {need.ownerName} - {new Date(need.createdAt).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p></div>
+                  <div className="col-span-6"><h4 className="text-xs font-black text-slate-800 tracking-tight italic truncate uppercase leading-none">{need.description}</h4><p className="text-[7px] font-bold text-slate-400 uppercase italic mt-1">{need.workgroup} / {need.ownerName}</p></div>
                   <div className="col-span-2"><PriorityBadge priority={need.priority || 3} /></div>
                   <div className="col-span-3 text-right"><span className="text-[6px] font-black text-slate-300 uppercase block leading-none italic tracking-widest">Stima Budget</span><p className="text-sm font-black text-slate-900 tracking-tighter italic">€{need.projectValue.toLocaleString()}</p></div>
                 </div>
@@ -396,16 +392,9 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
               </div>
             );
           })}
-          {filteredNeeds.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-slate-200 py-20">
-               <span className="text-4xl mb-4">📂</span>
-               <p className="text-[10px] font-black uppercase tracking-widest">Nessuna scheda in questo gruppo</p>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* MODAL FASCICOLO - ESPANSIONE AREA DECRETAZIONI */}
       {editingNeed && (
         <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8 animate-in fade-in duration-300">
            <div className="bg-white w-full max-w-[1500px] h-full max-h-[96vh] rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200">
@@ -427,7 +416,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                     <button onClick={handleSaveNeed} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">Registra Modifiche</button>
                   )}
                   {isComando && (
-                    <button onClick={handleAddDecretation} className={`px-6 py-2 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all ${isComandante ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>Apponi Firma Comando</button>
+                    <button onClick={handleAddDecretation} className={`px-6 py-2 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all ${isComandante ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>Firma Decisionale</button>
                   )}
                </div>
              </div>
@@ -487,7 +476,6 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                   </div>
                 </div>
 
-                {/* DESTRA - AREA DECRETAZIONI ESPANSA */}
                 <div className="flex-[1.8] bg-slate-50/50 p-10 flex flex-col min-h-0 border-l border-slate-100">
                   <div className="flex-1 flex flex-col min-h-0">
                     <h4 className="text-[10px] font-black uppercase tracking-[0.4em] text-amber-600 mb-8 border-b-2 border-amber-100 pb-3 flex items-center justify-between">
@@ -508,30 +496,13 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                                <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">{new Date(dec.date).toLocaleDateString()}</span>
                             </div>
                             <p className="text-[13px] font-medium text-slate-800 italic leading-[1.8] whitespace-pre-line border-l-4 border-slate-100 pl-6">{dec.text}</p>
-                            <div className="mt-6 flex justify-end">
-                               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                 FIRMAMENTE: <span className="text-slate-900">{dec.author}</span>
-                               </p>
-                            </div>
                          </div>
                        ))}
-                       {(!editingNeed.decretations || editingNeed.decretations.length === 0) && (
-                         <div className="h-full flex flex-col items-center justify-center text-slate-300 opacity-20 gap-4">
-                            <span className="text-6xl">📜</span>
-                            <p className="text-[11px] font-black uppercase tracking-[0.3em]">Registro intonso - In attesa di disposizioni</p>
-                         </div>
-                       )}
                     </div>
 
                     {isComando && (
                       <div className="mt-8 space-y-4 pt-8 border-t-2 border-slate-200">
-                         <div className="flex items-center gap-3">
-                            <span className="text-xl">{isComandante ? '🎖️' : '⚖️'}</span>
-                            <label className="text-[9px] font-black uppercase text-amber-600 italic tracking-[0.2em]">
-                               Inserimento Disposizione Operativa del {currentUser.role}
-                            </label>
-                         </div>
-                         <VoiceInput type="textarea" value={newDecretationText} onChange={setNewDecretationText} placeholder="Digitare o dettare le disposizioni vincolanti per questo progetto..." className="w-full p-6 bg-white border-2 border-amber-100 rounded-[2.5rem] text-[13px] font-medium italic outline-none focus:border-amber-500 shadow-2xl" />
+                         <VoiceInput type="textarea" value={newDecretationText} onChange={setNewDecretationText} placeholder="Inserire qui le disposizioni operative vincolanti..." className="w-full p-6 bg-white border-2 border-amber-100 rounded-[2.5rem] text-[13px] font-medium italic outline-none focus:border-amber-500 shadow-2xl" />
                       </div>
                     )}
                   </div>
@@ -541,49 +512,14 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         </div>
       )}
 
-      {/* PDF PREVIEW */}
       {pdfPreviewUrl && (
         <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
            <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
              <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
-               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Tactical Report - CME LOMB Vault</span>
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Report - VAULT V21</span>
                <button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all">✕ Chiudi Registro</button>
              </div>
              <iframe src={pdfPreviewUrl} className="flex-1 border-0" />
-           </div>
-        </div>
-      )}
-
-      {/* MODAL OBIETTIVO GRUPPO */}
-      {editingList && (
-        <div className="fixed inset-0 z-[110] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-8 animate-in fade-in duration-300">
-           <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200">
-              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                 <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-2xl font-black italic shadow-lg">📂</div>
-                    <div>
-                      <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter">Orientamento Strategico</h3>
-                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest leading-none mt-1">Guida Decisionale per l'Ufficio Tecnico</p>
-                    </div>
-                 </div>
-                 <button onClick={() => setEditingList(null)} className="w-10 h-10 rounded-full border border-slate-200 flex items-center justify-center hover:bg-rose-500 hover:text-white transition-all">✕</button>
-              </div>
-              <div className="p-10 space-y-8">
-                 <div className="space-y-2">
-                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-4">Nome del Sottogruppo Operativo</label>
-                    <input disabled={!canManageLists || editingList.locked} value={editingList.name || ''} onChange={e => setEditingList({...editingList, name: e.target.value})} placeholder="es. Infrastrutture Area Sud 2026" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-[2rem] font-black text-lg text-slate-900 outline-none focus:border-indigo-600 transition-colors" />
-                 </div>
-                 <div className="space-y-2">
-                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-4">Orientamento del Comando / Vincoli Strategici</label>
-                    <VoiceInput disabled={!canManageLists || editingList.locked} type="textarea" value={editingList.description || ''} onChange={v => setEditingList({...editingList, description: v})} placeholder="Definire qui gli obiettivi primari e le priorità assegnate a questo gruppo..." className="w-full p-8 bg-slate-50 border-2 border-slate-200 rounded-[2.5rem] font-medium text-sm italic text-slate-600 outline-none focus:border-indigo-600 min-h-[150px]" />
-                 </div>
-                 <div className="flex gap-4 pt-4">
-                    <button onClick={() => setEditingList(null)} className="flex-1 py-5 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest">Chiudi senza salvare</button>
-                    {canManageLists && !editingList.locked && (
-                      <button onClick={handleSaveList} className="flex-1 py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-200 hover:bg-indigo-700 transition-all">Protocolla Orientamento</button>
-                    )}
-                 </div>
-              </div>
            </div>
         </div>
       )}

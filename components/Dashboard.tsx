@@ -17,10 +17,11 @@ import { getChapterColor } from './ChaptersSummary';
 interface DashboardProps {
   idvs: FundingIDV[];
   orders: WorkOrder[];
+  commandName: string;
   onChapterClick: (chapter: string) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) => {
+const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, commandName, onChapterClick }) => {
   const [isExporting, setIsExporting] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
@@ -82,12 +83,12 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
   const handleExportPDF = () => {
     const doc = new jsPDF();
     
-    // Header Istituzionale
+    // Header Istituzionale Dinamico
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("COMANDO MILITARE ESERCITO LOMBARDIA", 105, 15, { align: "center" });
+    doc.text(commandName.toUpperCase(), 105, 15, { align: "center" });
     doc.setFontSize(10);
-    doc.text(`RIEPILOGO ANALITICO FLUSSI FINANZIARI - PROTOCOLLO 4.9`, 105, 21, { align: "center" });
+    doc.text(`RIEPILOGO ANALITICO FLUSSI FINANZIARI - PROTOCOLLO V21 MASTER`, 105, 21, { align: "center" });
     
     const tableData = statsByChapter.map((c) => {
       const residual = c.totalBudget - c.pds;
@@ -130,10 +131,9 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
     const finalY = (doc as any).lastAutoTable.finalY + 15;
     doc.setFontSize(7);
     doc.setFont("helvetica", "italic");
-    doc.text(`Vault V21 MASTER - Security Protocol Sentry Active`, 15, finalY);
+    doc.text(`Vault V21 MASTER - Protocollo Sentry Attivo`, 15, finalY);
     doc.text(`Generato da Terminale Accreditato il ${new Date().toLocaleString()}`, 15, finalY + 4);
     
-    // Invece di save, usiamo l'anteprima nativa come richiesto
     setPdfPreviewUrl(doc.output('bloburl'));
   };
 
@@ -141,7 +141,7 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
     setIsExporting(true);
     try {
       const pres = new pptxgen();
-      pres.title = "Presentazione Stato PPB - CME Lombardia";
+      pres.title = `Presentazione Stato PPB - ${commandName}`;
 
       const globalNode = document.getElementById('global-overview-section');
       if (globalNode) {
@@ -169,11 +169,10 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-20 bg-[#f8fafc] h-full flex flex-col">
-      {/* Header pastello con pulsanti export uniformati */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 p-6 bg-white rounded-[2rem] shadow-sm border border-slate-100 flex-shrink-0">
         <div>
           <h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none italic">Analisi dei Flussi Master</h1>
-          <p className="text-slate-400 text-[9px] font-black uppercase tracking-[0.2em] mt-1">Convergenza Ciclo Finanziario PPB - Protocollo 4.9 High Command</p>
+          <p className="text-slate-400 text-[9px] font-black uppercase tracking-[0.2em] mt-1">Convergenza Ciclo Finanziario - {commandName}</p>
         </div>
         <div className="flex gap-3">
           <button 
@@ -230,7 +229,6 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
         </div>
       </div>
 
-      {/* MASTER LEDGER: TABELLA SOMMARIO CAPITOLI CON TESTATA BLOCCATA */}
       <div id="chapters-table-section" className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden flex flex-col m-4 min-h-[400px]">
         <div className="bg-slate-900 px-8 py-4 flex justify-between items-center flex-shrink-0 z-20">
            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-white italic">Master Ledger: Sommario Analitico per Capitolo</h3>
@@ -284,7 +282,7 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
             </tbody>
             <tfoot className="sticky bottom-0 z-[30]">
               <tr className="bg-slate-900 text-white shadow-[0_-4px_10px_rgba(0,0,0,0.1)]">
-                <td className="px-6 py-4 text-[10px] font-black uppercase italic tracking-widest">TOTALI GENERALI COMANDO</td>
+                <td className="px-6 py-4 text-[10px] font-black uppercase italic tracking-widest">TOTALI GENERALI</td>
                 <td className="px-6 py-4 text-right text-xs font-black italic">{formatEuro(global.total)}</td>
                 <td className="px-6 py-4 text-right text-xs font-black text-amber-400 italic">{formatEuro(global.pds)}</td>
                 <td className="px-6 py-4 text-right text-xs font-black text-indigo-300 italic">{formatEuro(global.committed)}</td>
@@ -293,21 +291,14 @@ const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, onChapterClick }) =
               </tr>
             </tfoot>
           </table>
-          {statsByChapter.length === 0 && (
-            <div className="py-20 flex flex-col items-center justify-center opacity-20">
-              <span className="text-5xl mb-4">📑</span>
-              <p className="text-[10px] font-black uppercase tracking-widest">In attesa di dati contabili capitoli</p>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* VISORE PDF MODALE (STESSO STILE DI PLANNINGMODULE) */}
       {pdfPreviewUrl && (
         <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
            <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
              <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
-               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Operational Ledger - CME LOMB Vault</span>
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Operational Ledger - VAULT V21</span>
                <button 
                 onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} 
                 className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all"
