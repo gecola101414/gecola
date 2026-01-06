@@ -1,7 +1,9 @@
+
 {
-  "name": "PPB 4.0 ccambiamento nomi in italiano",
-  "description": "Sistema professionale per il monitoraggio del ciclo finanziario con cifratura AES-256-GCM e protezione anti-manomissione.",
+  "name": "PPB 4.0 - Scutum Protocol",
+  "description": "Sistema professionale per il monitoraggio del ciclo finanziario con video-accreditamento biometrico e logica di non-ripudiabilità.",
   "requestFramePermissions": [
+    "camera",
     "microphone"
   ]
 }

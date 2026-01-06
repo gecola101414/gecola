@@ -17,7 +17,7 @@ export interface User {
   mustChangePassword?: boolean;
   lastActive?: string;
   loginCount?: number;
-  lastReadTimestamps?: Record<string, string>; // Mappa ChatID -> ISO Timestamp
+  lastReadTimestamps?: Record<string, string>;
 }
 
 export interface Attachment {
@@ -60,7 +60,7 @@ export interface PlanningNeed {
 export interface PlanningList {
   id: string;
   name: string;
-  description?: string; // Intendimento strategico
+  description?: string;
   createdAt: string;
   locked?: boolean;
   isApprovedByReppe?: boolean;
@@ -79,6 +79,24 @@ export interface FundingIDV {
   ownerWorkgroup: string;
   assignedWorkgroup: string;
   locked?: boolean;
+}
+
+// Added BidResult interface to fix missing export error in BidModal
+export interface BidResult {
+  winner: string;
+  bidValue: number;
+  date: string;
+  contractPdf?: { name: string; data: string };
+}
+
+// Added PaymentResult interface to fix missing export error in PaymentModal
+export interface PaymentResult {
+  paidValue: number;
+  invoiceDate: string;
+  invoiceNumber: string;
+  invoicePdf?: { name: string; data: string };
+  creGenerated: boolean;
+  creDate: string;
 }
 
 export interface WorkOrder {
@@ -105,22 +123,6 @@ export interface WorkOrder {
   creDate?: string;
 }
 
-export interface BidResult {
-  winner: string;
-  bidValue: number;
-  date: string;
-  contractPdf?: { name: string; data: string; };
-}
-
-export interface PaymentResult {
-  paidValue: number;
-  invoiceDate: string;
-  invoiceNumber: string;
-  invoicePdf?: { name: string; data: string; };
-  creGenerated: boolean;
-  creDate?: string;
-}
-
 export interface AuditEntry {
   id: string;
   timestamp: string;
@@ -129,6 +131,7 @@ export interface AuditEntry {
   workgroup: string; 
   action: string;
   details: string;
+  videoProof?: string; // Base64 della video-dichiarazione di 5 secondi
 }
 
 export enum WorkStatus {
@@ -148,12 +151,12 @@ export interface ChatMessage {
   timestamp: string;
   attachments?: Attachment[];
   isVoice?: boolean;
-  recipientId?: string; // Nuova proprietà per chat dirette
+  recipientId?: string;
 }
 
 export interface AppState {
   version: number;
-  commandName: string; // Il nome del Comando/Organizzazione che gestisce il file
+  commandName: string;
   users: User[];
   idvs: FundingIDV[];
   orders: WorkOrder[];

@@ -8,9 +8,10 @@ interface AuditLogProps {
 
 const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
   const [filter, setFilter] = useState('');
+  const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   
   const sortedLog = useMemo(() => {
-    let filtered = [...(log || [])].reverse();
+    let filtered = [...(log || [])];
     if (filter) {
       const f = filter.toLowerCase();
       filtered = filtered.filter(e => 
@@ -44,7 +45,7 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
 
       <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-2xl overflow-hidden flex flex-col">
         <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-white">
-          <table className="w-full border-separate border-spacing-0 min-w-[800px]">
+          <table className="w-full border-separate border-spacing-0 min-w-[1000px]">
             <thead className="sticky top-0 z-[60]">
               <tr className="bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest italic shadow-md">
                 <th className="px-6 py-4 text-left border-b border-slate-800 w-40 bg-slate-900 sticky top-0">Data/Ora UTC</th>
@@ -52,6 +53,7 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
                 <th className="px-6 py-4 text-left border-b border-slate-800 w-40 bg-slate-900 sticky top-0">Operatore</th>
                 <th className="px-6 py-4 text-left border-b border-slate-800 w-48 bg-slate-900 sticky top-0">Azione Codificata</th>
                 <th className="px-6 py-4 text-left border-b border-slate-800 bg-slate-900 sticky top-0">Dettaglio Variazione (Delta)</th>
+                <th className="px-6 py-4 text-center border-b border-slate-800 w-24 bg-slate-900 sticky top-0">Biometria</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -73,41 +75,34 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
                   </td>
                   <td className="px-6 py-3">
                     <span className={`text-[9px] font-black uppercase tracking-tight ${
+                      entry.action.includes('biometrico') || entry.action.includes('Video') ? 'text-indigo-700 font-black' :
                       entry.action.includes('Creazione') || entry.action.includes('Nuova') || entry.action.includes('Iniezione') ? 'text-emerald-600' : 
                       entry.action.includes('Rimozione') || entry.action.includes('Cancellazione') || entry.action.includes('Revoca') ? 'text-rose-600' : 
-                      entry.action.includes('Spostamento') || entry.action.includes('Riallocazione') ? 'text-amber-600' :
-                      entry.action.includes('Modifica') || entry.action.includes('Variazione') || entry.action.includes('Delta') ? 'text-indigo-600' : 
                       'text-slate-500'
                     }`}>
                       {entry.action}
                     </span>
                   </td>
                   <td className="px-6 py-3 text-[10px] font-medium text-slate-500 leading-snug italic border-l border-slate-50">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-slate-700 font-bold">{entry.details.split(' | ')[0]}</span>
-                      {entry.details.includes(' | ') && (
-                        <div className="flex flex-col gap-0.5 mt-1 border-t border-slate-100 pt-1">
-                          {entry.details.split(' | ').slice(1).map((detail, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-[9px]">
-                              <span className="text-indigo-400 font-black">→</span>
-                              <span className="text-slate-500">{detail}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <p className="text-slate-700 font-bold whitespace-pre-wrap">{entry.details}</p>
+                  </td>
+                  <td className="px-6 py-3 text-center">
+                    {entry.videoProof ? (
+                      <button 
+                        onClick={() => setPlayingVideo(entry.videoProof || null)}
+                        className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 transition-all scale-90 group-hover:scale-100"
+                        title="Vedi Dichiarazione Biometrica"
+                      >
+                        🎥
+                      </button>
+                    ) : (
+                      <span className="text-[18px] opacity-10">🔒</span>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          
-          {sortedLog.length === 0 && (
-            <div className="h-80 flex flex-col items-center justify-center text-slate-300 opacity-30 gap-3">
-               <span className="text-5xl">📼</span>
-               <p className="text-[11px] font-black uppercase tracking-widest italic">Registro Vuoto - In attesa di operazioni</p>
-            </div>
-          )}
         </div>
         
         <div className="bg-slate-50 px-8 py-3 border-t border-slate-100 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase italic tracking-widest flex-shrink-0">
@@ -117,10 +112,24 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
            </div>
            <div className="flex gap-2 items-center">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span>Sistema PPB 4.0 Attivo</span>
+              <span>Protocollo Scutum Attivo</span>
            </div>
         </div>
       </div>
+
+      {playingVideo && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8">
+          <div className="bg-white rounded-[3rem] p-4 shadow-2xl max-w-2xl w-full border-4 border-indigo-600">
+            <div className="aspect-video bg-black rounded-2xl overflow-hidden mb-4">
+              <video src={playingVideo} autoPlay controls className="w-full h-full object-cover" />
+            </div>
+            <div className="flex justify-between items-center px-4">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Dichiarazione Giurata Operatore</span>
+              <button onClick={() => setPlayingVideo(null)} className="px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700">Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
