@@ -90,7 +90,7 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
                     {entry.videoProof ? (
                       <button 
                         onClick={() => setPlayingVideo(entry.videoProof || null)}
-                        className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 transition-all scale-90 group-hover:scale-100"
+                        className="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-700 transition-all scale-90 group-hover:scale-100 animate-pulse"
                         title="Vedi Dichiarazione Biometrica"
                       >
                         🎥
@@ -118,13 +118,14 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
       </div>
 
       {playingVideo && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8">
-          <div className="bg-white rounded-[3rem] p-4 shadow-2xl max-w-2xl w-full border-4 border-indigo-600">
-            <div className="aspect-video bg-black rounded-2xl overflow-hidden mb-4">
+        <div className="fixed inset-0 z-[250] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8">
+          <div className="bg-white rounded-[3rem] p-4 shadow-2xl max-w-2xl w-full border-4 border-indigo-600 animate-in zoom-in duration-300">
+            <div className="aspect-video bg-black rounded-2xl overflow-hidden mb-4 relative">
               <video src={playingVideo} autoPlay controls className="w-full h-full object-cover" />
+              <div className="absolute top-4 left-4 bg-indigo-600 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">Reperto Biometrico Forense</div>
             </div>
             <div className="flex justify-between items-center px-4">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Dichiarazione Giurata Operatore</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Integrità Verificata dal Sistema</span>
               <button onClick={() => setPlayingVideo(null)} className="px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700">Chiudi</button>
             </div>
           </div>
