@@ -21,13 +21,12 @@ interface IdvListProps {
 
 const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterClick, onAdd, onToggleLock, onDelete, userRole }) => {
   const currentResiduals = calculateAllResiduals(idvs, orders);
-  const sortedIdvs = [...idvs].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const sortedIdvs = useMemo(() => [...idvs].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()), [idvs]);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   
-  // Estensione permessi: Admin, Comandante e REPPE possono gestire gli asset
   const canManageFunds = userRole === UserRole.ADMIN || userRole === UserRole.COMANDANTE || userRole === UserRole.REPPE;
 
-  const totalAllocated = idvs.reduce((a, b) => a + b.amount, 0);
+  const totalAllocated = idvs.reduce((a, b) => a + (b.amount || 0), 0);
 
   const handleExportPDF = () => {
     const doc = new jsPDF();
@@ -61,7 +60,6 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
   return (
     <div className="h-full flex flex-col relative animate-in fade-in duration-500 overflow-hidden font-['Inter']">
       
-      {/* HEADER MINIMALE TATTICO */}
       <div className="sticky top-0 z-[45] bg-slate-50 pb-4 flex items-center justify-between border-b border-slate-200 px-2 flex-shrink-0">
         <div className="flex items-center gap-6">
           <div className="flex flex-col">
@@ -103,10 +101,10 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
 
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3 bg-white min-h-0">
           {sortedIdvs.map((idv, index) => {
-            const residual = currentResiduals[idv.id] ?? 0;
+            const residual = currentResiduals[idv.id] ?? (idv.amount || 0);
             const color = getChapterColor(idv.capitolo);
             const isCritical = residual < (idv.amount * 0.1);
-            const isUsed = (idv.amount - residual) > 0;
+            const isUsed = (idv.amount - residual) > 0.01;
 
             return (
               <div key={idv.id} className={`group bg-white rounded-2xl p-5 border-2 transition-all flex items-center gap-8 relative hover:shadow-lg cursor-default ${idv.locked ? 'bg-slate-50 border-slate-100' : 'border-slate-50 hover:border-indigo-100'}`}>
@@ -136,7 +134,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                    {canManageFunds && (
                      <>
                         <button 
-                          onClick={() => onToggleLock(idv.id)} 
+                          onClick={(e) => { e.stopPropagation(); onToggleLock(idv.id); }} 
                           className={`p-2.5 rounded-xl transition-all ${idv.locked ? 'bg-slate-800 text-white shadow-lg' : 'bg-slate-50 text-slate-300 hover:bg-indigo-500 hover:text-white'}`}
                           title={idv.locked ? "Sblocca Asset" : "Blocca Asset"}
                         >
@@ -144,20 +142,30 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                         </button>
                         {!isUsed && !idv.locked && (
                           <button 
-                            onClick={() => { if(confirm("Cancellare definitivamente questo fondo? L'azione è irreversibile.")) onDelete(idv.id) }} 
-                            className="p-2.5 bg-rose-50 text-rose-300 hover:bg-rose-500 hover:text-white rounded-xl transition-all shadow-sm group-hover:opacity-100 opacity-100"
+                            onClick={(e) => { 
+                              e.stopPropagation();
+                              if(confirm("Cancellare definitivamente questo fondo? L'azione è irreversibile.")) {
+                                onDelete(idv.id);
+                              }
+                            }} 
+                            className="p-2.5 bg-rose-50 text-rose-500 hover:bg-rose-600 hover:text-white rounded-xl transition-all shadow-sm"
                             title="Elimina Fondo"
                           >
                             🗑️
                           </button>
                         )}
-                        {isUsed && <span className="text-[10px] opacity-20 grayscale" title="Impossibile cancellare: fondo già utilizzato">🚫</span>}
+                        {isUsed && <span className="text-[10px] opacity-20 grayscale cursor-help" title="Impossibile cancellare: fondo già utilizzato per dei lavori">🚫</span>}
                      </>
                    )}
                 </div>
               </div>
             );
           })}
+          {sortedIdvs.length === 0 && (
+            <div className="p-20 text-center text-slate-300 italic opacity-50">
+              Nessun fondo registrato in archivio.
+            </div>
+          )}
         </div>
       </div>
 

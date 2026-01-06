@@ -186,12 +186,14 @@ const App: React.FC = () => {
     };
   }, [checkRemoteUpdates]);
 
-  const updateVault = async (updates: Partial<AppState>, log?: { action: string, details: string }) => {
+  const updateVault = async (updates: Partial<AppState> | ((prev: AppState) => Partial<AppState>), log?: { action: string, details: string }) => {
     await checkRemoteUpdates();
     if (!stateRef.current) return;
     const currentState = stateRef.current;
     
-    let finalUpdates = { ...updates };
+    const finalUpdates = typeof updates === 'function' ? updates(currentState) : updates;
+    
+    let stateWithUpdates = { ...currentState, ...finalUpdates };
     if (log && currentUser) {
       const newEntry: AuditEntry = {
         id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -202,7 +204,7 @@ const App: React.FC = () => {
         action: log.action,
         details: log.details
       };
-      finalUpdates.auditLog = [newEntry, ...(currentState.auditLog || [])].slice(0, 30000);
+      stateWithUpdates.auditLog = [newEntry, ...(currentState.auditLog || [])].slice(0, 30000);
     }
     
     if (currentUser) {
@@ -211,8 +213,7 @@ const App: React.FC = () => {
     }
     
     const newState = { 
-      ...currentState, 
-      ...finalUpdates, 
+      ...stateWithUpdates, 
       version: (currentState.version || 0) + 1, 
       lastSync: new Date().toISOString() 
     };
@@ -235,7 +236,7 @@ const App: React.FC = () => {
       isVoice: msgData.isVoice || false,
       recipientId: msgData.recipientId
     };
-    updateVault({ chatMessages: [...(state.chatMessages || []), newMessage] });
+    updateVault((prev) => ({ chatMessages: [...(prev.chatMessages || []), newMessage] }));
   };
 
   const handleMarkChatRead = (chatId: string) => {
@@ -248,9 +249,10 @@ const App: React.FC = () => {
         [chatId]: now 
       } 
     };
-    const updatedUsers = state.users.map(u => u.id === currentUser.id ? updatedUser : u);
+    updateVault((prev) => ({ 
+      users: prev.users.map(u => u.id === currentUser.id ? updatedUser : u) 
+    }));
     setCurrentUser(updatedUser);
-    updateVault({ users: updatedUsers });
   };
 
   const unreadStats = useMemo(() => {
@@ -294,10 +296,12 @@ const App: React.FC = () => {
     const user = state.users.find(usr => usr.id === userId && usr.passwordHash === p);
     if (user) {
       const now = new Date().toISOString();
-      const updatedUsers = state.users.map(u => u.id === userId ? { ...u, lastActive: now, loginCount: (u.loginCount || 0) + 1 } : u);
-      const loggedUser = updatedUsers.find(u => u.id === userId)!;
+      updateVault((prev) => ({ 
+        users: prev.users.map(u => u.id === userId ? { ...u, lastActive: now, loginCount: (u.loginCount || 0) + 1 } : u)
+      }), { action: 'Accesso PPB', details: `Accesso autorizzato per ${user.username} (${user.role}).` });
+      
+      const loggedUser = { ...user, lastActive: now, loginCount: (user.loginCount || 0) + 1 };
       setCurrentUser(loggedUser);
-      await updateVault({ users: updatedUsers }, { action: 'Accesso PPB', details: `Accesso autorizzato per ${loggedUser.username} (${loggedUser.role}).` });
       if (loggedUser.mustChangePassword) setView('change-password');
       else setView('dashboard');
     } else { alert("Password errata."); }
@@ -305,9 +309,11 @@ const App: React.FC = () => {
 
   const handleChangePassword = async (newPass: string) => {
     if (!currentUser || !state) return;
-    const updatedUsers = state.users.map(u => u.id === currentUser.id ? { ...u, passwordHash: newPass, mustChangePassword: false } : u );
-    setCurrentUser(updatedUsers.find(u => u.id === currentUser.id)!);
-    await updateVault({ users: updatedUsers }, { action: 'Sicurezza Account', details: `Aggiornamento credenziali per l'operatore ${currentUser.username}.` });
+    updateVault((prev) => ({ 
+      users: prev.users.map(u => u.id === currentUser.id ? { ...u, passwordHash: newPass, mustChangePassword: false } : u )
+    }), { action: 'Sicurezza Account', details: `Aggiornamento credenziali per l'operatore ${currentUser.username}.` });
+    
+    setCurrentUser({ ...currentUser, passwordHash: newPass, mustChangePassword: false });
     setView('dashboard');
   };
 
@@ -543,8 +549,8 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-hidden p-10 bg-slate-50/50 flex flex-col">
           <div className="max-w-[1400px] mx-auto w-full h-full flex flex-col">
             {view === 'dashboard' && <div className="overflow-y-auto h-full pr-2 custom-scrollbar"><Dashboard idvs={state.idvs} orders={state.orders} commandName={state.commandName} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} /></div>}
-            {view === 'works' && <Catalog orders={globalFilter === 'mine' ? state.orders.filter(o => o.workgroup === currentUser.workgroup) : state.orders} idvs={state.idvs} highlightId={highlightedOrderId} onAdd={() => setView('add-work')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onStageClick={(o, s) => { if (s === 1) setEditWorkOrder(o); if (s === 2) setBidModalOrder(o); if (s === 3) setPaymentModalOrder(o); }} onDelete={(id) => { const o = state.orders.find(ord => ord.id === id); updateVault({ orders: state.orders.filter(ord => ord.id !== id) }, { action: 'Eliminazione Pratica', details: `L'operatore ${currentUser.username} ha rimosso definitivamente la pratica ${o?.orderNumber} (${o?.description}).` }); }} onToggleLock={(id) => { const o = state.orders.find(ord => ord.id === id); updateVault({ orders: state.orders.map(ord => ord.id === id ? { ...ord, locked: !ord.locked } : ord) }, { action: 'Stato Integrità', details: `Variazione blocco contabile su pratica ${o?.orderNumber}. Stato attuale: ${!o?.locked ? 'Bloccato' : 'Sbloccato'}.` }); }} currentUser={currentUser} />}
-            {view === 'idvs' && <IdvList idvs={globalFilter === 'mine' ? state.idvs.filter(i => i.assignedWorkgroup === currentUser.workgroup) : state.idvs} orders={state.orders} onAdd={() => setView('add-idv')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onDelete={(id) => { const i = state.idvs.find(idv => idv.id === id); updateVault({ idvs: state.idvs.filter(idv => idv.id !== id) }, { action: 'Rimozione Fondo', details: `Eliminato IDV ${i?.idvCode} da €${i?.amount.toLocaleString()} su Capitolo ${i?.capitolo}.` }); }} onToggleLock={(id) => { const i = state.idvs.find(idv => idv.id === id); updateVault({ idvs: state.idvs.map(idv => idv.id === id ? { ...idv, locked: !idv.locked } : idv) }, { action: 'Stato Integrità', details: `Variazione blocco asset su IDV ${i?.idvCode}. Stato attuale: ${!i?.locked ? 'Bloccato' : 'Sbloccato'}.` }); }} userRole={currentUser.role} commandName={state.commandName} />}
+            {view === 'works' && <Catalog orders={globalFilter === 'mine' ? state.orders.filter(o => o.workgroup === currentUser.workgroup) : state.orders} idvs={state.idvs} highlightId={highlightedOrderId} onAdd={() => setView('add-work')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onStageClick={(o, s) => { if (s === 1) setEditWorkOrder(o); if (s === 2) setBidModalOrder(o); if (s === 3) setPaymentModalOrder(o); }} onDelete={(id) => { updateVault((prev) => { const o = prev.orders.find(ord => ord.id === id); return { orders: prev.orders.filter(ord => ord.id !== id) }; }, { action: 'Eliminazione Pratica', details: `Rimossa pratica definitivamente dal registro.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ orders: prev.orders.map(ord => ord.id === id ? { ...ord, locked: !ord.locked } : ord) })); }} currentUser={currentUser} />}
+            {view === 'idvs' && <IdvList idvs={globalFilter === 'mine' ? state.idvs.filter(i => i.assignedWorkgroup === currentUser.workgroup) : state.idvs} orders={state.orders} onAdd={() => setView('add-idv')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onDelete={(id) => { updateVault((prev) => { const i = prev.idvs.find(idv => idv.id === id); return { idvs: prev.idvs.filter(idv => idv.id !== id) }; }, { action: 'Rimozione Fondo', details: `Eliminato IDV dal registro asset.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ idvs: prev.idvs.map(idv => idv.id === id ? { ...idv, locked: !idv.locked } : idv) })); }} userRole={currentUser.role} commandName={state.commandName} />}
             {view === 'planning' && <PlanningModule state={state} onUpdate={(u, log) => updateVault(u, log)} currentUser={currentUser} idvs={state.idvs} globalFilter={globalFilter} commandName={state.commandName} />}
             {view === 'comms' && <Messenger messages={state.chatMessages || []} currentUser={currentUser} allUsers={state.users} onSendMessage={handleSendMessage} onReadChat={handleMarkChatRead} />}
             {view === 'audit' && <AuditLog log={state.auditLog} />}
@@ -565,10 +571,10 @@ const App: React.FC = () => {
                    </select>
                    <button onClick={() => {
                       const g = (document.getElementById('nu-g') as any).value; const u = (document.getElementById('nu-u') as any).value; const r = (document.getElementById('nu-r') as any).value;
-                      if(u && g) { updateVault({ users: [...state.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }, { action: 'Account Provisioning', details: `Creato nuovo accesso per ${u} in ufficio ${g}. Ruolo assegnato: ${r}.` }); alert(`Password di default: ${DEFAULT_PASSWORD}`); }
+                      if(u && g) { updateVault((prev) => ({ users: [...prev.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }), { action: 'Account Provisioning', details: `Creato nuovo accesso per ${u} in ufficio ${g}.` }); alert(`Password di default: ${DEFAULT_PASSWORD}`); }
                    }} className="bg-indigo-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg tracking-widest">Aggiungi Staff</button>
                 </div>
-                <div className="space-y-3">{state.users.map(u => (<div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div><div><p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">{u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span></p><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p></div></div><button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault({ users: state.users.filter(usr => usr.id !== u.id) }, { action: 'Revoca Accesso', details: `Revocato accesso per l'operatore ${u.username} (${u.role}) dell'ufficio ${u.workgroup}.` }); }} className="text-rose-400 hover:text-rose-600">Elimina</button></div>))}</div>
+                <div className="space-y-3">{state.users.map(u => (<div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div><div><p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">{u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span></p><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p></div></div><button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Accesso', details: `Revocato accesso per l'operatore ${u.username}.` }); }} className="text-rose-400 hover:text-rose-600">Elimina</button></div>))}</div>
               </div>
             )}
             {view === 'chapter-detail' && selectedChapter && (
@@ -584,13 +590,13 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
               />
             )}
-            {view === 'add-idv' && <IdvForm existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} users={state.users} currentUser={currentUser} onSubmit={async (d) => { await updateVault({ idvs: [...state.idvs, { id: `idv-${Date.now()}`, ...d as any, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, ownerWorkgroup: currentUser.workgroup }] }, { action: 'Iniezione Fondi', details: `Registrato nuovo fondo ${d.idvCode} da €${d.amount?.toLocaleString()} su Capitolo ${d.capitolo}.` }); setView('idvs'); }} onCancel={() => setView('idvs')} />}
+            {view === 'add-idv' && <IdvForm existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} users={state.users} currentUser={currentUser} onSubmit={async (d) => { await updateVault((prev) => ({ idvs: [...prev.idvs, { id: `idv-${Date.now()}`, ...d as any, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, ownerWorkgroup: currentUser.workgroup }] }), { action: 'Iniezione Fondi', details: `Registrato nuovo fondo ${d.idvCode}.` }); setView('idvs'); }} onCancel={() => setView('idvs')} />}
             {(view === 'add-work' || editWorkOrder) && <WorkForm idvs={state.idvs} orders={state.orders} currentUser={currentUser} existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} initialData={editWorkOrder || undefined} prefilledChapter={selectedChapter || undefined} onSubmit={async (d) => { 
                 if (editWorkOrder) { 
-                  updateVault({ orders: state.orders.map(o => o.id === editWorkOrder.id ? { ...o, ...d } : o) }, { action: 'Variazione Impegno', details: `Aggiornati dati tecnici impegno ${editWorkOrder.orderNumber}.` }); 
+                  updateVault((prev) => ({ orders: prev.orders.map(o => o.id === editWorkOrder.id ? { ...o, ...d } : o) }), { action: 'Variazione Impegno', details: `Aggiornati dati tecnici impegno.` }); 
                 } else { 
                   const autoId = `IMP-${new Date().getFullYear()}-${(state.orders.length + 1001).toString().slice(-4)}`;
-                  updateVault({ orders: [...state.orders, { id: `w-${Date.now()}`, ...d as any, orderNumber: autoId, status: WorkStatus.PROGETTO, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, workgroup: currentUser.workgroup }] }, { action: 'Registrazione Impegno', details: `Generato impegno ${autoId}: "${d.description}".` }); 
+                  updateVault((prev) => ({ orders: [...prev.orders, { id: `w-${Date.now()}`, ...d as any, orderNumber: autoId, status: WorkStatus.PROGETTO, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, workgroup: currentUser.workgroup }] }), { action: 'Registrazione Impegno', details: `Generato impegno ${autoId}.` }); 
                 } 
                 setEditWorkOrder(null); setView('works'); 
               }} onCancel={() => { setEditWorkOrder(null); setView('works'); }} />}
@@ -598,11 +604,11 @@ const App: React.FC = () => {
         </div>
       </main>
       {bidModalOrder && <BidModal order={bidModalOrder} onSave={(b) => { 
-        updateVault({ orders: state.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }, { action: 'Affidamento Gara', details: `Pratica ${bidModalOrder.orderNumber} affidata alla ditta ${b.winner}.` }); 
+        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }), { action: 'Affidamento Gara', details: `Pratica affidata alla ditta ${b.winner}.` }); 
         setBidModalOrder(null); 
       }} onClose={() => setBidModalOrder(null)} />}
       {paymentModalOrder && <PaymentModal order={paymentModalOrder} onSave={(p) => { 
-        updateVault({ orders: state.orders.map(o => o.id === paymentModalOrder.id ? { ...o, status: WorkStatus.PAGAMENTO, paidValue: p.paidValue, invoicePdf: p.invoicePdf, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, creGenerated: true, creDate: p.creDate } : o) }, { action: 'Liquidazione Finale', details: `Chiusura contabile pratica ${paymentModalOrder.orderNumber}.` }); 
+        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === paymentModalOrder.id ? { ...o, status: WorkStatus.PAGAMENTO, paidValue: p.paidValue, invoicePdf: p.invoicePdf, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, creGenerated: true, creDate: p.creDate } : o) }), { action: 'Liquidazione Finale', details: `Chiusura contabile pratica.` }); 
         setPaymentModalOrder(null); 
       }} onClose={() => setPaymentModalOrder(null)} />}
     </div>
