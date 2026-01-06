@@ -1,7 +1,11 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FundingIDV, WorkOrder, WorkStatus, UserRole, User } from '../types';
 import { getChapterColor } from './ChaptersSummary';
+// @ts-ignore
+import { jsPDF } from 'jspdf';
+// @ts-ignore
+import autoTable from 'jspdf-autotable';
 
 interface ChapterReportProps {
   chapter: string;
@@ -26,11 +30,10 @@ const ChapterReport: React.FC<ChapterReportProps> = ({
   currentUser 
 }) => {
   const color = getChapterColor(chapter);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   
-  // Safe extraction of IDs
   const chapterIdvIds = useMemo(() => (idvs || []).map(i => i.id), [idvs]);
 
-  // Protocollo 4.8: Check di competenza ufficio per abilitazione pulsante impegno
   const canAddWork = useMemo(() => {
     if (userRole === UserRole.ADMIN) return true;
     if (userRole === UserRole.VIEWER) return false;
@@ -71,6 +74,42 @@ const ChapterReport: React.FC<ChapterReportProps> = ({
     };
   }, [idvs, linkedOrders]);
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`REPORT ANALITICO CAPITOLO ${chapter}`, 105, 15, { align: "center" });
+
+    autoTable(doc, {
+      startY: 25,
+      head: [['Parametro', 'Valore']],
+      body: [
+        ['Budget Assegnato', `€ ${stats.totalBudget.toLocaleString()}`],
+        ['Previsto (PDS)', `€ ${stats.totalPds.toLocaleString()}`],
+        ['Impegnato (Affidato)', `€ ${stats.totalImpegnato.toLocaleString()}`],
+        ['Liquidato (Pagato)', `€ ${stats.totalLiquidato.toLocaleString()}`],
+        ['Residuo Disponibile', `€ ${stats.totalAvailable.toLocaleString()}`]
+      ],
+      theme: 'striped'
+    });
+
+    const tableRows = linkedOrders.map(o => [
+      o.orderNumber,
+      o.description,
+      o.status.split(' ')[0],
+      `€ ${(o.paidValue || o.contractValue || o.estimatedValue).toLocaleString()}`
+    ]);
+
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 10,
+      head: [['Codice', 'Descrizione', 'Stato', 'Importo']],
+      body: tableRows,
+      theme: 'grid'
+    });
+
+    setPdfPreviewUrl(doc.output('bloburl'));
+  };
+
   return (
     <div className="h-full flex flex-col animate-in fade-in duration-500 overflow-hidden">
       <div className="flex items-center justify-between mb-6 flex-shrink-0">
@@ -93,21 +132,24 @@ const ChapterReport: React.FC<ChapterReportProps> = ({
           </div>
         </div>
 
-        {canAddWork ? (
-          <button 
-            onClick={onAddWork}
-            className={`flex items-center gap-3 px-5 py-3 bg-${color}-600 text-white rounded-2xl shadow-lg hover:bg-${color}-700 transition-all active:scale-95 group`}
-          >
-            <div className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center group-hover:rotate-180 transition-transform">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M12 4v16m8-8H4" /></svg>
+        <div className="flex items-center gap-3">
+          <button onClick={handleExportPDF} className="px-5 py-3 bg-white border-2 border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:border-indigo-600 hover:text-indigo-600 transition-all shadow-sm">ANTEPRIMA PDF</button>
+          {canAddWork ? (
+            <button 
+              onClick={onAddWork}
+              className={`flex items-center gap-3 px-5 py-3 bg-${color}-600 text-white rounded-2xl shadow-lg hover:bg-${color}-700 transition-all active:scale-95 group`}
+            >
+              <div className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center group-hover:rotate-180 transition-transform">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M12 4v16m8-8H4" /></svg>
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest">Pianifica Intervento</span>
+            </button>
+          ) : (
+            <div className="px-5 py-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-2xl text-[9px] font-black uppercase italic">
+              Nessun Fondo di Competenza {currentUser?.workgroup} su questo capitolo
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest">Pianifica Intervento</span>
-          </button>
-        ) : (
-          <div className="px-5 py-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-2xl text-[9px] font-black uppercase italic">
-            Nessun Fondo di Competenza {currentUser?.workgroup} su questo capitolo
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-5 gap-3 mb-6 flex-shrink-0">
@@ -217,6 +259,18 @@ const ChapterReport: React.FC<ChapterReportProps> = ({
           </div>
         </div>
       </div>
+
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
+           <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
+             <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Operational Summary - PPB 4.0</span>
+               <button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all">✕ Chiudi Registro</button>
+             </div>
+             <iframe src={pdfPreviewUrl} className="flex-1 border-0" />
+           </div>
+        </div>
+      )}
     </div>
   );
 };

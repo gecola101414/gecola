@@ -49,7 +49,9 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
   const isAdmin = currentUser.role === UserRole.ADMIN;
   const isEditor = currentUser.role === UserRole.EDITOR;
   const isComando = isReppe || isComandante;
-  const canManageLists = isAdmin || isComando;
+  
+  // Correzione: Anche il tecnico (Editor) può definire sottogruppi di pianificazione
+  const canManageLists = isAdmin || isComando || isEditor;
 
   const activeList = useMemo(() => lists.find(l => l.id === activeListId), [lists, activeListId]);
   const isCurrentListLocked = activeList?.locked || activeList?.isApprovedByComandante || activeList?.isApprovedByReppe || false;

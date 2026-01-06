@@ -1,8 +1,12 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FundingIDV, WorkOrder, UserRole } from '../types';
 import { calculateAllResiduals } from './WorkForm';
 import { getChapterColor } from './ChaptersSummary';
+// @ts-ignore
+import { jsPDF } from 'jspdf';
+// @ts-ignore
+import autoTable from 'jspdf-autotable';
 
 interface IdvListProps {
   idvs: FundingIDV[];
@@ -18,9 +22,41 @@ interface IdvListProps {
 const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterClick, onAdd, onToggleLock, onDelete, userRole }) => {
   const currentResiduals = calculateAllResiduals(idvs, orders);
   const sortedIdvs = [...idvs].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  const isAdmin = userRole === UserRole.ADMIN;
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  
+  // Estensione permessi: Admin, Comandante e REPPE possono gestire gli asset
+  const canManageFunds = userRole === UserRole.ADMIN || userRole === UserRole.COMANDANTE || userRole === UserRole.REPPE;
 
   const totalAllocated = idvs.reduce((a, b) => a + b.amount, 0);
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(commandName.toUpperCase(), 105, 15, { align: "center" });
+    doc.text("REGISTRO ASSET FONDIARI (IDV)", 105, 22, { align: "center" });
+
+    const tableRows = sortedIdvs.map((i, idx) => [
+      idx + 1,
+      i.idvCode,
+      i.capitolo,
+      i.assignedWorkgroup,
+      `€ ${i.amount.toLocaleString()}`,
+      `€ ${(currentResiduals[i.id] || 0).toLocaleString()}`,
+      i.locked ? 'SI' : 'NO'
+    ]);
+
+    autoTable(doc, {
+      startY: 30,
+      head: [['#', 'Codice IDV', 'Capitolo', 'Ufficio', 'Assegnato', 'Residuo', 'Locked']],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [6, 78, 59] },
+      styles: { fontSize: 8 }
+    });
+
+    setPdfPreviewUrl(doc.output('bloburl'));
+  };
 
   return (
     <div className="h-full flex flex-col relative animate-in fade-in duration-500 overflow-hidden font-['Inter']">
@@ -40,7 +76,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
             <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.3em] mt-1 ml-8 italic">{commandName} - Gestione Finanziaria</p>
           </div>
 
-          {isAdmin && (
+          {canManageFunds && (
             <button onClick={onAdd} className="flex items-center gap-3 group">
               <div className="w-9 h-9 rounded-full bg-emerald-700 text-white flex items-center justify-center font-black text-lg shadow-lg border-2 border-white group-hover:scale-110 transition-all">+</div>
               <div className="text-left">
@@ -52,6 +88,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
         </div>
 
         <div className="flex items-center gap-4">
+           <button onClick={handleExportPDF} className="px-5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-[9px] font-black uppercase hover:border-indigo-600 hover:text-indigo-600 transition-all shadow-sm">ANTEPRIMA PDF</button>
            <div className="bg-white px-5 py-2.5 rounded-xl shadow-sm border border-slate-200 flex flex-col items-end">
              <span className="text-[7px] font-black text-slate-400 uppercase italic tracking-widest mb-1">Massa Totale Autorizzata</span>
              <span className="text-base font-black text-slate-900 italic tracking-tighter">€{totalAllocated.toLocaleString()}</span>
@@ -96,7 +133,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                 </div>
 
                 <div className="flex items-center gap-2">
-                   {isAdmin && (
+                   {canManageFunds && (
                      <>
                         <button 
                           onClick={() => onToggleLock(idv.id)} 
@@ -108,7 +145,7 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
                         {!isUsed && !idv.locked && (
                           <button 
                             onClick={() => { if(confirm("Cancellare definitivamente questo fondo? L'azione è irreversibile.")) onDelete(idv.id) }} 
-                            className="p-2.5 bg-rose-50 text-rose-300 hover:bg-rose-500 hover:text-white rounded-xl transition-all shadow-sm group-hover:opacity-100 opacity-0"
+                            className="p-2.5 bg-rose-50 text-rose-300 hover:bg-rose-500 hover:text-white rounded-xl transition-all shadow-sm group-hover:opacity-100 opacity-100"
                             title="Elimina Fondo"
                           >
                             🗑️
@@ -123,6 +160,18 @@ const IdvList: React.FC<IdvListProps> = ({ idvs, orders, commandName, onChapterC
           })}
         </div>
       </div>
+
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
+           <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
+             <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Asset Registry - PPB 4.0</span>
+               <button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all">✕ Chiudi Registro</button>
+             </div>
+             <iframe src={pdfPreviewUrl} className="flex-1 border-0" />
+           </div>
+        </div>
+      )}
     </div>
   );
 };

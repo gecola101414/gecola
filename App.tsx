@@ -404,7 +404,7 @@ const App: React.FC = () => {
             } else {
               alert("Tutti i campi sono obbligatori per l'inizializzazione del protocollo.");
             }
-          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all mt-4">Crea Protocollo PPB</button>
+          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all mt-4">Crea Nuovo Archivio PPB</button>
         </div>
       </div>
     </div>
