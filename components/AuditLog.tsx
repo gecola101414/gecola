@@ -27,8 +27,8 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
     <div className="h-full flex flex-col space-y-4 animate-in fade-in duration-500 font-['Inter'] overflow-hidden">
       <div className="flex justify-between items-end px-2 flex-shrink-0">
         <div>
-          <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Operational Ledger</h2>
-          <p className="text-[10px] font-bold text-slate-400 uppercase italic tracking-widest">Integrità Forense & Scatola Nera Transazionale (Font: 10px)</p>
+          <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter italic">Registro Storico Operativo</h2>
+          <p className="text-[10px] font-bold text-slate-400 uppercase italic tracking-widest">Integrità Forense & Scatola Nera delle Transazioni</p>
         </div>
         <div className="relative">
           <input 
@@ -43,7 +43,6 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
       </div>
 
       <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-2xl overflow-hidden flex flex-col">
-        {/* CONTENITORE CON SCROLL E HEADER BLOCCATO (STICKY) */}
         <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-white">
           <table className="w-full border-separate border-spacing-0 min-w-[800px]">
             <thead className="sticky top-0 z-[60]">
@@ -52,7 +51,7 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
                 <th className="px-6 py-4 text-left border-b border-slate-800 w-32 bg-slate-900 sticky top-0">Ufficio</th>
                 <th className="px-6 py-4 text-left border-b border-slate-800 w-40 bg-slate-900 sticky top-0">Operatore</th>
                 <th className="px-6 py-4 text-left border-b border-slate-800 w-48 bg-slate-900 sticky top-0">Azione Codificata</th>
-                <th className="px-6 py-4 text-left border-b border-slate-800 bg-slate-900 sticky top-0">Dettaglio Analitico della Variazione (Delta)</th>
+                <th className="px-6 py-4 text-left border-b border-slate-800 bg-slate-900 sticky top-0">Dettaglio Variazione (Delta)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -106,12 +105,11 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
           {sortedLog.length === 0 && (
             <div className="h-80 flex flex-col items-center justify-center text-slate-300 opacity-30 gap-3">
                <span className="text-5xl">📼</span>
-               <p className="text-[11px] font-black uppercase tracking-widest italic">Ledger Vuoto - In attesa di transazioni</p>
+               <p className="text-[11px] font-black uppercase tracking-widest italic">Registro Vuoto - In attesa di operazioni</p>
             </div>
           )}
         </div>
         
-        {/* FOOTER INFORMATIVO */}
         <div className="bg-slate-50 px-8 py-3 border-t border-slate-100 flex justify-between items-center text-[9px] font-black text-slate-400 uppercase italic tracking-widest flex-shrink-0">
            <div className="flex gap-8">
               <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div> Record Processati: {sortedLog.length}</span>
@@ -119,7 +117,7 @@ const AuditLog: React.FC<AuditLogProps> = ({ log }) => {
            </div>
            <div className="flex gap-2 items-center">
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-              <span>Live Black Box Enabled</span>
+              <span>Sistema PPB 4.0 Attivo</span>
            </div>
         </div>
       </div>

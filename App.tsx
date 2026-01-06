@@ -22,7 +22,7 @@ const IDB_NAME = 'VaultDB';
 const IDB_STORE = 'Handles';
 const DEFAULT_PASSWORD = "1234567890";
 
-const EsercitoLogo: React.FC<{ size?: 'sm' | 'md' | 'lg', label?: string }> = ({ size = 'md', label = "ESERCITO" }) => {
+const EsercitoLogo: React.FC<{ size?: 'sm' | 'md' | 'lg' }> = ({ size = 'md' }) => {
   const scale = size === 'sm' ? 'scale-[0.45]' : size === 'md' ? 'scale-[0.7]' : 'scale-100';
   const margin = size === 'sm' ? '-my-4' : size === 'md' ? '-my-2' : 'my-0';
   
@@ -32,7 +32,7 @@ const EsercitoLogo: React.FC<{ size?: 'sm' | 'md' | 'lg', label?: string }> = ({
         <path d="M50 0L61.2257 34.5492H97.5528L68.1636 55.9017L79.3893 90.4508L50 69.0983L20.6107 90.4508L31.8364 55.9017L2.44717 34.5492H38.7743L50 0Z" fill="#B58900"/>
         <path d="M50 0L50 69.0983L20.6107 90.4508L31.8364 55.9017L2.44717 34.5492H38.7743L50 0Z" fill="#D4AF37"/>
       </svg>
-      <span className="text-[34px] font-serif font-black tracking-[0.2em] text-black mt-2 leading-none uppercase italic">{label || "ESERCITO"}</span>
+      <span className="text-[34px] font-serif font-black tracking-[0.2em] text-black mt-2 leading-none uppercase italic text-center">ESERCITO</span>
     </div>
   );
 };
@@ -96,7 +96,7 @@ const App: React.FC = () => {
     return {
       ...data,
       version: data.version || 1,
-      commandName: data.commandName || "COMANDO UNIVERSALE", // Recupero per file legacy
+      commandName: data.commandName || "COMANDO UNIVERSALE",
       users: data.users || [],
       idvs: data.idvs || [],
       orders: data.orders || [],
@@ -297,7 +297,7 @@ const App: React.FC = () => {
       const updatedUsers = state.users.map(u => u.id === userId ? { ...u, lastActive: now, loginCount: (u.loginCount || 0) + 1 } : u);
       const loggedUser = updatedUsers.find(u => u.id === userId)!;
       setCurrentUser(loggedUser);
-      await updateVault({ users: updatedUsers }, { action: 'Accesso Vault', details: `Accesso autorizzato per ${loggedUser.username} (${loggedUser.role}).` });
+      await updateVault({ users: updatedUsers }, { action: 'Accesso PPB', details: `Accesso autorizzato per ${loggedUser.username} (${loggedUser.role}).` });
       if (loggedUser.mustChangePassword) setView('change-password');
       else setView('dashboard');
     } else { alert("Password errata."); }
@@ -333,7 +333,7 @@ const App: React.FC = () => {
 
   const handleOpenFilePicker = async () => {
     try {
-      const [handle] = await (window as any).showOpenFilePicker({ types: [{ description: 'Archivio Vault PPB', accept: { 'application/octet-stream': ['.ppb'] } }], multiple: false });
+      const [handle] = await (window as any).showOpenFilePicker({ types: [{ description: 'Archivio PPB (.ppb)', accept: { 'application/octet-stream': ['.ppb'] } }], multiple: false });
       if (handle) {
         const file = await handle.getFile();
         const content = await file.text();
@@ -365,9 +365,9 @@ const App: React.FC = () => {
       <div className="bg-white rounded-[4rem] p-16 shadow-2xl max-w-4xl w-full flex flex-col md:flex-row gap-16 border border-slate-200 overflow-hidden relative">
         <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
         <div className="flex-1 space-y-10 flex flex-col items-center md:items-start">
-          <EsercitoLogo size="lg" label="VAULT" />
-          <h1 className="text-5xl font-black text-slate-800 tracking-tighter uppercase leading-none italic mt-8">GESTIONE FINANZIARIA<br/><span className="text-indigo-600 font-black">V21 MASTER</span></h1>
-          <p className="text-slate-400 font-medium italic">Sistema universale per il monitoraggio dei flussi finanziari<br/>Riservato al personale autorizzato</p>
+          <EsercitoLogo size="lg" />
+          <h1 className="text-5xl font-black text-slate-800 tracking-tighter uppercase leading-none italic mt-8 text-center md:text-left">GESTIONE FINANZIARIA<br/><span className="text-indigo-600 font-black tracking-widest">PPB 4.0 MASTER</span></h1>
+          <p className="text-slate-400 font-medium italic text-center md:text-left">Sistema universale per il monitoraggio dei flussi finanziari<br/>Riservato al personale militare autorizzato</p>
         </div>
         <div className="flex-1 flex flex-col gap-4 justify-center">
           {savedHandleExists && ( <button onClick={handleDirectAccess} className="p-10 bg-indigo-600 text-white rounded-[2.5rem] hover:bg-indigo-700 transition-all text-left shadow-2xl group active:scale-[0.98] border-b-[6px] border-indigo-900 flex flex-col items-center justify-center text-center"> <span className="text-[10px] font-black uppercase opacity-70 mb-2 block tracking-widest">Memoria Locale Rilevata</span> <p className="text-2xl font-black italic tracking-tighter uppercase">RIPRENDI LAVORO</p> </button> )}
@@ -381,7 +381,7 @@ const App: React.FC = () => {
   if (view === 'setup') return (
     <div className="min-h-screen flex items-center justify-center bg-indigo-50/50 p-6">
       <div className="bg-white rounded-[4rem] p-16 shadow-2xl max-md w-full text-center border border-indigo-100">
-        <EsercitoLogo size="md" label="SETUP" />
+        <EsercitoLogo size="md" />
         <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic mt-6">Inizializzazione Sistema</h2>
         <div className="space-y-4 text-left">
           <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-4">Comando / Organizzazione Gestore</label>
@@ -404,7 +404,7 @@ const App: React.FC = () => {
             } else {
               alert("Tutti i campi sono obbligatori per l'inizializzazione del protocollo.");
             }
-          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all mt-4">Crea Vault Universale</button>
+          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all mt-4">Crea Protocollo PPB</button>
         </div>
       </div>
     </div>
@@ -413,7 +413,7 @@ const App: React.FC = () => {
   if (view === 'login' && state) return (
     <div className="min-h-screen flex items-center justify-center bg-indigo-50/50 p-6">
       <div className="bg-white rounded-[4rem] p-16 shadow-2xl max-w-md w-full text-center border border-indigo-100">
-        <EsercitoLogo size="md" label={state.commandName} />
+        <EsercitoLogo size="md" />
         <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic text-center leading-none mt-6">Login<br/><span className="text-indigo-600">Accreditato</span></h2>
         <div className="space-y-4 text-left">
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Seleziona Operatore</label>
@@ -426,7 +426,7 @@ const App: React.FC = () => {
           <button onClick={() => {
             handleMarkChatRead('session-init');
             handleLogin((document.getElementById('l-u') as any).value, (document.getElementById('l-p') as any).value);
-          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl tracking-widest hover:bg-indigo-700 transition-all active:scale-[0.98]">Accedi al Vault</button>
+          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl tracking-widest hover:bg-indigo-700 transition-all active:scale-[0.98]">Accedi al PPB</button>
         </div>
       </div>
     </div>
@@ -456,7 +456,7 @@ const App: React.FC = () => {
       <aside className="w-72 bg-white border-r border-slate-200 p-8 flex flex-col shadow-xl z-50 h-full">
         <div className="mb-10 flex flex-col items-center"> 
           <div className="italic text-center">
-            <h1 className="text-sm font-black uppercase text-slate-800 leading-none">Vault V21</h1>
+            <h1 className="text-sm font-black uppercase text-slate-800 leading-none">Protocollo PPB</h1>
             <p className="text-[8px] text-indigo-400 font-bold uppercase mt-1 tracking-widest truncate max-w-[200px]">{state.commandName}</p>
           </div> 
         </div>
@@ -468,7 +468,7 @@ const App: React.FC = () => {
             { id: 'idvs', label: 'Fondi' }, 
             { id: 'planning', label: 'Obiettivi' }, 
             { id: 'comms', label: 'CHAT OPERATIVA' },
-            { id: 'audit', label: 'Ledger' }, 
+            { id: 'audit', label: 'REGISTRO' }, 
             { id: 'manual', label: 'Guida' }, 
             { id: 'admin', label: 'Staff' } 
           ].map(item => ( (item.id !== 'admin' || currentUser.role === UserRole.ADMIN) && ( 
@@ -503,7 +503,7 @@ const App: React.FC = () => {
         <header className="bg-white px-10 py-5 flex justify-between items-center border-b border-slate-200 z-40 shadow-sm flex-shrink-0">
           <div className="flex items-center gap-6"> 
             <div>
-              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">Vault Management System</h2>
+              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">PPB Management System</h2>
               <div className="flex items-center gap-2 mt-1">
                  <span className="text-[9px] font-black text-slate-400 uppercase italic">Organizzazione: {state.commandName} | Ufficio: {currentUser.workgroup}</span>
               </div>
@@ -536,7 +536,7 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center">
-            <EsercitoLogo size="sm" label={state.commandName.split(' ')[0]} />
+            <EsercitoLogo size="sm" />
           </div>
         </header>
 
