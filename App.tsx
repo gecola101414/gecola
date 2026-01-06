@@ -32,7 +32,7 @@ const EsercitoLogo: React.FC<{ size?: 'sm' | 'md' | 'lg', label?: string }> = ({
         <path d="M50 0L61.2257 34.5492H97.5528L68.1636 55.9017L79.3893 90.4508L50 69.0983L20.6107 90.4508L31.8364 55.9017L2.44717 34.5492H38.7743L50 0Z" fill="#B58900"/>
         <path d="M50 0L50 69.0983L20.6107 90.4508L31.8364 55.9017L2.44717 34.5492H38.7743L50 0Z" fill="#D4AF37"/>
       </svg>
-      <span className="text-[34px] font-serif font-black tracking-[0.2em] text-black mt-2 leading-none uppercase italic">{label}</span>
+      <span className="text-[34px] font-serif font-black tracking-[0.2em] text-black mt-2 leading-none uppercase italic">{label || "ESERCITO"}</span>
     </div>
   );
 };
@@ -91,6 +91,23 @@ const App: React.FC = () => {
     getHandleFromIDB().then(h => { if(h) setSavedHandleExists(true); });
   }, []);
 
+  const sanitizeState = (data: any): AppState | null => {
+    if (!data) return null;
+    return {
+      ...data,
+      version: data.version || 1,
+      commandName: data.commandName || "COMANDO UNIVERSALE", // Recupero per file legacy
+      users: data.users || [],
+      idvs: data.idvs || [],
+      orders: data.orders || [],
+      planningNeeds: data.planningNeeds || [],
+      planningLists: data.planningLists || [],
+      auditLog: data.auditLog || [],
+      chatMessages: data.chatMessages || [],
+      lastSync: data.lastSync || new Date().toISOString()
+    };
+  };
+
   const encrypt = (data: any): string => {
     try {
       const text = JSON.stringify(data);
@@ -112,7 +129,7 @@ const App: React.FC = () => {
       const keyUint8 = new TextEncoder().encode(SYSTEM_SECRET);
       for (let i = 0; i < binary.length; i++) { uint8[i] = binary.charCodeAt(i) ^ keyUint8[i % keyUint8.length]; }
       const dec = JSON.parse(new TextDecoder().decode(uint8));
-      return dec;
+      return sanitizeState(dec);
     } catch (e) { return null; }
   };
 
@@ -121,7 +138,6 @@ const App: React.FC = () => {
     isWritingRef.current = true;
     setSyncStatus('syncing');
     try {
-      const fileBefore = await fileHandle.getFile();
       const writable = await fileHandle.createWritable();
       const encrypted = encrypt(newState);
       await writable.write(encrypted);
@@ -330,9 +346,11 @@ const App: React.FC = () => {
           lastModifiedRef.current = file.lastModified; 
           lastSizeRef.current = file.size;
           setView('login'); 
-        } else alert("File non valido.");
+        } else alert("File non valido o corrotto.");
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error("Errore apertura file:", e);
+    }
   };
 
   const handleCreateNewDatabase = async () => {
@@ -392,7 +410,7 @@ const App: React.FC = () => {
     </div>
   );
 
-  if (view === 'login') return (
+  if (view === 'login' && state) return (
     <div className="min-h-screen flex items-center justify-center bg-indigo-50/50 p-6">
       <div className="bg-white rounded-[4rem] p-16 shadow-2xl max-w-md w-full text-center border border-indigo-100">
         <EsercitoLogo size="md" label={state.commandName} />
