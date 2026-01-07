@@ -50,7 +50,6 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
   const isEditor = currentUser.role === UserRole.EDITOR;
   const isComando = isReppe || isComandante;
   
-  // Correzione: Anche il tecnico (Editor) può definire sottogruppi di pianificazione
   const canManageLists = isAdmin || isComando || isEditor;
 
   const activeList = useMemo(() => lists.find(l => l.id === activeListId), [lists, activeListId]);
@@ -207,6 +206,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         decretations: [],
         createdAt: new Date().toISOString(),
         ownerName: currentUser.username,
+        ownerId: currentUser.id,
         workgroup: currentUser.workgroup,
         locked: false,
         listId: activeListId || undefined 
@@ -217,6 +217,21 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
     onUpdate({ planningNeeds: updatedNeeds }, logMsg);
     setEditingNeed(null);
   }, [editingNeed, needs, currentUser, activeListId, isCurrentListLocked, onUpdate, activeList]);
+
+  const handleDeleteNeed = (id: string) => {
+    const need = needs.find(n => n.id === id);
+    if (!need) return;
+    
+    // Condizioni per la cancellazione: autore + non sigillato o Admin
+    const canDelete = (need.ownerId === currentUser.id && !need.locked && !isCurrentListLocked) || isAdmin;
+    
+    if (canDelete && window.confirm(`PROCEDURA DI RIMOZIONE OBIETTIVO:\n\nConferma la cancellazione definitiva di "${need.description}"?`)) {
+      onUpdate({ planningNeeds: needs.filter(n => n.id !== id) }, { action: 'Cancellazione Progetto', details: `L'operatore ${currentUser.username} ha rimosso la scheda progetto "${need.description}" prima della validazione gerarchica.` });
+      setEditingNeed(null);
+    } else if (!canDelete) {
+      alert("IMPOSSIBILE PROCEDERE: Il progetto è stato sigillato o non disponi dei permessi di autore.");
+    }
+  };
 
   const handleSaveList = () => {
     if (!editingList || !canManageLists) return;
@@ -258,19 +273,23 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
 
   const handleToggleListSeal = (seal: boolean) => {
     if (!activeListId || !isComando) return;
+    // Quando si sigilla la lista, si marcano come locked tutti i progetti interni per non-ripudiabilità
+    const updatedNeeds = needs.map(n => n.listId === activeListId ? { ...n, locked: seal } : n);
     const updatedLists = lists.map(l => l.id === activeListId ? {
       ...l, locked: seal, [isReppe ? 'isApprovedByReppe' : 'isApprovedByComandante']: seal
     } : l);
-    onUpdate({ planningLists: updatedLists }, { 
+    onUpdate({ 
+      planningLists: updatedLists,
+      planningNeeds: updatedNeeds
+    }, { 
       action: seal ? `Sigillo Strategico` : `Sblocco Revisione`, 
-      details: seal ? `L'obiettivo "${activeList?.name}" è stato sigillato.` : `Il Comando ha riaperto l'obiettivo "${activeList?.name}".`
+      details: seal ? `L'obiettivo "${activeList?.name}" e i relativi progetti sono stati sigillati.` : `Il Comando ha riaperto l'obiettivo "${activeList?.name}" per modifiche tecniche.`
     });
   };
 
   return (
     <div className="h-full flex flex-col relative animate-in fade-in duration-500 overflow-hidden font-['Inter']">
       
-      {/* TOP BAR AZIONI */}
       <div className="sticky top-0 z-[45] bg-slate-50 pb-4 flex items-center justify-between border-b border-slate-200 px-2 flex-shrink-0">
         <div className="flex items-center gap-3">
           <button 
@@ -278,7 +297,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
             onDrop={(e) => handleDropOnList(e, null)} 
             onDragOver={(e) => { e.preventDefault(); setHoveredListId('brogliaccio'); }} 
             onDragLeave={() => setHoveredListId(null)} 
-            className={`px-5 py-2.5 rounded-xl border-2 transition-all flex items-center gap-3 ${!activeListId ? 'bg-slate-900 border-slate-900 text-white shadow-xl' : (hoveredListId === 'brogliaccio' ? 'bg-emerald-500 border-emerald-500 text-white animate-pulse' : 'bg-white border-slate-200 text-slate-400')}`}
+            className={`px-5 py-2.5 rounded-xl border-2 transition-all flex items-center gap-3 ${!activeListId ? 'bg-slate-900 border-slate-900 text-white shadow-xl' : (hoveredListId === 'brogliaccio' ? 'bg-emerald-50 border-emerald-500 text-white animate-pulse' : 'bg-white border-slate-200 text-slate-400')}`}
           >
             <span className="text-lg">📖</span>
             <div className="text-left">
@@ -367,7 +386,10 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 bg-white min-h-0">
           {filteredNeeds.map((need, idx) => {
             const isMyProject = currentUser.workgroup === need.workgroup;
+            const isMyAuthor = currentUser.id === need.ownerId;
             const canDrag = !need.locked && !isCurrentListLocked;
+            const canDelete = (isMyAuthor && !need.locked && !isCurrentListLocked) || isAdmin;
+
             return (
               <div 
                 key={need.id} 
@@ -390,6 +412,16 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                   {need.isApprovedByReppe && <span className="text-base" title="Visto REPPE">⚖️</span>}
                   {need.isApprovedByComandante && <span className="text-base" title="Decretato Comandante">🎖️</span>}
                   {need.attachments && need.attachments.length > 0 && <span className="bg-slate-100 text-slate-400 px-2 py-1 rounded-[8px] text-[7px] font-black">📎{need.attachments.length}</span>}
+                  
+                  {canDelete && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); handleDeleteNeed(need.id); }}
+                      className="opacity-0 group-hover:opacity-100 p-2 bg-rose-50 text-rose-500 rounded-lg hover:bg-rose-600 hover:text-white transition-all ml-2"
+                      title="Elimina Progetto"
+                    >
+                      🗑️
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -440,12 +472,15 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
                  <div>
                    <h3 className="text-xl font-black text-slate-950 italic uppercase tracking-tighter">Fascicolo Strategico Progetto</h3>
                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[8px] font-black text-indigo-500 uppercase tracking-[0.2em]">Revisione 4.0 PPB</span>
+                      <span className="text-[8px] font-black text-indigo-500 uppercase tracking-[0.2em]">Revisione 4.1 PPB</span>
                    </div>
                  </div>
                </div>
 
                <div className="flex items-center gap-2">
+                  {(editingNeed.id && ((editingNeed.ownerId === currentUser.id && !editingNeed.locked && !isCurrentListLocked) || isAdmin)) && (
+                    <button onClick={() => handleDeleteNeed(editingNeed.id!)} className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all mr-4">Elimina Scheda</button>
+                  )}
                   <button onClick={() => setEditingNeed(null)} className="px-4 py-2 bg-white border border-slate-200 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:text-rose-600 transition-all">Annulla</button>
                   {(!isComando && !isCurrentListLocked) && (
                     <button onClick={handleSaveNeed} className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">Registra Modifiche</button>
@@ -551,7 +586,7 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, onUpdate, curren
         <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
            <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
              <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
-               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Report - PPB 4.0</span>
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Report - PPB 4.1</span>
                <button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all">✕ Chiudi Registro</button>
              </div>
              <iframe src={pdfPreviewUrl} className="flex-1 border-0" />

@@ -1,6 +1,5 @@
-
 {
-  "name": "PPB 4.0 - Scutum Protocol",
+  "name": "PPB 4.1 - miglioramento della video accreditamento non obl",
   "description": "Sistema professionale per il monitoraggio del ciclo finanziario con video-accreditamento biometrico e logica di non-ripudiabilità.",
   "requestFramePermissions": [
     "camera",

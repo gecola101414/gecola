@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { 
-  WorkOrder, WorkStatus, FundingIDV, User, UserRole, AppState, PlanningNeed, PlanningList, AuditEntry, ChatMessage 
+  WorkOrder, WorkStatus, FundingIDV, User, UserRole, AppState, PlanningNeed, PlanningList, AuditEntry, ChatMessage, Briefing
 } from './types';
 import Dashboard from './components/Dashboard';
 import Catalog from './components/Catalog';
@@ -15,6 +15,7 @@ import Manual from './components/Manual';
 import PlanningModule from './components/PlanningModule';
 import AuditLog from './components/AuditLog';
 import Messenger from './components/Messenger';
+import AzimuthCheck from './components/AzimuthCheck';
 
 const SYSTEM_SECRET = "CME_LOMB_SECURE_VAULT_2026_V21_MASTER";
 const ENCRYPTION_PREFIX = "PPB_CRYPT_V21:";
@@ -143,7 +144,7 @@ const App: React.FC = () => {
   const [redoHistory, setRedoHistory] = useState<AppState[]>([]);
   const [fileHandle, setFileHandle] = useState<any | null>(null);
   const [activeFileName, setActiveFileName] = useState<string>("");
-  const [view, setView] = useState<'gateway' | 'login' | 'setup' | 'dashboard' | 'idvs' | 'works' | 'planning' | 'comms' | 'admin' | 'audit' | 'chapter-detail' | 'manual' | 'add-idv' | 'add-work' | 'change-password'>('gateway');
+  const [view, setView] = useState<'gateway' | 'login' | 'setup' | 'dashboard' | 'idvs' | 'works' | 'planning' | 'comms' | 'admin' | 'audit' | 'chapter-detail' | 'manual' | 'add-idv' | 'add-work' | 'change-password' | 'azimuth' | 'strengthen-bio'>('gateway');
   const [selectedChapter, setSelectedChapter] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'remote-update' | 'conflict-resolved'>('synced');
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(null);
@@ -181,6 +182,7 @@ const App: React.FC = () => {
       planningLists: data.planningLists || [],
       auditLog: data.auditLog || [],
       chatMessages: data.chatMessages || [],
+      briefings: data.briefings || [],
       lastSync: data.lastSync || new Date().toISOString()
     };
   };
@@ -374,32 +376,51 @@ const App: React.FC = () => {
     const user = state.users.find(usr => usr.id === userId && usr.passwordHash === p);
     if (user) {
       const now = new Date().toISOString();
+      // Verifichiamo se l'utente ha già fatto video-accreditamento nel log
+      const hasBio = state.auditLog.some(l => l.userId === userId && l.videoProof);
+      
       updateVault((prev) => ({ 
         users: prev.users.map(u => u.id === userId ? { ...u, lastActive: now, loginCount: (u.loginCount || 0) + 1 } : u)
-      }), { action: 'Accesso PPB 4.0 Verified', details: `Protocollo di autenticazione biometrica e crittografica superato. L'operatore accreditato ${user.username} (Ufficio: ${user.workgroup}) ha inizializzato una sessione sicura. Controllo integrità database: 100% OK. Accesso registrato in data ${new Date().toLocaleString()}.` });
+      }), { action: 'Accesso Protocollo Verified', details: `Autenticazione operatore ${user.username} eseguita. Controllo integrità: OK.` });
       
-      const loggedUser = { ...user, lastActive: now, loginCount: (user.loginCount || 0) + 1 };
+      const loggedUser = { ...user, lastActive: now, loginCount: (user.loginCount || 0) + 1, isBioVerified: hasBio };
       setCurrentUser(loggedUser);
       if (loggedUser.mustChangePassword) setView('change-password');
       else setView('dashboard');
     } else { alert("Password errata."); }
   };
 
-  const handleChangePassword = async (newPass: string) => {
-    if (!currentUser || !state || !videoProof) {
-      alert("Il video-accreditamento è obbligatorio per la validazione biometrica dei nuovi codici.");
+  const handleChangePassword = async (newPass: string, skipBio: boolean = false) => {
+    if (!currentUser || !state) return;
+    
+    if (!skipBio && !videoProof) {
+      alert("Fornire video-accreditamento o procedere con finalizzazione standard.");
       return;
     }
     
     updateVault((prev) => ({ 
       users: prev.users.map(u => u.id === currentUser.id ? { ...u, passwordHash: newPass, mustChangePassword: false } : u )
     }), { 
-      action: 'Rotazione Chiavi con Accreditamento Video', 
-      details: `OPERAZIONE CRITICA DI NON-RIPUDIABILITÀ: L'operatore ${currentUser.username} ha eseguito la rotazione obbligatoria dei codici di accesso. L'azione è stata validata biometricamente tramite video-dichiarazione di 5 secondi (allegata al presente record). Il sistema ha generato nuove firme digitali ed ha invalidato le precedenti chiavi di sessione per motivi di sicurezza nazionale.`,
-      video: videoProof 
+      action: skipBio ? 'Aggiornamento Chiavi (Standard)' : 'Rotazione Chiavi con Bio-Validazione', 
+      details: skipBio ? `L'operatore ${currentUser.username} ha aggiornato la password senza video-accreditamento.` : `L'operatore ${currentUser.username} ha eseguito la rotazione chiavi con validazione video.`,
+      video: videoProof || undefined 
     });
     
-    setCurrentUser({ ...currentUser, passwordHash: newPass, mustChangePassword: false });
+    setCurrentUser({ ...currentUser, passwordHash: newPass, mustChangePassword: false, isBioVerified: !skipBio });
+    setVideoProof(null);
+    setView('dashboard');
+  };
+
+  const handleStrengthenBio = async () => {
+    if (!currentUser || !videoProof) return;
+    updateVault((prev) => ({ 
+      users: prev.users.map(u => u.id === currentUser.id ? { ...u, isBioVerified: true } : u)
+    }), { 
+      action: 'Bio-Rafforzamento Sessione', 
+      details: `L'operatore ${currentUser.username} ha rafforzato l'accesso corrente con video-accreditamento differito.`,
+      video: videoProof 
+    });
+    setCurrentUser({...currentUser, isBioVerified: true});
     setVideoProof(null);
     setView('dashboard');
   };
@@ -459,8 +480,8 @@ const App: React.FC = () => {
         <div className="absolute top-0 left-0 w-full h-2 bg-indigo-600"></div>
         <div className="flex-1 space-y-10 flex flex-col items-center md:items-start">
           <EsercitoLogo size="lg" />
-          <h1 className="text-5xl font-black text-slate-800 tracking-tighter uppercase leading-none italic mt-8 text-center md:text-left">GESTIONE FINANZIARIA<br/><span className="text-indigo-600 font-black tracking-widest">PPB 4.0 MASTER</span></h1>
-          <p className="text-slate-400 font-medium italic text-center md:text-left">Sistema universale per il monitoraggio dei flussi finanziari<br/>Riservato al personale militare autorizzato</p>
+          <h1 className="text-5xl font-black text-slate-800 tracking-tighter uppercase leading-none italic mt-8 text-center md:text-left">GESTIONE FINANZIARIA<br/><span className="text-indigo-600 font-black tracking-widest">PPB 4.1 ORION</span></h1>
+          <p className="text-slate-400 font-medium italic text-center md:text-left">Sistema tattico per il monitoraggio dei flussi finanziari<br/>Protocollo Orion: Bio-Accesso Flessibile</p>
         </div>
         <div className="flex-1 flex flex-col gap-4 justify-center">
           {savedHandleExists && ( <button onClick={handleDirectAccess} className="p-10 bg-indigo-600 text-white rounded-[2.5rem] hover:bg-indigo-700 transition-all text-left shadow-2xl group active:scale-[0.98] border-b-[6px] border-indigo-900 flex flex-col items-center justify-center text-center"> <span className="text-[10px] font-black uppercase opacity-70 mb-2 block tracking-widest">Memoria Locale Rilevata</span> <p className="text-2xl font-black italic tracking-tighter uppercase">RIPRENDI LAVORO</p> </button> )}
@@ -477,27 +498,20 @@ const App: React.FC = () => {
         <EsercitoLogo size="md" />
         <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic mt-6">Inizializzazione Archivio</h2>
         <div className="space-y-4 text-left">
-          <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-4">Comando / Organizzazione Gestore</label>
-          <input type="text" placeholder="Es. CME LOMBARDIA, COMFOTER..." id="s-cmd" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold mb-4 focus:border-indigo-600 outline-none" />
-          
-          <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-4">Ufficio Principale (Es. INFRA, AMM)</label>
+          <input type="text" placeholder="Comando Gestore" id="s-cmd" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
           <input type="text" placeholder="Ufficio Master" id="s-g" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
-          
           <input type="text" placeholder="Username Admin" id="s-u" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
           <input type="password" placeholder="Password Master" id="s-p" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
-          
           <button onClick={async () => {
             const cmd = (document.getElementById('s-cmd') as any).value;
             const g = (document.getElementById('s-g') as any).value; 
             const u = (document.getElementById('s-u') as any).value; 
             const p = (document.getElementById('s-p') as any).value;
             if (u && p && g && cmd) {
-              const init: AppState = { version: 1, commandName: cmd, users: [{ id: 'u-1', username: u, passwordHash: p, role: UserRole.ADMIN, workgroup: g, mustChangePassword: false, loginCount: 0 }], idvs: [], orders: [], planningNeeds: [], planningLists: [], auditLog: [], chatMessages: [], lastSync: new Date().toISOString() };
+              const init: AppState = { version: 1, commandName: cmd, users: [{ id: 'u-1', username: u, passwordHash: p, role: UserRole.ADMIN, workgroup: g, mustChangePassword: false, loginCount: 0 }], idvs: [], orders: [], planningNeeds: [], planningLists: [], auditLog: [], chatMessages: [], briefings: [], lastSync: new Date().toISOString() };
               setState(init); setCurrentUser(init.users[0]); await writeToDisk(init); setView('dashboard');
-            } else {
-              alert("Tutti i campi sono obbligatori per l'inizializzazione del protocollo.");
             }
-          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all mt-4">Crea Nuovo Archivio PPB</button>
+          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase mt-4">Crea Nuovo Archivio</button>
         </div>
       </div>
     </div>
@@ -507,19 +521,13 @@ const App: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-indigo-50/50 p-6">
       <div className="bg-white rounded-[4rem] p-16 shadow-2xl max-w-md w-full text-center border border-indigo-100">
         <EsercitoLogo size="md" />
-        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic text-center leading-none mt-6">Login<br/><span className="text-indigo-600">Accreditato</span></h2>
+        <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter mb-10 italic mt-6">Login Accreditato</h2>
         <div className="space-y-4 text-left">
-          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-4">Seleziona Operatore</label>
-          <select id="l-u" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold appearance-none cursor-pointer outline-none focus:border-indigo-600">
-            {state.users.map(u => (
-              <option key={u.id} value={u.id}>{u.username.toUpperCase()} - {u.workgroup}</option>
-            ))}
+          <select id="l-u" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold outline-none focus:border-indigo-600">
+            {state.users.map(u => <option key={u.id} value={u.id}>{u.username.toUpperCase()} - {u.workgroup}</option>)}
           </select>
           <input type="password" placeholder="Password" id="l-p" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
-          <button onClick={() => {
-            handleMarkChatRead('session-init');
-            handleLogin((document.getElementById('l-u') as any).value, (document.getElementById('l-p') as any).value);
-          }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl tracking-widest hover:bg-indigo-700 transition-all active:scale-[0.98]">Accedi al PPB</button>
+          <button onClick={() => handleLogin((document.getElementById('l-u') as any).value, (document.getElementById('l-p') as any).value)} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl tracking-widest hover:bg-indigo-700 transition-all">Accedi al PPB</button>
         </div>
       </div>
     </div>
@@ -528,38 +536,25 @@ const App: React.FC = () => {
   if (view === 'change-password') return (
     <div className="min-h-screen flex items-center justify-center bg-rose-50 p-6">
       <div className="bg-white rounded-[4rem] p-12 shadow-2xl max-w-2xl w-full text-center border-4 border-rose-200 flex flex-col gap-8">
-        <div>
-          <EsercitoLogo size="sm" />
-          <h2 className="text-2xl font-black text-rose-600 uppercase tracking-tighter italic mt-4">Accreditamento Biometrico Obbligatorio</h2>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Sostituzione chiavi crittografiche e video-dichiarazione</p>
-        </div>
-
+        <div><EsercitoLogo size="sm" /><h2 className="text-2xl font-black text-rose-600 uppercase italic mt-4">Sostituzione Codici</h2><p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Video-accreditamento facoltativo per rafforzamento</p></div>
         {!videoProof ? (
-          <VideoAccreditamento userName={currentUser?.username || ''} onComplete={(v) => setVideoProof(v)} />
+          <div className="space-y-4">
+             <VideoAccreditamento userName={currentUser?.username || ''} onComplete={(v) => setVideoProof(v)} />
+             <p className="text-[9px] text-slate-400 italic">Puoi saltare questo passaggio e farlo più tardi dal cruscotto.</p>
+          </div>
         ) : (
           <div className="bg-emerald-50 border-2 border-emerald-200 rounded-[2rem] p-6 flex items-center gap-4 animate-in zoom-in duration-300">
-            <span className="text-3xl">✅</span>
-            <div className="text-left">
-              <p className="text-xs font-black text-emerald-700 uppercase tracking-tighter">Identità Verificata</p>
-              <p className="text-[9px] font-medium text-emerald-600 italic">Video-dichiarazione acquisita e crittografata con successo.</p>
-            </div>
-            <button onClick={() => setVideoProof(null)} className="ml-auto text-[8px] font-black text-slate-400 hover:text-rose-600 uppercase">Ripeti</button>
+            <span className="text-3xl">✅</span><div className="text-left"><p className="text-xs font-black text-emerald-700 uppercase">Video Acquisito</p><p className="text-[9px] font-medium text-emerald-600 italic">L'accesso sarà considerato BIO-VALIDATO.</p></div>
+            <button onClick={() => setVideoProof(null)} className="ml-auto text-[8px] font-black text-slate-400">Cancella</button>
           </div>
         )}
-
         <div className="space-y-4 text-left">
-          <input type="password" placeholder="Nuova Password Digitale" id="cp-1" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
-          <input type="password" placeholder="Conferma Nuova Password" id="cp-2" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
-          <button 
-            disabled={!videoProof}
-            onClick={() => {
-              const p1 = (document.getElementById('cp-1') as any).value; const p2 = (document.getElementById('cp-2') as any).value;
-              if (p1 && p1 === p2) handleChangePassword(p1); else alert("Le password non coincidono.");
-            }} 
-            className={`w-full py-6 rounded-3xl font-black uppercase shadow-xl tracking-widest transition-all ${videoProof ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
-          >
-            Finalizza Rotazione Chiavi
-          </button>
+          <input type="password" placeholder="Nuova Password" id="cp-1" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold outline-none focus:border-indigo-600" />
+          <input type="password" placeholder="Conferma" id="cp-2" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold outline-none focus:border-indigo-600" />
+          <div className="flex gap-4">
+            <button onClick={() => { const p1 = (document.getElementById('cp-1') as any).value; if(p1) handleChangePassword(p1, true); }} className="flex-1 py-6 bg-slate-100 text-slate-400 rounded-3xl font-black uppercase text-[10px]">Finalizza senza Video</button>
+            <button disabled={!videoProof} onClick={() => { const p1 = (document.getElementById('cp-1') as any).value; if(p1) handleChangePassword(p1, false); }} className={`flex-1 py-6 rounded-3xl font-black uppercase shadow-xl text-[10px] ${videoProof ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>Rafforza con Video</button>
+          </div>
         </div>
       </div>
     </div>
@@ -580,10 +575,11 @@ const App: React.FC = () => {
         <nav className="space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
           {[ 
             { id: 'dashboard', label: 'Analisi' }, 
+            { id: 'azimuth', label: 'AZIMUTH CHECK' },
             { id: 'works', label: 'Lavori' }, 
             { id: 'idvs', label: 'Fondi' }, 
             { id: 'planning', label: 'Obiettivi' }, 
-            { id: 'comms', label: 'CHAT OPERATIVA' },
+            { id: 'comms', label: 'CHAT' },
             { id: 'audit', label: 'REGISTRO' }, 
             { id: 'manual', label: 'Guida' }, 
             { id: 'admin', label: 'Staff' } 
@@ -594,80 +590,65 @@ const App: React.FC = () => {
               className={`w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] transition-all relative ${view === item.id ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
             > 
               <span className="text-[10px] font-black uppercase tracking-widest">{item.label}</span> 
-              
-              {item.id === 'comms' && (
-                <div className="flex gap-1.5">
-                  {unreadStats.general > 0 && (
-                    <span title="Messaggi Pubblici (Generale)" className="bg-indigo-400 text-white text-[8px] font-black w-4 h-4 flex items-center justify-center rounded-full shadow-sm border border-white">
-                      {unreadStats.general}
-                    </span>
-                  )}
-                  {unreadStats.direct > 0 && (
-                    <span title="Messaggi Privati (Diretti)" className="bg-rose-600 text-white text-[8px] font-black w-4 h-4 flex items-center justify-center rounded-full animate-pulse shadow-md border border-white">
-                      {unreadStats.direct}
-                    </span>
-                  )}
-                </div>
-              )}
+              {item.id === 'comms' && unreadStats.general + unreadStats.direct > 0 && <span className="bg-rose-500 text-white text-[8px] w-4 h-4 flex items-center justify-center rounded-full">{unreadStats.general + unreadStats.direct}</span>}
+              {item.id === 'azimuth' && <span className="text-xs">🧭</span>}
             </button> 
           ) ))}
         </nav>
+
+        {!currentUser.isBioVerified && (
+           <button onClick={() => setView('strengthen-bio')} className="mt-4 p-4 bg-rose-50 border-2 border-rose-200 rounded-2xl flex flex-col items-center gap-2 group hover:bg-rose-600 transition-all animate-pulse">
+              <span className="text-lg">🛡️</span>
+              <span className="text-[8px] font-black text-rose-600 uppercase tracking-widest group-hover:text-white">BIO-RAFFORZAMENTO</span>
+           </button>
+        )}
+
         <div className="mt-auto pt-6 border-t border-slate-100 text-center"> <span className="text-[8px] font-black text-slate-400 uppercase italic">{currentUser.role}</span> <p className="text-xs font-black text-indigo-600 uppercase mt-1 truncate">{currentUser.username} [{currentUser.workgroup}]</p> <button onClick={() => window.location.reload()} className="w-full mt-4 py-3 text-[9px] font-black text-rose-500 uppercase hover:bg-rose-50 rounded-xl transition-all border border-rose-100">Esci</button> </div>
       </aside>
 
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
         <header className="bg-white px-10 py-5 flex justify-between items-center border-b border-slate-200 z-40 shadow-sm flex-shrink-0">
           <div className="flex items-center gap-6"> 
-            <div>
-              <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">PPB Management System</h2>
-              <div className="flex items-center gap-2 mt-1">
-                 <span className="text-[9px] font-black text-slate-400 uppercase italic">Organizzazione: {state.commandName} | Ufficio: {currentUser.workgroup}</span>
-              </div>
-            </div> 
-
-            <div className="h-8 w-[1px] bg-slate-100 mx-1"></div>
-
-            <div className="flex flex-col" onClick={checkRemoteUpdates} style={{ cursor: 'pointer' }}>
-               <span className="text-[7px] font-black text-slate-300 uppercase italic tracking-widest leading-none mb-1">Database Master</span>
-               <div className="flex items-center gap-2">
-                 <span className="text-[10px] font-black text-slate-800 uppercase italic truncate max-w-[200px]">{activeFileName}</span>
-                 <div className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${
-                   syncStatus === 'synced' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 
-                   syncStatus === 'remote-update' ? 'bg-indigo-500 animate-bounce' : 
-                   syncStatus === 'conflict-resolved' ? 'bg-violet-500 shadow-[0_0_8px_rgba(139,92,246,0.5)]' :
-                   'bg-amber-500 animate-pulse'
-                 }`} title={`Stato: ${syncStatus}`}></div>
-               </div>
-            </div>
-
-            <div className="flex items-center gap-1.5 ml-2"> 
-               <button onClick={handleUndo} disabled={undoHistory.length === 0} className="p-2.5 bg-slate-50 text-slate-400 rounded-xl hover:bg-indigo-600 hover:text-white disabled:opacity-20 transition-all shadow-sm border border-slate-200" title="Undo"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg></button> 
-               <button onClick={handleRedo} disabled={redoHistory.length === 0} className="p-2.5 bg-slate-50 text-slate-400 rounded-xl hover:bg-emerald-600 hover:text-white disabled:opacity-20 transition-all shadow-sm border border-slate-200" title="Redo"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M21 10h-10a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6" /></svg></button> 
-            </div> 
-
-            <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-inner ml-2"> 
+            <div><h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">PPB Management</h2><span className="text-[9px] font-black text-slate-400 uppercase italic">Org: {state.commandName}</span></div>
+            <div className="h-8 w-[1px] bg-slate-100"></div>
+            <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-inner"> 
               <button onClick={() => setGlobalFilter('mine')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${globalFilter === 'mine' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>👤 MIE</button> 
               <button onClick={() => setGlobalFilter('all')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${globalFilter === 'all' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>🌐 TUTTE</button> 
             </div> 
           </div>
-
-          <div className="flex items-center">
-            <EsercitoLogo size="sm" />
+          <div className="flex items-center gap-6">
+             {currentUser.isBioVerified ? <span title="Bio-Verificato" className="text-emerald-500 text-xl">🛡️</span> : <span title="Verifica parziale" className="text-rose-500 text-xl animate-pulse">⚠️</span>}
+             <EsercitoLogo size="sm" />
           </div>
         </header>
 
         <div className="flex-1 overflow-hidden p-10 bg-slate-50/50 flex flex-col">
           <div className="max-w-[1400px] mx-auto w-full h-full flex flex-col">
             {view === 'dashboard' && <div className="overflow-y-auto h-full pr-2 custom-scrollbar"><Dashboard idvs={state.idvs} orders={state.orders} auditLog={state.auditLog} commandName={state.commandName} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} /></div>}
-            {view === 'works' && <Catalog orders={globalFilter === 'mine' ? state.orders.filter(o => o.workgroup === currentUser.workgroup) : state.orders} idvs={state.idvs} highlightId={highlightedOrderId} onAdd={() => setView('add-work')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onStageClick={(o, s) => { if (s === 1) setEditWorkOrder(o); if (s === 2) setBidModalOrder(o); if (s === 3) setPaymentModalOrder(o); }} onDelete={(id) => { updateVault((prev) => { const o = prev.orders.find(ord => ord.id === id); return { orders: prev.orders.filter(ord => ord.id !== id) }; }, { action: 'Eliminazione Pratica', details: `Protocollo di rimozione forzata eseguito. La pratica precedentemente in registro è stata cancellata definitivamente dall'archivio digitale CME. Ogni riferimento contabile è stato rimosso per ordine dell'operatore ${currentUser.username}.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ orders: prev.orders.map(ord => ord.id === id ? { ...ord, locked: !ord.locked } : ord) }), { action: 'Variazione Stato Integrità', details: `Modificato flag di protezione (Locked/Unlocked) sulla pratica ID: ${id}. Nuova configurazione di sicurezza impostata dall'ufficio ${currentUser.workgroup}.` }); }} currentUser={currentUser} />}
-            {view === 'idvs' && <IdvList idvs={globalFilter === 'mine' ? state.idvs.filter(i => i.assignedWorkgroup === currentUser.workgroup) : state.idvs} orders={state.orders} onAdd={() => setView('add-idv')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onDelete={(id) => { updateVault((prev) => ({ idvs: prev.idvs.filter(idv => idv.id !== id) }), { action: 'De-allocazione Risorsa Economica', details: `L'IDV con identificativo di sistema ${id} è stato rimosso dal pool delle risorse disponibili. L'operazione è stata autorizzata dal Comando in data ${new Date().toLocaleString()} ed eseguita tecnicamente da ${currentUser.username}. La risorsa non è più computabile per nuovi impegni.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ idvs: prev.idvs.map(idv => idv.id === id ? { ...idv, locked: !idv.locked } : idv) }), { action: 'Segregazione Asset Fondiario', details: `Variazione dello stato di disponibilità dell'IDV ${id}. L'asset è stato ${(state.idvs.find(i=>i.id===id)?.locked) ? 'sbloccato per l\'utilizzo' : 'bloccato preventivamente'} per finalità di bilancio.` }); }} userRole={currentUser.role} commandName={state.commandName} />}
+            {view === 'azimuth' && <AzimuthCheck briefings={state.briefings || []} userRole={currentUser.role} onAddBriefing={(b) => updateVault(prev => ({ briefings: [...(prev.briefings || []), { ...b as Briefing, id: `brief-${Date.now()}`, status: 'scheduled' }] }), { action: 'Pianificazione Briefing', details: `Nuovo Azimuth Check pianificato: ${b.title} il ${b.date}.` })} />}
+            {view === 'strengthen-bio' && (
+              <div className="h-full flex items-center justify-center p-8">
+                 <div className="bg-white rounded-[4rem] p-12 shadow-2xl max-w-2xl w-full text-center border-4 border-indigo-100 space-y-8 animate-in zoom-in duration-500">
+                    <div><h2 className="text-3xl font-black text-slate-800 uppercase italic">Bio-Rafforzamento</h2><p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1">Aumenta il livello di sicurezza della sessione corrente</p></div>
+                    {!videoProof ? <VideoAccreditamento userName={currentUser.username} onComplete={setVideoProof} /> : (
+                      <div className="bg-emerald-50 p-8 rounded-[3rem] border-2 border-emerald-200">
+                         <p className="text-2xl mb-4">✅</p>
+                         <button onClick={handleStrengthenBio} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700">Finalizza Rafforzamento</button>
+                      </div>
+                    )}
+                    <button onClick={() => setView('dashboard')} className="text-slate-400 font-bold uppercase text-[9px] tracking-widest hover:text-rose-600 transition-all">Annulla e Torna al Cruscotto</button>
+                 </div>
+              </div>
+            )}
+            {view === 'works' && <Catalog orders={globalFilter === 'mine' ? state.orders.filter(o => o.workgroup === currentUser.workgroup) : state.orders} idvs={state.idvs} highlightId={highlightedOrderId} onAdd={() => setView('add-work')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onStageClick={(o, s) => { if (s === 1) setEditWorkOrder(o); if (s === 2) setBidModalOrder(o); if (s === 3) setPaymentModalOrder(o); }} onDelete={(id) => { updateVault((prev) => ({ orders: prev.orders.filter(ord => ord.id !== id) }), { action: 'Eliminazione Pratica', details: `Pratica cancellata definitivamente.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ orders: prev.orders.map(ord => ord.id === id ? { ...ord, locked: !ord.locked } : ord) }), { action: 'Variazione Stato Integrità', details: `Flag protezione modificato.` }); }} currentUser={currentUser} />}
+            {view === 'idvs' && <IdvList idvs={globalFilter === 'mine' ? state.idvs.filter(i => i.assignedWorkgroup === currentUser.workgroup) : state.idvs} orders={state.orders} onAdd={() => setView('add-idv')} onChapterClick={(c) => { setSelectedChapter(c); setView('chapter-detail'); }} onDelete={(id) => { updateVault((prev) => ({ idvs: prev.idvs.filter(idv => idv.id !== id) }), { action: 'De-allocazione Risorsa', details: `IDV rimosso.` }); }} onToggleLock={(id) => { updateVault((prev) => ({ idvs: prev.idvs.map(idv => idv.id === id ? { ...idv, locked: !idv.locked } : idv) }), { action: 'Segregazione Asset', details: `Stato disponibilità IDV variato.` }); }} userRole={currentUser.role} commandName={state.commandName} />}
             {view === 'planning' && <PlanningModule state={state} onUpdate={(u, log) => updateVault(u, log)} currentUser={currentUser} idvs={state.idvs} globalFilter={globalFilter} commandName={state.commandName} />}
             {view === 'comms' && <Messenger messages={state.chatMessages || []} currentUser={currentUser} allUsers={state.users} onSendMessage={handleSendMessage} onReadChat={handleMarkChatRead} />}
             {view === 'audit' && <AuditLog log={state.auditLog} />}
             {view === 'manual' && <div className="overflow-y-auto h-full pr-2 custom-scrollbar"><Manual commandName={state.commandName} /></div>}
             {view === 'admin' && (
               <div className="bg-white p-12 rounded-[3.5rem] border border-slate-200 shadow-xl space-y-8 animate-in fade-in duration-500 overflow-y-auto h-full custom-scrollbar">
-                <h3 className="text-2xl font-black italic uppercase tracking-tighter">Gestione Staff Abilitato</h3>
+                <h3 className="text-2xl font-black italic uppercase tracking-tighter">Gestione Staff</h3>
                 <div className="grid grid-cols-4 gap-4 items-end bg-slate-50 p-6 rounded-[2rem]">
                    <input type="text" placeholder="Ufficio" id="nu-g" className="px-4 py-3 rounded-xl border border-slate-200 font-bold outline-none" />
                    <input type="text" placeholder="Username" id="nu-u" className="px-4 py-3 rounded-xl border border-slate-200 font-bold outline-none" />
@@ -681,7 +662,7 @@ const App: React.FC = () => {
                    </select>
                    <button onClick={() => {
                       const g = (document.getElementById('nu-g') as any).value; const u = (document.getElementById('nu-u') as any).value; const r = (document.getElementById('nu-r') as any).value;
-                      if(u && g) { updateVault((prev) => ({ users: [...prev.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }), { action: 'Accreditamento Nuovo Operatore', details: `Procedura di provisioning completata. Creata utenza per l'operatore ${u} con ruolo ${r} all'interno dell'organico dell'Ufficio ${g}. Password di primo accesso generata e in attesa di rotazione obbligatoria.` }); alert(`Password di default: ${DEFAULT_PASSWORD}`); }
+                      if(u && g) { updateVault((prev) => ({ users: [...prev.users, { id: `u-${Date.now()}`, username: u, passwordHash: DEFAULT_PASSWORD, role: r as UserRole, workgroup: g, mustChangePassword: true, loginCount: 0 }] }), { action: 'Accreditamento Operatore', details: `Creata utenza per ${u}.` }); alert(`Password: ${DEFAULT_PASSWORD}`); }
                    }} className="bg-indigo-600 text-white py-3 rounded-xl font-black uppercase text-[10px] shadow-lg tracking-widest">Aggiungi Staff</button>
                 </div>
                 <div className="space-y-3">
@@ -689,25 +670,10 @@ const App: React.FC = () => {
                     const latestVideo = state.auditLog.find(log => log.userId === u.id && log.videoProof)?.videoProof;
                     return (
                       <div key={u.id} className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center justify-between hover:shadow-md transition-all">
+                        <div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div><div><p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">{u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span></p><p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p></div></div>
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-slate-900 text-white rounded-lg flex items-center justify-center font-black text-xl italic">{u.workgroup[0]}</div>
-                          <div>
-                            <p className="font-black text-slate-800 italic uppercase text-sm tracking-tighter">
-                              {u.username} <span className="text-[9px] text-indigo-500 ml-2">[{u.workgroup}]</span>
-                            </p>
-                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{u.role}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          {latestVideo && (
-                            <button 
-                              onClick={() => setPlayingVideo({ url: latestVideo, user: u.username })}
-                              className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[8px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 animate-pulse"
-                            >
-                              🎥 ACCREDITAMENTO
-                            </button>
-                          )}
-                          <button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Abilitazioni Operatore', details: `Accesso negato e utenza disabilitata per l'operatore ${u.username} (${u.role}). Tutte le chiavi crittografiche associate sono state revocate dal sistema centrale per disposizione dell'Amministratore.` }); }} className="text-rose-400 hover:text-rose-600 text-[10px] font-black uppercase">Elimina</button>
+                          {latestVideo && <button onClick={() => setPlayingVideo({ url: latestVideo, user: u.username })} className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[8px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-sm border border-indigo-100 animate-pulse">🎥 ACCREDITAMENTO</button>}
+                          <button onClick={() => { if(u.id !== currentUser.id && confirm("Revocare accesso?")) updateVault((prev) => ({ users: prev.users.filter(usr => usr.id !== u.id) }), { action: 'Revoca Abilitazioni', details: `Accesso negato per ${u.username}.` }); }} className="text-rose-400 hover:text-rose-600 text-[10px] font-black uppercase">Elimina</button>
                         </div>
                       </div>
                     );
@@ -728,13 +694,13 @@ const App: React.FC = () => {
                 currentUser={currentUser} 
               />
             )}
-            {view === 'add-idv' && <IdvForm existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} users={state.users} currentUser={currentUser} onSubmit={async (d) => { await updateVault((prev) => ({ idvs: [...prev.idvs, { id: `idv-${Date.now()}`, ...d as any, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, ownerWorkgroup: currentUser.workgroup }] }), { action: 'Registrazione Asset Fondiario (Iniezione)', details: `Nuova iniezione di fondi perfezionata in archivio. L'operatore ${currentUser.username} ha registrato l'asset ${d.idvCode} per un importo nominale di €${d.amount?.toLocaleString()} sul Capitolo di spesa ${d.capitolo}. La risorsa è stata assegnata alla responsabilità tecnica dell'Ufficio ${d.assignedWorkgroup}. Motivazione formale: "${d.motivation}". Registrazione eseguita il ${new Date().toLocaleString()}.` }); setView('idvs'); }} onCancel={() => setView('idvs')} />}
+            {view === 'add-idv' && <IdvForm existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} users={state.users} currentUser={currentUser} onSubmit={async (d) => { await updateVault((prev) => ({ idvs: [...prev.idvs, { id: `idv-${Date.now()}`, ...d as any, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, ownerWorkgroup: currentUser.workgroup }] }), { action: 'Registrazione Asset', details: `Fondo registered.` }); setView('idvs'); }} onCancel={() => setView('idvs')} />}
             {(view === 'add-work' || editWorkOrder) && <WorkForm idvs={state.idvs} orders={state.orders} currentUser={currentUser} existingChapters={Array.from(new Set(state.idvs.map(i => i.capitolo)))} initialData={editWorkOrder || undefined} prefilledChapter={selectedChapter || undefined} onSubmit={async (d) => { 
                 if (editWorkOrder) { 
-                  updateVault((prev) => ({ orders: prev.orders.map(o => o.id === editWorkOrder.id ? { ...o, ...d } : o) }), { action: 'Revisione Fascicolo Tecnico', details: `Aggiornamento dati operativi per la pratica ${editWorkOrder.orderNumber}. L'operatore ha modificato le specifiche dell'impegno: "${d.description}". Parametri tecnici ri-validati dal sistema PPB.` }); 
+                  updateVault((prev) => ({ orders: prev.orders.map(o => o.id === editWorkOrder.id ? { ...o, ...d } : o) }), { action: 'Revisione Pratica', details: `Aggiornato ${editWorkOrder.orderNumber}.` }); 
                 } else { 
                   const autoId = `IMP-${new Date().getFullYear()}-${(state.orders.length + 1001).toString().slice(-4)}`;
-                  updateVault((prev) => ({ orders: [...prev.orders, { id: `w-${Date.now()}`, ...d as any, orderNumber: autoId, status: WorkStatus.PROGETTO, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, workgroup: currentUser.workgroup }] }), { action: 'Immissione Nuovo Impegno di Spesa', details: `Protocollo ${autoId} generato ed inserito in registro. Descrizione Intervento: "${d.description}". Importo stimato a sistema: €${d.estimatedValue?.toLocaleString()}. L'Ufficio ${currentUser.workgroup} assume la gestione della pratica. Copertura finanziaria verificata su IDV collegati.` }); 
+                  updateVault((prev) => ({ orders: [...prev.orders, { id: `w-${Date.now()}`, ...d as any, orderNumber: autoId, status: WorkStatus.PROGETTO, createdAt: new Date().toISOString(), ownerId: currentUser.id, ownerName: currentUser.username, workgroup: currentUser.workgroup }] }), { action: 'Nuovo Impegno', details: `Protocollo ${autoId} inserito.` }); 
                 } 
                 setEditWorkOrder(null); setView('works'); 
               }} onCancel={() => { setEditWorkOrder(null); setView('works'); }} />}
@@ -742,28 +708,27 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* VIDEO PLAYER FORENSE UNIFICATO */}
       {playingVideo && (
         <div className="fixed inset-0 z-[250] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-8">
           <div className="bg-white rounded-[3rem] p-4 shadow-2xl max-w-2xl w-full border-4 border-indigo-600 animate-in zoom-in duration-300">
             <div className="aspect-video bg-black rounded-2xl overflow-hidden mb-4 relative">
               <video src={playingVideo.url} autoPlay controls className="w-full h-full object-cover" />
-              <div className="absolute top-4 left-4 bg-indigo-600 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">Reperto Biometrico Forense: {playingVideo.user.toUpperCase()}</div>
+              <div className="absolute top-4 left-4 bg-indigo-600 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest">Reperto Forense: {playingVideo.user.toUpperCase()}</div>
             </div>
             <div className="flex justify-between items-center px-4">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic leading-none">Integrità Verificata dal Sistema Vault</span>
-              <button onClick={() => setPlayingVideo(null)} className="px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700">✕ Termina Visione</button>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Integrità Verificata Protocollo Orion</span>
+              <button onClick={() => setPlayingVideo(null)} className="px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700">Chiudi</button>
             </div>
           </div>
         </div>
       )}
 
       {bidModalOrder && <BidModal order={bidModalOrder} onSave={(b) => { 
-        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }), { action: 'Registrazione Aggiudicazione Gara', details: `Fase 2 completata per la pratica ${bidModalOrder.orderNumber}. L'appalto è stato formalmente affidato alla ditta "${b.winner}" per un importo contrattuale definitivo di €${b.bidValue.toLocaleString()}. La variazione tra stima iniziale ed affidamento ha generato un'economia di gara ricalcolata in tempo reale dal protocollo.` }); 
+        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === bidModalOrder.id ? { ...o, status: WorkStatus.AFFIDAMENTO, winner: b.winner, contractValue: b.bidValue, contractPdf: b.contractPdf } : o) }), { action: 'Affidamento Gara', details: `Pratica ${bidModalOrder.orderNumber} affidata.` }); 
         setBidModalOrder(null); 
       }} onClose={() => setBidModalOrder(null)} />}
       {paymentModalOrder && <PaymentModal order={paymentModalOrder} onSave={(p) => { 
-        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === paymentModalOrder.id ? { ...o, status: WorkStatus.PAGAMENTO, paidValue: p.paidValue, invoicePdf: p.invoicePdf, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, creGenerated: true, creDate: p.creDate } : o) }), { action: 'Liquidazione e Chiusura Contabile', details: `Fase Finale eseguita per la pratica ${paymentModalOrder.orderNumber}. Caricata fattura n. ${p.invoiceNumber} del ${p.invoiceDate}. Importo liquidato: €${p.paidValue.toLocaleString()}. Il sistema ha generato il Certificato di Regolare Esecuzione (CRE) in data ${p.creDate}. L'impegno è ora considerato CONCLUSO e ARCHIVIATO.` }); 
+        updateVault((prev) => ({ orders: prev.orders.map(o => o.id === paymentModalOrder.id ? { ...o, status: WorkStatus.PAGAMENTO, paidValue: p.paidValue, invoicePdf: p.invoicePdf, invoiceNumber: p.invoiceNumber, invoiceDate: p.invoiceDate, creGenerated: true, creDate: p.creDate } : o) }), { action: 'Chiusura Contabile', details: `Pratica ${paymentModalOrder.orderNumber} liquidata.` }); 
         setPaymentModalOrder(null); 
       }} onClose={() => setPaymentModalOrder(null)} />}
     </div>

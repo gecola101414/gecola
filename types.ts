@@ -18,6 +18,7 @@ export interface User {
   lastActive?: string;
   loginCount?: number;
   lastReadTimestamps?: Record<string, string>;
+  isBioVerified?: boolean; // Stato di verifica biometrica della sessione
 }
 
 export interface Attachment {
@@ -49,6 +50,7 @@ export interface PlanningNeed {
   locked?: boolean;
   createdAt: string; 
   ownerName: string;
+  ownerId: string; // Aggiunto per gestire la cancellazione
   workgroup: string;
   decretations?: DecretationEntry[];
   isApprovedByReppe?: boolean;
@@ -67,6 +69,16 @@ export interface PlanningList {
   isApprovedByComandante?: boolean;
 }
 
+export interface Briefing {
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  description: string;
+  location: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+}
+
 export interface FundingIDV {
   id: string;
   idvCode: string;
@@ -81,7 +93,6 @@ export interface FundingIDV {
   locked?: boolean;
 }
 
-// Added BidResult interface to fix missing export error in BidModal
 export interface BidResult {
   winner: string;
   bidValue: number;
@@ -89,7 +100,6 @@ export interface BidResult {
   contractPdf?: { name: string; data: string };
 }
 
-// Added PaymentResult interface to fix missing export error in PaymentModal
 export interface PaymentResult {
   paidValue: number;
   invoiceDate: string;
@@ -131,7 +141,7 @@ export interface AuditEntry {
   workgroup: string; 
   action: string;
   details: string;
-  videoProof?: string; // Base64 della video-dichiarazione di 5 secondi
+  videoProof?: string; 
 }
 
 export enum WorkStatus {
@@ -164,5 +174,6 @@ export interface AppState {
   planningLists: PlanningList[];
   auditLog: AuditEntry[];
   chatMessages: ChatMessage[];
+  briefings: Briefing[];
   lastSync: string;
 }
