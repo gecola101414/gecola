@@ -1,6 +1,7 @@
 
 export enum UserRole {
   ADMIN = 'Amministratore',
+  PPB = 'P.P.B.',
   REPPE = 'R.E.P.P.E.',
   COMANDANTE = 'Comandante',
   EDITOR = 'Ufficio Tecnico',
@@ -15,10 +16,12 @@ export interface User {
   role: UserRole;
   workgroup: string;
   mustChangePassword?: boolean;
+  isFirstLogin?: boolean;
+  profilePhoto?: string; // Mantenuto per compatibilità, usato per thumbnail
+  accreditationVideo?: string; // Base64 video MP4/WebM
   lastActive?: string;
   loginCount?: number;
   lastReadTimestamps?: Record<string, string>;
-  isBioVerified?: boolean; // Stato di verifica biometrica della sessione
 }
 
 export interface Attachment {
@@ -32,7 +35,9 @@ export interface Attachment {
 
 export interface DecretationEntry {
   id: string;
-  text: string;
+  text?: string;
+  mediaProof?: string; 
+  mediaType?: 'video' | 'audio';
   author: string;
   role: UserRole;
   date: string;
@@ -50,13 +55,15 @@ export interface PlanningNeed {
   locked?: boolean;
   createdAt: string; 
   ownerName: string;
-  ownerId: string; // Aggiunto per gestire la cancellazione
+  ownerId: string; 
   workgroup: string;
   decretations?: DecretationEntry[];
   isApprovedByReppe?: boolean;
   isApprovedByComandante?: boolean;
   approvalDateReppe?: string;
   approvalDateComandante?: string;
+  isFunded?: boolean;
+  linkedIdvId?: string;
 }
 
 export interface PlanningList {
@@ -91,6 +98,7 @@ export interface FundingIDV {
   ownerWorkgroup: string;
   assignedWorkgroup: string;
   locked?: boolean;
+  sourceProjectId?: string; // Tracciamento origine
 }
 
 export interface BidResult {
@@ -142,6 +150,7 @@ export interface AuditEntry {
   action: string;
   details: string;
   videoProof?: string; 
+  relatedId?: string; 
 }
 
 export enum WorkStatus {
@@ -166,6 +175,7 @@ export interface ChatMessage {
 
 export interface AppState {
   version: number;
+  vaultId: string; // DNA univoco del file
   commandName: string;
   users: User[];
   idvs: FundingIDV[];

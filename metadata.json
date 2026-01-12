@@ -1,6 +1,6 @@
 {
-  "name": "PPB 4.1 - miglioramento della video accreditamento non obl",
-  "description": "Sistema professionale per il monitoraggio del ciclo finanziario con video-accreditamento biometrico e logica di non-ripudiabilità.",
+  "name": "Copy of PPB 10.3 - miglioramento della chatta e velocita degli inserimenti dei alvori",
+  "description": "Sistema professionale con DNA del file immutabile e video-accreditamento forense di 8 secondi.",
   "requestFramePermissions": [
     "camera",
     "microphone"

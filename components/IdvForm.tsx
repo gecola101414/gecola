@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FundingIDV, User, UserRole } from '../types';
 import { VoiceInput } from './VoiceInput';
 
@@ -9,18 +9,24 @@ interface IdvFormProps {
   currentUser: User;
   onSubmit: (idv: Partial<FundingIDV>) => void;
   onCancel: () => void;
+  initialData?: Partial<FundingIDV>;
 }
 
-export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users = [], currentUser, onSubmit, onCancel }) => {
+export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users = [], currentUser, onSubmit, onCancel, initialData }) => {
   const availableWorkgroups = Array.from(new Set(users.map(u => u.workgroup))).sort();
 
   const [formData, setFormData] = useState<Partial<FundingIDV>>({
-    idvCode: '',
-    capitolo: '',
-    amount: undefined,
-    motivation: '',
-    assignedWorkgroup: currentUser.workgroup
+    idvCode: initialData?.idvCode || '',
+    capitolo: initialData?.capitolo || '',
+    amount: initialData?.amount || undefined,
+    motivation: initialData?.motivation || '',
+    assignedWorkgroup: initialData?.assignedWorkgroup || currentUser.workgroup
   });
+
+  // COMANDANTE: Sincronizzazione in caso di cambio props
+  useEffect(() => {
+    if(initialData) setFormData(prev => ({...prev, ...initialData}));
+  }, [initialData]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +52,7 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
                      <div className="flex-1 bg-white"></div>
                      <div className="flex-1 bg-rose-600"></div>
                   </div>
-                  <span className="text-[8px] font-black text-emerald-600 uppercase tracking-[0.2em]">Protocollo Tattico 4.0</span>
+                  <span className="text-[8px] font-black text-emerald-600 uppercase tracking-[0.2em]">Protocollo Tattico 4.0 {initialData?.sourceProjectId ? '• ORIGINE PIANIFICAZIONE' : ''}</span>
                </div>
              </div>
           </div>
@@ -57,7 +63,6 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
         </div>
 
         <div className="flex-1 flex overflow-hidden min-h-0">
-          {/* SINISTRA: DATI TECNICI (60%) */}
           <div className="flex-[1.2] p-10 overflow-y-auto custom-scrollbar border-r border-slate-100 space-y-8">
             <div className="grid grid-cols-2 gap-6">
               <div className="bg-slate-50 p-6 rounded-[1.5rem] border border-slate-100">
@@ -125,7 +130,6 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
             </div>
           </div>
 
-          {/* DESTRA: INFOGRAFICA E INFO (40%) */}
           <div className="flex-1 bg-slate-50/50 p-10 flex flex-col border-l border-slate-100 space-y-8 relative overflow-hidden">
              <div className="absolute bottom-0 right-0 p-10 opacity-5 font-black text-[12rem] italic select-none pointer-events-none">
                 €
@@ -133,7 +137,12 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
              
              <div className="relative z-10 space-y-6">
                 <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-800 border-b border-emerald-200 pb-2 italic">Parametri di Validità</h4>
-                
+                {initialData?.sourceProjectId && (
+                  <div className="bg-amber-50 p-4 rounded-2xl border border-amber-200 animate-pulse">
+                     <p className="text-[10px] font-black text-amber-700 uppercase italic">⚠️ Attenzione</p>
+                     <p className="text-[9px] text-amber-600 italic">Il fondo sta per essere creato collegandolo direttamente a una pianificazione esistente. La scheda di progetto verrà marcata come "FINANZIATA".</p>
+                  </div>
+                )}
                 <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
                    <div className="flex items-start gap-4">
                       <div className="w-8 h-8 bg-emerald-100 text-emerald-700 rounded-lg flex items-center justify-center font-black">1</div>
@@ -149,21 +158,6 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
                          <p className="text-[9px] font-medium text-slate-400 italic">Le pratiche potranno attingere a questa risorsa solo se corrispondono al capitolo {formData.capitolo || '---'}.</p>
                       </div>
                    </div>
-                   <div className="flex items-start gap-4">
-                      <div className="w-8 h-8 bg-amber-100 text-amber-700 rounded-lg flex items-center justify-center font-black">3</div>
-                      <div className="flex-1">
-                         <p className="text-[10px] font-black text-slate-800 uppercase italic">Tracciabilità Operatore</p>
-                         <p className="text-[9px] font-medium text-slate-400 italic">Registrato da: {currentUser.username.toUpperCase()} il {new Date().toLocaleDateString()}</p>
-                      </div>
-                   </div>
-                </div>
-
-                <div className="p-8 bg-slate-900 rounded-[2.5rem] border-2 border-emerald-500/30 text-white space-y-4">
-                   <div className="flex items-center gap-3">
-                      <span className="text-2xl">🛡️</span>
-                      <p className="text-[11px] font-black uppercase tracking-widest italic">Sicurezza Asset</p>
-                   </div>
-                   <p className="text-[10px] text-slate-400 leading-relaxed italic">Ogni iniezione di fondi viene registrata nel Ledger di Audit. La modifica di importi già impegnati richiederà una procedura di sblocco amministrativo.</p>
                 </div>
              </div>
           </div>

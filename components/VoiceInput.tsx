@@ -16,6 +16,32 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ value, onChange, placeho
   const recognitionRef = useRef<any>(null);
   const initialValueRef = useRef<string | number>('');
   
+  // Gestione formattazione migliaia per la visualizzazione
+  const formatDisplayValue = (val: string | number): string => {
+    if (type !== 'number' || val === '' || val === undefined || val === null) return val?.toString() || '';
+    const cleanValue = val.toString().replace(/[^\d]/g, '');
+    if (!cleanValue) return '';
+    return new Intl.NumberFormat('it-IT').format(parseInt(cleanValue, 10));
+  };
+
+  const [displayValue, setDisplayValue] = useState(formatDisplayValue(value));
+
+  useEffect(() => {
+    setDisplayValue(formatDisplayValue(value));
+  }, [value]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (disabled) return;
+    const rawValue = e.target.value;
+    
+    if (type === 'number') {
+      const numericValue = rawValue.replace(/[^\d]/g, '');
+      onChange(numericValue); // Passiamo il valore pulito allo stato superiore
+    } else {
+      onChange(rawValue);
+    }
+  };
+
   const onChangeRef = useRef(onChange);
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -80,17 +106,9 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ value, onChange, placeho
     }
   };
 
-  const handleFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (disabled) return;
-    if (type === 'number' && value === 0) {
-      onChange('');
-    }
-  };
-
   const commonProps = {
-    value: value === 0 && type === 'number' ? '' : value,
-    onChange: (e: any) => !disabled && onChange(e.target.value),
-    onFocus: handleFocus,
+    value: type === 'number' ? displayValue : value,
+    onChange: handleInputChange,
     onMouseDown: startListening,
     onMouseUp: stopListening,
     onMouseLeave: stopListening,
@@ -104,5 +122,5 @@ export const VoiceInput: React.FC<VoiceInputProps> = ({ value, onChange, placeho
     return <textarea {...commonProps} rows={3} />;
   }
 
-  return <input type={type === 'number' ? 'text' : type} {...commonProps} />;
+  return <input type="text" {...commonProps} />;
 };
