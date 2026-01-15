@@ -14,6 +14,7 @@ interface IdvFormProps {
 
 export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users = [], currentUser, onSubmit, onCancel, initialData }) => {
   const availableWorkgroups = Array.from(new Set(users.map(u => u.workgroup))).sort();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState<Partial<FundingIDV>>({
     idvCode: initialData?.idvCode || '',
@@ -23,13 +24,14 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
     assignedWorkgroup: initialData?.assignedWorkgroup || currentUser.workgroup
   });
 
-  // COMANDANTE: Sincronizzazione in caso di cambio props
   useEffect(() => {
     if(initialData) setFormData(prev => ({...prev, ...initialData}));
   }, [initialData]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     onSubmit({
       ...formData,
       ownerWorkgroup: currentUser.workgroup
@@ -57,8 +59,15 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
              </div>
           </div>
           <div className="flex items-center gap-2">
-             <button onClick={onCancel} className="px-4 py-2 bg-white border border-slate-200 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:text-rose-600 transition-all">Chiudi Fascicolo</button>
-             <button onClick={handleSubmit} className="px-6 py-2 bg-emerald-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-emerald-800 transition-all">Registra Risorsa</button>
+             <button onClick={onCancel} disabled={isSubmitting} className="px-4 py-2 bg-white border border-slate-200 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:text-rose-600 transition-all disabled:opacity-50">Chiudi Fascicolo</button>
+             <button 
+                onClick={handleSubmit} 
+                disabled={isSubmitting}
+                className={`px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all flex items-center gap-2 ${isSubmitting ? 'bg-slate-700 text-slate-400' : 'bg-emerald-700 text-white hover:bg-emerald-800'}`}
+             >
+               {isSubmitting ? <span className="animate-spin text-sm">❂</span> : null}
+               {isSubmitting ? 'Registrazione...' : 'Registra Risorsa'}
+             </button>
           </div>
         </div>
 
@@ -72,6 +81,7 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
                   onChange={(v) => setFormData({...formData, idvCode: v})}
                   placeholder="es. IDV-2026-X"
                   required
+                  disabled={isSubmitting}
                   className="w-full bg-transparent border-b-2 border-slate-200 text-lg font-black text-slate-900 outline-none focus:border-emerald-600 transition-all"
                 />
               </div>
@@ -83,6 +93,7 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
                   onChange={(e) => setFormData({...formData, capitolo: e.target.value})}
                   placeholder="es. 1010"
                   required
+                  disabled={isSubmitting}
                   className="w-full bg-transparent border-b-2 border-slate-200 text-lg font-black text-indigo-700 outline-none focus:border-indigo-600 transition-all"
                 />
                 <datalist id="chapters">
@@ -100,14 +111,16 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
                   onChange={(v) => setFormData({...formData, amount: Number(v)})}
                   placeholder="0.00"
                   required
+                  disabled={isSubmitting}
                   className="w-full bg-transparent border-b-2 border-slate-200 text-2xl font-black text-emerald-700 outline-none focus:border-emerald-600 transition-all"
                 />
               </div>
               <div className="bg-indigo-50/50 p-6 rounded-[1.5rem] border border-indigo-100">
-                <label className="text-[8px] font-black uppercase text-indigo-500 tracking-[0.2em] block mb-2">Ufficio di Responsabilità</label>
+                <label className="text-[8px] font-black uppercase text-indigo-50 tracking-[0.2em] block mb-2">Ufficio di Responsabilità</label>
                 <select
                   value={formData.assignedWorkgroup}
                   onChange={(e) => setFormData({...formData, assignedWorkgroup: e.target.value})}
+                  disabled={isSubmitting}
                   className="w-full bg-transparent border-b-2 border-indigo-200 text-lg font-black text-indigo-900 outline-none focus:border-indigo-600 transition-all uppercase italic"
                 >
                   {availableWorkgroups.map(wg => (
@@ -125,6 +138,7 @@ export const IdvForm: React.FC<IdvFormProps> = ({ existingChapters = [], users =
                 onChange={(v) => setFormData({...formData, motivation: v})}
                 placeholder="Dettagliare la finalità della risorsa e gli eventuali vincoli di spesa..."
                 required
+                disabled={isSubmitting}
                 className="w-full p-8 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] text-sm font-medium italic text-slate-700 min-h-[150px] outline-none focus:border-emerald-600 transition-all"
               />
             </div>

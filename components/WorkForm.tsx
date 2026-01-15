@@ -40,6 +40,7 @@ export const calculateAllResiduals = (idvs: FundingIDV[], orders: WorkOrder[], e
 };
 
 const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingChapters = [], currentUser, onSubmit, onCancel, initialData, prefilledChapter }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // PROTOCOLLO 6.0: P.P.B. e ADMIN vedono tutti i fondi, gli altri solo quelli del proprio ufficio
   const myCompetenceIdvs = useMemo(() => {
@@ -95,6 +96,12 @@ const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingCha
     }
   };
 
+  const handleFormSubmit = () => {
+    if (isSubmitting || !selectedChapter || !formData.description || !hasFullCoverage) return;
+    setIsSubmitting(true);
+    onSubmit(formData);
+  };
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300 font-['Inter']">
       <div className="bg-white w-full max-w-[1500px] h-full max-h-[96vh] rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden border border-slate-200">
@@ -110,13 +117,14 @@ const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingCha
              </div>
           </div>
           <div className="flex items-center gap-4">
-             <button onClick={onCancel} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:text-rose-600 transition-all">Annulla</button>
+             <button onClick={onCancel} disabled={isSubmitting} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:text-rose-600 transition-all disabled:opacity-50">Annulla</button>
              <button 
-                onClick={() => onSubmit(formData)} 
-                disabled={!selectedChapter || !formData.description || !hasFullCoverage}
-                className={`px-8 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all ${(!selectedChapter || !formData.description || !hasFullCoverage) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                onClick={handleFormSubmit} 
+                disabled={!selectedChapter || !formData.description || !hasFullCoverage || isSubmitting}
+                className={`px-8 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg transition-all flex items-center gap-2 ${(!selectedChapter || !formData.description || !hasFullCoverage || isSubmitting) ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
              >
-               Registra Impegno Autorizzato
+               {isSubmitting ? <span className="animate-spin text-sm">❂</span> : null}
+               {isSubmitting ? 'Salvataggio...' : 'Registra Impegno Autorizzato'}
              </button>
           </div>
         </div>
@@ -130,6 +138,7 @@ const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingCha
                 <label className="text-[8px] font-black uppercase text-slate-400 tracking-[0.2em] block mb-2">Capitolo di Spesa</label>
                 <select 
                   value={selectedChapter}
+                  disabled={isSubmitting}
                   onChange={(e) => { setSelectedChapter(e.target.value); setFormData({ ...formData, linkedIdvIds: [] }); }}
                   className="w-full bg-white border-2 border-slate-200 px-4 py-3 rounded-xl font-black text-indigo-600 outline-none focus:border-indigo-600"
                 >
@@ -143,6 +152,7 @@ const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingCha
                 <VoiceInput
                   type="number"
                   value={formData.estimatedValue || ''}
+                  disabled={isSubmitting}
                   onChange={(v) => setFormData({ ...formData, estimatedValue: Number(v) })}
                   placeholder="0.00"
                   className="w-full bg-white border-2 border-slate-200 px-4 py-3 rounded-xl font-black text-xl text-slate-900 outline-none focus:border-indigo-600"
@@ -161,6 +171,7 @@ const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingCha
             <VoiceInput
               type="textarea"
               value={formData.description || ''}
+              disabled={isSubmitting}
               onChange={(v) => setFormData({ ...formData, description: v })}
               placeholder="Dettagliare l'oggetto della spesa..."
               className="w-full p-8 bg-slate-50 border-2 border-slate-100 rounded-[2.5rem] text-sm font-medium italic text-slate-700 min-h-[300px] outline-none focus:border-indigo-600"
@@ -191,7 +202,7 @@ const WorkForm: React.FC<WorkFormProps> = ({ idvs = [], orders = [], existingCha
                      <button 
                        key={idv.id} 
                        type="button" 
-                       disabled={res <= 0 && !isSelected} 
+                       disabled={(res <= 0 && !isSelected) || isSubmitting} 
                        onClick={() => toggleIdv(idv.id)} 
                        className={`p-6 text-left rounded-[1.8rem] border-2 transition-all flex flex-col justify-between h-32 relative overflow-hidden ${isSelected ? 'border-indigo-600 bg-white shadow-xl scale-[1.02] z-10' : 'border-slate-100 bg-white hover:border-indigo-200'}`}
                      >

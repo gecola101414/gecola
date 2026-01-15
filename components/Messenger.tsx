@@ -8,32 +8,13 @@ interface MessengerProps {
   allUsers: User[];
   onSendMessage: (msg: Partial<ChatMessage>) => void;
   onReadChat: (chatId: string) => void;
-  isSyncing?: boolean;
 }
-
-const LoadingStar = () => (
-  <div className="absolute -top-3 -right-3 w-8 h-8 z-20 flex items-center justify-center animate-in zoom-in duration-300">
-    <div className="relative w-full h-full">
-      {/* Cerchio di caricamento rotante */}
-      <svg className="w-full h-full animate-spin text-indigo-500" viewBox="0 0 24 24">
-        <circle className="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none"></circle>
-        <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-      </svg>
-      {/* Stellina Gialla Fissa al Centro */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <svg width="12" height="12" viewBox="0 0 100 95" fill="#D4AF37" className="drop-shadow-[0_0_3px_rgba(212,175,55,0.8)]">
-           <path d="M50 0L61.2257 34.5492H97.5528L68.1636 55.9017L79.3893 90.4508L50 69.0983L20.6107 90.4508L31.8364 55.9017L2.44717 34.5492H38.7743L50 0Z" />
-        </svg>
-      </div>
-    </div>
-  </div>
-);
 
 const ProcessingStar = () => (
   <div className="flex flex-col items-center justify-center py-2 animate-in fade-in zoom-in duration-200">
     <div className="relative">
       <div className="absolute inset-0 bg-indigo-500/30 blur-2xl rounded-full animate-pulse"></div>
-      <svg width="34" height="34" viewBox="0 0 100 95" fill="none" xmlns="http://www.w3.org/2000/svg" className="animate-spin duration-[3000ms] relative z-10">
+      <svg width="34" height="34" viewBox="0 0 100 95" fill="none" xmlns="http://www.w3.org/2000/svg" className="animate-spin duration-[2000ms] relative z-10">
         <path d="M50 0L61.2257 34.5492H97.5528L68.1636 55.9017L79.3893 90.4508L50 69.0983L20.6107 90.4508L31.8364 55.9017L2.44717 34.5492H38.7743L50 0Z" fill="#D4AF37"/>
       </svg>
     </div>
@@ -41,15 +22,15 @@ const ProcessingStar = () => (
   </div>
 );
 
-const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, onSendMessage, onReadChat, isSyncing }) => {
+const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, onSendMessage, onReadChat }) => {
   const [inputText, setInputText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const [isWaitingToStart, setIsWaitingToStart] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [selectedChat, setSelectedChat] = useState<'general' | string>('general');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [pendingVoiceMsg, setPendingVoiceMsg] = useState<Attachment | null>(null);
   const [auditMode, setAuditMode] = useState(false);
   
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -57,6 +38,7 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
+  const startWaitTimerRef = useRef<number | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const isLegalAudit = currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.VIEWER || currentUser.role === UserRole.COMANDANTE;
@@ -109,16 +91,15 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
     });
   };
 
-  const handleSend = async () => {
-    if (pendingVoiceMsg) {
+  const handleSend = async (voiceMsg?: Attachment) => {
+    if (voiceMsg) {
       onSendMessage({
         text: '🎤 Messaggio Vocale Operativo',
         isVoice: true,
         timestamp: new Date().toISOString(),
         recipientId: selectedChat === 'general' ? undefined : selectedChat,
-        attachments: [pendingVoiceMsg]
+        attachments: [voiceMsg]
       });
-      setPendingVoiceMsg(null);
       return;
     }
 
@@ -151,45 +132,49 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
     setAttachments(prev => [...prev, ...newAttachments]);
   };
 
-  const startRecording = async (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    if (pendingVoiceMsg) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      audioChunksRef.current = [];
-      
-      recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
-      recorder.onstop = async () => {
-        setIsProcessingAudio(true); 
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const b64 = await blobToBase64(blob);
-        
-        setPendingVoiceMsg({
-          id: `voice-${Date.now()}`,
-          name: `nota-vocale.webm`,
-          data: b64,
-          type: 'audio/webm',
-          size: blob.size,
-          uploadedAt: new Date().toISOString()
-        });
-        
-        setIsProcessingAudio(false);
-        stream.getTracks().forEach(t => t.stop());
-      };
-
-      recorder.start();
-      setIsRecording(true);
-      setRecordingDuration(0);
-      recordingTimerRef.current = window.setInterval(() => setRecordingDuration(p => p + 1), 1000);
-    } catch (e) { 
-      alert("Accesso al microfono negato o non disponibile."); 
-    }
+  const startRecordingSequence = async () => {
+    setIsWaitingToStart(true);
+    // Avvio effettivo dopo 2s di pressione
+    startWaitTimerRef.current = window.setTimeout(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = recorder;
+        audioChunksRef.current = [];
+        recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+        recorder.onstop = async () => {
+          // LA STELLA APPARE SUBITO AL RILASCIO
+          setIsProcessingAudio(true); 
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const b64 = await blobToBase64(blob); // Lavoro pesante in background
+          const voiceAttachment = {
+            id: `voice-${Date.now()}`,
+            name: `nota-vocale.webm`,
+            data: b64,
+            type: 'audio/webm',
+            size: blob.size,
+            uploadedAt: new Date().toISOString()
+          };
+          handleSend(voiceAttachment);
+          setIsProcessingAudio(false); // Scompare immediatamente finito il lavoro
+          stream.getTracks().forEach(t => t.stop());
+        };
+        recorder.start();
+        setIsRecording(true);
+        setIsWaitingToStart(false);
+        setRecordingDuration(0);
+        recordingTimerRef.current = window.setInterval(() => setRecordingDuration(p => p + 1), 1000);
+      } catch (e) { 
+        setIsWaitingToStart(false);
+        alert("Microfono non autorizzato."); 
+      }
+    }, 2000);
   };
 
-  const stopRecording = () => {
+  const stopRecordingSequence = () => {
+    setIsWaitingToStart(false);
+    if (startWaitTimerRef.current) clearTimeout(startWaitTimerRef.current);
+    
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
@@ -255,46 +240,39 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
         </div>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat">
-          {filteredMessages.map((msg, i) => {
-            const isLastMessage = i === filteredMessages.length - 1;
-            const isMyMessage = msg.userId === currentUser.id;
-            const showLoading = isLastMessage && isMyMessage && isSyncing;
-
-            return (
-              <div key={msg.id || i} className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
-                <div className={`max-w-[75%] rounded-2xl p-4 shadow-sm relative ${isMyMessage ? 'bg-[#d9fdd3] rounded-tr-none border-l-4 border-emerald-400' : 'bg-white rounded-tl-none border-l-4 border-indigo-400'}`}>
-                  {showLoading && <LoadingStar />}
-                  {auditMode && <p className="text-[6px] font-black text-rose-500 uppercase mb-1">AUDIT: {msg.username} [{msg.workgroup}]</p>}
-                  {!msg.isVoice ? (
-                     <div className="space-y-2">
-                       {msg.attachments?.map(a => (
-                         <div key={a.id} className="bg-white/50 p-3 rounded-xl border border-black/5 flex items-center gap-3">
-                           <span className="text-xl">📄</span>
-                           <div className="flex-1 min-w-0">
-                             <p className="text-[10px] font-black truncate">{a.name}</p>
-                             <button onClick={() => { const l=document.createElement('a'); l.href=a.data; l.download=a.name; l.click(); }} className="text-[8px] font-black text-indigo-600 uppercase mt-1">Scarica</button>
-                           </div>
+          {filteredMessages.map((msg, i) => (
+            <div key={msg.id || i} className={`flex ${msg.userId === currentUser.id ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2`}>
+              <div className={`max-w-[75%] rounded-2xl p-4 shadow-sm relative ${msg.userId === currentUser.id ? 'bg-[#d9fdd3] rounded-tr-none border-l-4 border-emerald-400' : 'bg-white rounded-tl-none border-l-4 border-indigo-400'}`}>
+                {auditMode && <p className="text-[6px] font-black text-rose-500 uppercase mb-1">AUDIT: {msg.username} [{msg.workgroup}]</p>}
+                {!msg.isVoice ? (
+                   <div className="space-y-2">
+                     {msg.attachments?.map(a => (
+                       <div key={a.id} className="bg-white/50 p-3 rounded-xl border border-black/5 flex items-center gap-3">
+                         <span className="text-xl">📄</span>
+                         <div className="flex-1 min-w-0">
+                           <p className="text-[10px] font-black truncate">{a.name}</p>
+                           <button onClick={() => { const l=document.createElement('a'); l.href=a.data; l.download=a.name; l.click(); }} className="text-[8px] font-black text-indigo-600 uppercase mt-1">Scarica</button>
                          </div>
-                       ))}
-                       <p className="text-sm text-slate-800 font-medium whitespace-pre-wrap">{msg.text}</p>
-                     </div>
-                  ) : (
-                    <div className="flex items-center gap-4 py-2 min-w-[200px]">
-                      <button onClick={() => playVoiceMessage(msg.attachments![0].data, msg.id)} className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md transition-all active:scale-95 ${playingId === msg.id ? 'bg-rose-500' : 'bg-emerald-600'}`}>{playingId === msg.id ? '❚❚' : '▶'}</button>
-                      <div className="flex-1 flex gap-0.5 items-center h-4">
-                         {[...Array(15)].map((_, j) => <div key={j} className={`w-1 rounded-full ${playingId === msg.id ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} style={{height: `${20 + Math.random()*80}%`}} />)}
-                      </div>
-                      <span className="text-[9px] font-black text-slate-400">🎤</span>
+                       </div>
+                     ))}
+                     <p className="text-sm text-slate-800 font-medium whitespace-pre-wrap">{msg.text}</p>
+                   </div>
+                ) : (
+                  <div className="flex items-center gap-4 py-2 min-w-[200px]">
+                    <button onClick={() => playVoiceMessage(msg.attachments![0].data, msg.id)} className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md transition-all active:scale-95 ${playingId === msg.id ? 'bg-rose-500' : 'bg-emerald-600'}`}>{playingId === msg.id ? '❚❚' : '▶'}</button>
+                    <div className="flex-1 flex gap-0.5 items-center h-4">
+                       {[...Array(15)].map((_, j) => <div key={j} className={`w-1 rounded-full ${playingId === msg.id ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} style={{height: `${20 + Math.random()*80}%`}} />)}
                     </div>
-                  )}
-                  <div className="flex justify-between items-center mt-2">
-                     <span className="text-[7px] text-slate-300 font-black uppercase">{msg.username}</span>
-                     <span className="text-[8px] text-slate-400 font-bold">{new Date(msg.timestamp).toLocaleString('it-IT', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</span>
+                    <span className="text-[9px] font-black text-slate-400">🎤</span>
                   </div>
+                )}
+                <div className="flex justify-between items-center mt-2">
+                   <span className="text-[7px] text-slate-300 font-black uppercase">{msg.username}</span>
+                   <span className="text-[8px] text-slate-400 font-bold">{new Date(msg.timestamp).toLocaleString('it-IT', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}</span>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
 
         <div className="bg-[#f0f2f5] px-4 py-3 flex items-end gap-2 flex-shrink-0 z-50">
@@ -304,7 +282,7 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
               <ProcessingStar />
             ) : (
               <>
-                {(attachments.length > 0 || pendingVoiceMsg) && (
+                {attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2 p-2 bg-slate-50 rounded-xl mb-2 border border-slate-200">
                     {attachments.map(att => (
                       <div key={att.id} className="bg-white px-2 py-1 rounded-lg border border-slate-200 flex items-center gap-2 text-[8px] font-black uppercase">
@@ -312,14 +290,6 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
                         <button onClick={() => setAttachments(prev => prev.filter(a => a.id !== att.id))} className="text-rose-500">✕</button>
                       </div>
                     ))}
-                    {pendingVoiceMsg && (
-                      <div className="bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200 flex items-center gap-3 animate-in slide-in-from-left duration-300 relative">
-                        <span className="text-[8px] font-black text-emerald-700 uppercase tracking-widest">🎤 NOTA VOCALE PRONTA</span>
-                        <div className="h-4 w-px bg-emerald-200"></div>
-                        <button onClick={() => playVoiceMessage(pendingVoiceMsg.data, 'pending')} className="text-[8px] font-black text-emerald-600 uppercase hover:text-emerald-800">{playingId === 'pending' ? 'STOP' : 'ASCOLTA'}</button>
-                        <button onClick={() => setPendingVoiceMsg(null)} className="text-rose-500 text-[10px]">✕</button>
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -329,7 +299,7 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
                         <div className="w-2 h-2 rounded-full bg-rose-600 animate-ping"></div>
                         <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest italic">Registrazione Militare Attiva: {Math.floor(recordingDuration/60)}:{(recordingDuration%60).toString().padStart(2,'0')}</span>
                      </div>
-                     <span className="text-[8px] font-bold text-rose-400 uppercase italic">Rilascia per terminare</span>
+                     <span className="text-[8px] font-bold text-rose-400 uppercase italic">Rilascia per inviare</span>
                    </div>
                 ) : (
                    <div className="flex items-center gap-3">
@@ -337,11 +307,11 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
                       <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" />
                       <input 
                         type="text" 
-                        placeholder="Scrivi un messaggio operativo..."
+                        placeholder={isWaitingToStart ? "Inizializzazione microfono..." : "Scrivi un messaggio operativo..."}
                         value={inputText}
                         onChange={e => setInputText(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleSend()}
-                        className="flex-1 bg-transparent border-none py-2 px-1 outline-none text-sm font-medium"
+                        className={`flex-1 bg-transparent border-none py-2 px-1 outline-none text-sm font-medium ${isWaitingToStart ? 'opacity-30' : ''}`}
                       />
                    </div>
                 )}
@@ -351,13 +321,13 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
 
           <div className="flex items-center gap-2 pb-1">
              <button 
-               onMouseDown={startRecording}
-               onMouseUp={stopRecording}
-               onMouseLeave={stopRecording}
-               onTouchStart={startRecording}
-               onTouchEnd={stopRecording}
-               className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all ${isRecording ? 'bg-rose-600 text-white scale-125 shadow-rose-200' : 'bg-white text-slate-500 hover:bg-indigo-50 border border-slate-200 active:scale-90'}`}
-               title="Tieni premuto per registrare"
+               onMouseDown={startRecordingSequence}
+               onMouseUp={stopRecordingSequence}
+               onMouseLeave={stopRecordingSequence}
+               onTouchStart={startRecordingSequence}
+               onTouchEnd={stopRecordingSequence}
+               className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all ${isRecording ? 'bg-rose-600 text-white scale-125 shadow-rose-200' : (isWaitingToStart ? 'bg-indigo-100 text-indigo-600 animate-pulse' : 'bg-white text-slate-500 hover:bg-indigo-50 border border-slate-200 active:scale-90')}`}
+               title="Tieni premuto 2s per registrare"
                style={{ cursor: 'pointer' }}
              >
                 <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
@@ -365,8 +335,8 @@ const Messenger: React.FC<MessengerProps> = ({ messages, currentUser, allUsers, 
              
              <button 
                onClick={() => handleSend()}
-               disabled={(!inputText.trim() && attachments.length === 0 && !pendingVoiceMsg) || isRecording}
-               className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95 ${(!inputText.trim() && attachments.length === 0 && !pendingVoiceMsg) ? 'bg-slate-100 text-slate-300 border border-slate-200' : 'bg-emerald-600 text-white shadow-emerald-200'}`}
+               disabled={!inputText.trim() && attachments.length === 0}
+               className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95 ${(!inputText.trim() && attachments.length === 0) ? 'bg-slate-100 text-slate-300 border border-slate-200' : 'bg-emerald-600 text-white shadow-emerald-200'}`}
                title="Invia Messaggio"
                style={{ cursor: 'pointer' }}
              >
