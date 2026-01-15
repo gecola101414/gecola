@@ -63,9 +63,9 @@ export const generateWbsCategories = async (description: string): Promise<Catego
     ]
     `;
 
-    // Use flash for maximum speed
+    // Use gemini-3-flash-preview for basic text tasks
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json"
@@ -143,9 +143,9 @@ export const generateArticleItem = async (
     }
     `;
 
-    // CHANGED TO GEMINI 2.5 FLASH FOR SPEED
+    // Use gemini-3-flash-preview for text tasks with tools
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -220,9 +220,9 @@ export const generateBulkItems = async (
     }
     `;
 
-    // Keeping pro for bulk reasoning as it's complex, but could switch if needed
+    // Using gemini-3-pro-preview for bulk reasoning tasks
     const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview",
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -339,8 +339,9 @@ export const parseVoiceMeasurement = async (transcript: string): Promise<Partial
         Example: "2 finestre soggiorno uno e venti per due e dieci" -> {"description": "finestre soggiorno", "length": 1.20, "width": 2.10, "height": null, "multiplier": 2}
         `;
 
+        // Use gemini-3-flash-preview for voice parsing tasks
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash", // Use flash for speed
+            model: "gemini-3-flash-preview",
             contents: prompt,
             config: { responseMimeType: "application/json" } // Force JSON
         });
