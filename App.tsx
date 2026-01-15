@@ -15,6 +15,7 @@ import Manual from './components/Manual';
 import PlanningModule from './components/PlanningModule';
 import AuditLog from './components/AuditLog';
 import Messenger from './components/Messenger';
+import AdminModule from './components/AdminModule'; 
 import AzimuthCheck from './components/AzimuthCheck';
 // @ts-ignore
 import { jsPDF } from 'jspdf';
@@ -143,7 +144,17 @@ const App: React.FC = () => {
       vaultId: data.vaultId || `DNA-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
       version: data.version || 1,
       commandName: data.commandName || "COMANDO CME",
-      users: data.users || [],
+      users: (data.users || []).map((u: any) => ({
+        ...u,
+        permissions: u.permissions || {
+          canManageFunds: u.role === UserRole.ADMIN || u.role === UserRole.PPB,
+          canManageWorks: u.role !== UserRole.VIEWER,
+          canManagePlanning: u.role !== UserRole.VIEWER,
+          canAccessAudit: u.role === UserRole.ADMIN,
+          canAdminUsers: u.role === UserRole.ADMIN,
+          canExportData: true
+        }
+      })),
       idvs: data.idvs || [],
       orders: data.orders || [],
       planningNeeds: data.planningNeeds || [],
@@ -184,7 +195,7 @@ const App: React.FC = () => {
     if (!fileHandle || currentUser?.role === UserRole.VIEWER) return;
     isWritingRef.current = true; 
     setSyncStatus('syncing');
-    setIsProcessing(true); // Attivazione Stella per scrittura disco
+    setIsProcessing(true);
     try {
       const writable = await fileHandle.createWritable();
       await writable.write(encrypt(newState));
@@ -196,7 +207,7 @@ const App: React.FC = () => {
       setSyncStatus('error'); 
     } finally { 
       isWritingRef.current = false; 
-      setTimeout(() => setIsProcessing(false), 300); // Disattivazione Stella
+      setTimeout(() => setIsProcessing(false), 400); 
     }
   };
 
@@ -253,11 +264,16 @@ const App: React.FC = () => {
     } finally { setIsProcessing(false); }
   };
 
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setView('login');
+  };
+
   const handleTransparencyAccess = async () => {
     if (!state) return;
     setIsProcessing(true);
     try {
-      setCurrentUser({ id: 'u-public', username: 'Visualizzatore Pubblico', passwordHash: '', role: UserRole.VIEWER, workgroup: 'ESTERNO', isFirstLogin: false });
+      setCurrentUser({ id: 'u-public', username: 'Visualizzatore Pubblico', passwordHash: '', role: UserRole.VIEWER, workgroup: 'ESTERNO', isFirstLogin: false, permissions: { canManageFunds: false, canManageWorks: false, canManagePlanning: false, canAccessAudit: false, canAdminUsers: false, canExportData: false } });
       setView('dashboard');
     } finally { setIsProcessing(false); }
   };
@@ -408,7 +424,7 @@ const App: React.FC = () => {
           setIsProcessing(true);
           try {
             const vId = `DNA-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`; 
-            const init: AppState = { vaultId: vId, version: 1, commandName: cmd, users: [{ id: 'u-admin', username: u, passwordHash: p, role: UserRole.ADMIN, workgroup: '', mustChangePassword: false, loginCount: 0, isFirstLogin: false }], idvs: [], orders: [], planningNeeds: [], planningLists: [], auditLog: [], chatMessages: [], briefings: [], lastSync: new Date().toISOString() }; 
+            const init: AppState = { vaultId: vId, version: 1, commandName: cmd, users: [{ id: 'u-admin', username: u, passwordHash: p, role: UserRole.ADMIN, workgroup: 'COMANDO', mustChangePassword: false, loginCount: 0, isFirstLogin: false, permissions: { canManageFunds: true, canManageWorks: true, canManagePlanning: true, canAccessAudit: true, canAdminUsers: true, canExportData: true } }], idvs: [], orders: [], planningNeeds: [], planningLists: [], auditLog: [], chatMessages: [], briefings: [], lastSync: new Date().toISOString() }; 
             setState(init); setCurrentUser(init.users[0]); await saveHandleToIDB(fileHandle, vId); await writeToDisk(init); setView('dashboard'); 
           } finally { setIsProcessing(false); }
         } 
@@ -433,7 +449,14 @@ const App: React.FC = () => {
           <div className="pt-2 pb-5 border-b border-slate-100 flex flex-col flex-shrink-0 relative text-center">
              <EsercitoLogo size="sm" />
              <p className="text-[10px] font-black uppercase text-indigo-700 tracking-[0.2em] px-2 italic mt-2">{state.commandName}</p>
-             <div className="flex flex-col items-center gap-2 mb-2 mt-4 bg-slate-50 p-4 rounded-[2rem] border border-slate-100 shadow-inner">
+             <div className="flex flex-col items-center gap-2 mb-2 mt-4 bg-slate-50 p-4 rounded-[2rem] border border-slate-100 shadow-inner relative group">
+                <button 
+                  onClick={handleLogout}
+                  className="absolute top-3 right-3 p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all z-20"
+                  title="Uscita / Sblocco"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                </button>
                 <div className="w-20 h-20 rounded-3xl bg-white overflow-hidden border-4 border-indigo-100 shadow-lg relative flex items-center justify-center">
                    {currentUser.profilePhoto ? <img src={currentUser.profilePhoto} className="w-full h-full object-cover" /> : <span className="text-3xl">👤</span>}
                 </div>
@@ -444,7 +467,16 @@ const App: React.FC = () => {
              </div>
           </div>
           <nav className="space-y-0.5 flex-1 overflow-y-auto no-scrollbar py-4 px-2">
-            {[ { id: 'dashboard', label: 'Analisi' }, { id: 'works', label: 'Lavori' }, { id: 'idvs', label: 'Fondi' }, { id: 'planning', label: 'Obiettivi' }, { id: 'comms', label: 'Chat' }, { id: 'audit', label: 'Registro DNA' }, { id: 'manual', label: 'Manuale' } ].map(item => (
+            {[ 
+              { id: 'dashboard', label: 'Analisi' }, 
+              { id: 'works', label: 'Lavori' }, 
+              { id: 'idvs', label: 'Fondi' }, 
+              { id: 'planning', label: 'Registro Obiettivi' }, 
+              { id: 'comms', label: 'Chat' }, 
+              { id: 'audit', label: 'Registro DNA', restricted: !currentUser.permissions.canAccessAudit }, 
+              { id: 'admin', label: 'Staff DNA', restricted: !currentUser.permissions.canAdminUsers },
+              { id: 'manual', label: 'Manuale' } 
+            ].filter(i => !i.restricted).map(item => (
                 <button key={item.id} onClick={() => { setView(item.id as any); setEditWorkOrder(null); }} className={`w-full flex items-center justify-between px-6 py-3 rounded-[1.2rem] transition-all relative ${view === item.id ? 'bg-indigo-600 text-white shadow-lg scale-[1.01]' : 'text-slate-400 hover:bg-slate-50'}`}> 
                   <span className="text-[9px] font-black uppercase tracking-widest">{item.label}</span> 
                 </button> 
@@ -454,10 +486,10 @@ const App: React.FC = () => {
 
         <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
           <header className="bg-white px-10 py-5 flex justify-between items-center border-b border-slate-200 z-40 flex-shrink-0 shadow-sm">
-            <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">DNA Management Protocol</h2>
+            <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">Registro Obiettivi & DNA Protocol</h2>
             <div className="flex gap-4">
               <button onClick={handleUndo} className="p-2 border rounded-xl bg-white text-slate-400 hover:text-indigo-600">↩</button>
-              <button onClick={handleGlobalExportPDF} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-md">Export DNA PDF</button>
+              {currentUser.permissions.canExportData && <button onClick={handleGlobalExportPDF} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[9px] font-black uppercase shadow-md">Export DNA PDF</button>}
             </div>
           </header>
 
@@ -470,6 +502,7 @@ const App: React.FC = () => {
                 {view === 'chapter-detail' && selectedChapter && <ChapterReport chapter={selectedChapter} idvs={state.idvs.filter(i => i.capitolo === selectedChapter)} allIdvs={state.idvs} orders={state.orders} onBack={() => setView('dashboard')} onAddWork={() => setView('add-work')} onOrderClick={(id) => { setHighlightedOrderId(id); setView('works'); }} userRole={currentUser.role} currentUser={currentUser} />} 
                 {view === 'audit' && <AuditLog log={state.auditLog} filter={auditFilter} setFilter={setAuditFilter} fromDate={auditFromDate} setFromDate={setAuditFromDate} toDate={auditToDate} setToDate={setAuditToDate} />}
                 {view === 'comms' && <Messenger messages={state.chatMessages || []} currentUser={currentUser} allUsers={state.users} onSendMessage={handleSendMessage} onReadChat={handleMarkChatRead} />}
+                {view === 'admin' && <AdminModule users={state.users} currentUser={currentUser} onUpdateUsers={async (nu, log) => { await updateVault({ users: nu }, log); }} />}
                 {view === 'manual' && <Manual commandName={state.commandName} />}
 
                 {/* MODALI ESCLUSIVI */}

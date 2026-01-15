@@ -2,6 +2,10 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { AppState, PlanningNeed, User, UserRole, Attachment, PlanningList } from '../types';
 import { VoiceInput } from './VoiceInput';
+// @ts-ignore
+import { jsPDF } from 'jspdf';
+// @ts-ignore
+import autoTable from 'jspdf-autotable';
 
 interface PlanningModuleProps {
   state: AppState;
@@ -50,10 +54,11 @@ const PriorityBadge = ({ priority }: { priority: 1 | 2 | 3 }) => {
   );
 };
 
-const PlanningModule: React.FC<PlanningModuleProps> = ({ state, activeListId, onSetActiveListId, onUpdate, currentUser, globalFilter, onShowHistory, onLoadFunding }) => {
+const PlanningModule: React.FC<PlanningModuleProps> = ({ state, activeListId, onSetActiveListId, onUpdate, currentUser, globalFilter, onShowHistory, onLoadFunding, commandName }) => {
   const [editingNeed, setEditingNeed] = useState<Partial<PlanningNeed> | null>(null);
   const [editingList, setEditingList] = useState<Partial<PlanningList> | null>(null);
   const [dragOverTab, setDragOverTab] = useState<string | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   
   const needs = state.planningNeeds || [];
   const isGarante = currentUser.role === UserRole.ADMIN || currentUser.role === UserRole.VIEWER;
@@ -82,6 +87,18 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, activeListId, on
     if (globalFilter === 'mine') base = base.filter(n => n.workgroup === currentUser.workgroup);
     return [...base].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [needs, activeListId, globalFilter, currentUser.workgroup]);
+
+  // CALCOLO SUB-TOTALI PER BANDA NERA
+  const listTotals = useMemo(() => {
+    const totals = { 1: 0, 2: 0, 3: 0, all: 0 };
+    filteredNeeds.forEach(n => {
+      const val = n.projectValue || 0;
+      const p = n.priority as 1|2|3;
+      if (totals[p] !== undefined) totals[p] += val;
+      totals.all += val;
+    });
+    return totals;
+  }, [filteredNeeds]);
 
   const handleSaveNeed = useCallback(() => {
     if (!editingNeed || isGarante) return;
@@ -146,6 +163,57 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, activeListId, on
     onUpdate({ planningNeeds: updatedNeeds }, { action: 'SPOSTAMENTO OBIETTIVO', details: `Progetto spostato nel gruppo ${state.planningLists.find(l => l.id === targetListId)?.name}`, relatedId: projectId });
   };
 
+  // FUNZIONE ESPORTAZIONE PDF SOTTOGRUPPO
+  const handleExportSubgroupPDF = () => {
+    if (!activeList) return;
+    const doc = new jsPDF();
+    const formatEuro = (v: number) => `€ ${v.toLocaleString('it-IT')}`;
+
+    doc.setFontSize(14); doc.setFont("helvetica", "bold");
+    doc.text(commandName.toUpperCase(), 105, 15, { align: "center" });
+    
+    doc.setFontSize(11);
+    doc.text(`REGISTRO OBIETTIVI - SOTTOGRUPPO: ${activeList.name.toUpperCase()}`, 105, 22, { align: "center" });
+    
+    doc.setFontSize(9); doc.setFont("helvetica", "italic");
+    const intro = `Analisi di pianificazione strategica per il comparto ${activeList.name}. Il presente documento certifica le esigenze rilevate e la loro priorità operativa all'interno del DNA di Comando.`;
+    const lines = doc.splitTextToSize(intro, 170);
+    doc.text(lines, 20, 32);
+
+    // TABELLA SINTESI ECONOMICA
+    autoTable(doc, {
+      startY: 42,
+      head: [['Analisi per Priorità', 'Volume Finanziario Totale']],
+      body: [
+        ['PRIORITÀ 1 (URGENTE)', formatEuro(listTotals[1])],
+        ['PRIORITÀ 2 (STRATEGICO)', formatEuro(listTotals[2])],
+        ['PRIORITÀ 3 (ORDINARIO)', formatEuro(listTotals[3])],
+        ['VALORE COMPLESSIVO SOTTOGRUPPO', formatEuro(listTotals.all)],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [15, 23, 42], fontSize: 8 },
+      columnStyles: { 1: { halign: 'right', fontStyle: 'bold' } }
+    });
+
+    // TABELLA ANALITICA PROGETTI
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 10,
+      head: [['Codice', 'Descrizione Progetto', 'Priorità', 'Ufficio', 'Stima (€)']],
+      body: filteredNeeds.map(n => [
+        `C-${n.chapter}`,
+        n.description.toUpperCase(),
+        n.priority === 1 ? 'P1-URG' : n.priority === 2 ? 'P2-STRAT' : 'P3-ORD',
+        n.workgroup,
+        formatEuro(n.projectValue)
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [79, 70, 229] },
+      styles: { fontSize: 7 }
+    });
+
+    setPdfPreviewUrl(doc.output('bloburl').toString());
+  };
+
   return (
     <div className="h-full flex flex-col relative animate-in fade-in duration-500 overflow-hidden font-['Inter']">
       <div className="flex items-end gap-1 px-4 pt-2 overflow-x-auto no-scrollbar flex-shrink-0">
@@ -181,12 +249,39 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, activeListId, on
       </div>
 
       <div className="flex-1 bg-white rounded-b-[2rem] rounded-tr-[2rem] border border-slate-200 shadow-2xl flex flex-col overflow-hidden m-2 mt-0 min-h-0">
-        <div className="bg-slate-900 px-8 py-4 flex justify-between items-center flex-shrink-0 z-10">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] italic">Registro Progetti Strategici</span>
-            <span className="text-xs font-black text-white uppercase italic tracking-tighter">{activeList?.name}</span>
+        
+        {/* BANDA NERA CON SUB-TOTALI PER PRIORITÀ */}
+        <div className="bg-slate-900 px-8 py-5 flex justify-between items-center flex-shrink-0 z-10 border-b border-slate-800">
+          <div className="flex flex-col flex-1">
+            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] italic">Registro Obiettivi Strategici</span>
+            <div className="flex items-center gap-4 mt-1">
+              <span className="text-sm font-black text-white uppercase italic tracking-tighter border-r border-white/20 pr-4">{activeList?.name}</span>
+              
+              <div className="flex items-center gap-2">
+                 <div className="flex items-center gap-1 bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20">
+                    <span className="text-[7px] font-black text-rose-500 uppercase">P1:</span>
+                    <span className="text-[10px] font-black text-white">€{listTotals[1].toLocaleString()}</span>
+                 </div>
+                 <div className="flex items-center gap-1 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                    <span className="text-[7px] font-black text-amber-500 uppercase">P2:</span>
+                    <span className="text-[10px] font-black text-white">€{listTotals[2].toLocaleString()}</span>
+                 </div>
+                 <div className="flex items-center gap-1 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20">
+                    <span className="text-[7px] font-black text-indigo-500 uppercase">P3:</span>
+                    <span className="text-[10px] font-black text-white">€{listTotals[3].toLocaleString()}</span>
+                 </div>
+                 <div className="flex items-center gap-1 bg-white/10 px-3 py-1 rounded-lg border border-white/20 ml-2">
+                    <span className="text-[7px] font-black text-slate-400 uppercase">TOTALE:</span>
+                    <span className="text-xs font-black text-emerald-400">€{listTotals.all.toLocaleString()}</span>
+                 </div>
+              </div>
+            </div>
           </div>
-          {!isGarante && <button onClick={() => setEditingNeed({ description: '', chapter: '', barracks: '', projectValue: 0, priority: 3, attachments: [] })} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">Nuovo Progetto +</button>}
+          
+          <div className="flex gap-3">
+             <button onClick={handleExportSubgroupPDF} className="px-5 py-2.5 bg-white border border-slate-700 text-slate-800 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all">Export PDF Lista</button>
+             {!isGarante && <button onClick={() => setEditingNeed({ description: '', chapter: '', barracks: '', projectValue: 0, priority: 3, attachments: [] })} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg hover:bg-indigo-700 transition-all">Nuovo Progetto +</button>}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2 bg-white">
@@ -346,6 +441,18 @@ const PlanningModule: React.FC<PlanningModuleProps> = ({ state, activeListId, on
                    </div>
                 </div>
              </div>
+           </div>
+        </div>
+      )}
+
+      {pdfPreviewUrl && (
+        <div className="fixed inset-0 z-[900] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm">
+           <div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800">
+             <div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0">
+               <span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Anteprima Esportazione Sottogruppo</span>
+               <button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg">✕ Chiudi</button>
+             </div>
+             <iframe src={pdfPreviewUrl} className="flex-1 border-0" />
            </div>
         </div>
       )}

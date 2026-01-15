@@ -9,6 +9,15 @@ export enum UserRole {
   VIEWER = 'Visualizzatore'
 }
 
+export interface UserPermissions {
+  canManageFunds: boolean;
+  canManageWorks: boolean;
+  canManagePlanning: boolean;
+  canAccessAudit: boolean;
+  canAdminUsers: boolean;
+  canExportData: boolean;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -17,17 +26,18 @@ export interface User {
   workgroup: string;
   mustChangePassword?: boolean;
   isFirstLogin?: boolean;
-  profilePhoto?: string; // Mantenuto per compatibilità, usato per thumbnail
-  accreditationVideo?: string; // Base64 video MP4/WebM
+  profilePhoto?: string;
+  accreditationVideo?: string;
   lastActive?: string;
   loginCount?: number;
   lastReadTimestamps?: Record<string, string>;
+  permissions: UserPermissions; // Nuova gestione spunte
 }
 
 export interface Attachment {
   id: string;
   name: string;
-  data: string; // Base64
+  data: string;
   type: string;
   size: number;
   uploadedAt: string;
@@ -98,7 +108,7 @@ export interface FundingIDV {
   ownerWorkgroup: string;
   assignedWorkgroup: string;
   locked?: boolean;
-  sourceProjectId?: string; // Tracciamento origine
+  sourceProjectId?: string;
 }
 
 export interface BidResult {
@@ -175,7 +185,7 @@ export interface ChatMessage {
 
 export interface AppState {
   version: number;
-  vaultId: string; // DNA univoco del file
+  vaultId: string; 
   commandName: string;
   users: User[];
   idvs: FundingIDV[];
