@@ -45,7 +45,7 @@ export const generateBulkItems = async (
     PROJECT CONTEXT: ${userDescription}
     REGION/YEAR: ${region} ${year}
     
-    TASK: Break down the project into work items mapped to these categories:
+    TASK: Break down the project into work items mapped strictly to these categories:
     ${categoriesList}
 
     Return ONLY a JSON object with an array "items".
@@ -54,12 +54,12 @@ export const generateBulkItems = async (
         {
           "categoryCode": "WBS.01",
           "code": "Codice Prezzario o NP.xxx",
-          "description": "Descrizione tecnica completa",
+          "description": "Descrizione tecnica completa e professionale",
           "unit": "m2/cad/etc",
           "quantity": 10,
           "unitPrice": 100.00,
           "laborRate": 25,
-          "priceListSource": "Fonte"
+          "priceListSource": "Fonte consultata"
         }
       ]
     }
