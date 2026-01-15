@@ -1,6 +1,6 @@
 
 import React, { useState, DragEvent } from 'react';
-import { Sparkles, Loader2, CornerRightDown, ExternalLink, MousePointerClick } from 'lucide-react';
+import { Sparkles, Loader2, CornerRightDown, ExternalLink } from 'lucide-react';
 
 interface CategoryDropGateProps {
   onDropContent: (text: string) => void;
@@ -32,9 +32,9 @@ const CategoryDropGate: React.FC<CategoryDropGateProps> = ({ onDropContent, isLo
 
   if (isLoading) {
     return (
-      <div className="w-full h-32 rounded-xl border-2 border-blue-400 bg-blue-50 flex flex-col items-center justify-center animate-pulse shadow-inner">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-2" />
-        <span className="text-sm font-bold text-blue-700 uppercase tracking-widest">Analisi tecnica in corso...</span>
+      <div className="h-full min-h-[36px] px-4 rounded border border-blue-200 bg-blue-50 flex items-center justify-center animate-pulse shadow-sm">
+        <Loader2 className="w-3 h-3 text-blue-600 animate-spin mr-2" />
+        <span className="text-[10px] font-bold text-blue-700">Analisi in corso...</span>
       </div>
     );
   }
@@ -45,37 +45,34 @@ const CategoryDropGate: React.FC<CategoryDropGateProps> = ({ onDropContent, isLo
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       className={`
-        w-full h-32 rounded-xl border-2 border-dashed transition-all duration-300 flex flex-col items-center justify-center gap-2 group
+        h-full min-h-[36px] w-full px-4 rounded border-2 border-dashed transition-all duration-200 cursor-default flex items-center justify-center gap-2 group
         ${isDragOver 
-          ? 'border-green-500 bg-green-50 shadow-[0_0_20px_rgba(34,197,94,0.2)] scale-[1.01]' 
-          : 'border-gray-300 bg-slate-50 hover:border-blue-400 hover:bg-white'
+          ? 'border-green-500 bg-green-50 shadow-inner' 
+          : 'border-gray-300 bg-white hover:border-blue-400 hover:bg-blue-50/30'
         }
       `}
+      title="Trascina qui il testo copiato"
     >
-      <div className={`p-3 rounded-full transition-colors ${isDragOver ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400 group-hover:bg-blue-100 group-hover:text-blue-500'}`}>
-        {isDragOver ? <CornerRightDown className="w-6 h-6" /> : <MousePointerClick className="w-6 h-6" />}
-      </div>
+      <CornerRightDown className={`w-3 h-3 ${isDragOver ? 'text-green-600' : 'text-gray-400'}`} />
       
-      <div className="text-center">
-        <span className={`text-xs font-bold uppercase tracking-widest block ${isDragOver ? 'text-green-700' : 'text-gray-500 group-hover:text-blue-700'}`}>
-          {isDragOver ? 'RILASCIA PER IMPORTARE' : 'Trascina qui una voce da'}
-        </span>
-        {!isDragOver && (
-          <div className="flex items-center justify-center gap-1 mt-1">
-            <a 
-                href="https://www.gecola.it" 
-                target="_blank" 
-                rel="noreferrer" 
-                className="text-blue-600 hover:text-blue-800 font-black text-sm flex items-center"
-                onClick={(e) => e.stopPropagation()}
-            >
-                GECOLA.IT <ExternalLink className="w-3 h-3 ml-1" />
-            </a>
-          </div>
+      <span className={`text-[10px] font-medium uppercase tracking-wide truncate ${isDragOver ? 'text-green-700 font-bold' : 'text-gray-400 group-hover:text-gray-600'}`}>
+        {isDragOver ? 'RILASCIA ADESSO' : (
+            <span className="flex items-center gap-1">
+                Trascina voce da 
+                <a 
+                    href="https://www.gecola.it" 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="text-blue-500 hover:text-blue-700 hover:underline font-bold flex items-center z-20 relative pointer-events-auto"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    gecola.it <ExternalLink className="w-2 h-2 ml-0.5 inline" />
+                </a>
+            </span>
         )}
-      </div>
+      </span>
 
-      {!isDragOver && <Sparkles className="w-4 h-4 text-orange-300 absolute top-4 right-4 opacity-50" />}
+      {!isDragOver && <Sparkles className="w-3 h-3 text-gray-300 opacity-50" />}
     </div>
   );
 };
