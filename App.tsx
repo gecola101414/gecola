@@ -26,7 +26,6 @@ const SYSTEM_SECRET = "CME_LOMB_SECURE_VAULT_2026_V21_MASTER";
 const ENCRYPTION_PREFIX = "PPB_CRYPT_V21:";
 const IDB_NAME = 'VaultDB';
 const IDB_STORE = 'Handles';
-const DEFAULT_PASSWORD = "1234567890";
 
 const GlobalLoader: React.FC<{ active: boolean }> = ({ active }) => {
   if (!active) return null;
@@ -117,6 +116,13 @@ const App: React.FC = () => {
   const [editWorkOrder, setEditWorkOrder] = useState<WorkOrder | null>(null);
   const [bidModalOrder, setBidModalOrder] = useState<WorkOrder | null>(null);
   const [paymentModalOrder, setPaymentModalOrder] = useState<WorkOrder | null>(null);
+
+  // Stati per accreditamento video
+  const [isRecording, setIsRecording] = useState(false);
+  const [countdown, setCountdown] = useState(8);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   const isWritingRef = useRef(false);
   const stateRef = useRef<AppState | null>(null);
@@ -255,10 +261,12 @@ const App: React.FC = () => {
     try {
       const user = state.users.find(usr => usr.id === userId);
       if (user) {
-        if (user.isFirstLogin) { setCurrentUser(user); setView('first-login-setup'); return; }
         if (user.passwordHash === p) {
           const loggedUser = { ...user, lastActive: new Date().toISOString(), loginCount: (user.loginCount || 0) + 1 };
-          setCurrentUser(loggedUser); if (loggedUser.mustChangePassword) setView('change-password'); else setView('dashboard');
+          setCurrentUser(loggedUser); 
+          if (user.isFirstLogin) setView('first-login-setup');
+          else if (user.mustChangePassword) setView('change-password'); 
+          else setView('dashboard');
         } else alert("Chiave di accesso errata.");
       }
     } finally { setIsProcessing(false); }
@@ -323,6 +331,65 @@ const App: React.FC = () => {
     finally { setIsProcessing(false); }
   };
 
+  // Funzioni per primo accesso e accreditamento
+  const handleFirstLoginSetup = async (photo: string) => {
+    if (!currentUser) return;
+    const updatedUser = { ...currentUser, profilePhoto: photo, isFirstLogin: false, mustChangePassword: true };
+    setCurrentUser(updatedUser);
+    await updateVault((prev) => ({ users: prev.users.map(u => u.id === currentUser.id ? updatedUser : u) }));
+    setView('responsibility-accreditation');
+  };
+
+  const handlePasswordChange = async (newPass: string) => {
+    if (!currentUser) return;
+    const updatedUser = { ...currentUser, passwordHash: newPass, mustChangePassword: false };
+    setCurrentUser(updatedUser);
+    await updateVault((prev) => ({ users: prev.users.map(u => u.id === currentUser.id ? updatedUser : u) }), { action: 'CAMBIO PASSWORD', details: `Operatore ${currentUser.username} ha aggiornato la chiave di accesso.` });
+    setView('dashboard');
+  };
+
+  const startAccreditationVideo = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (videoRef.current) videoRef.current.srcObject = stream;
+      
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+      
+      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+           const videoData = e.target?.result as string;
+           if (currentUser) {
+              const updatedUser = { ...currentUser, accreditationVideo: videoData };
+              setCurrentUser(updatedUser);
+              await updateVault((prev) => ({ users: prev.users.map(u => u.id === currentUser.id ? updatedUser : u) }), { action: 'ACCREDITAMENTO FORENSE', details: `Registrato video di 8s per operatore ${currentUser.username}.`, videoProof: videoData });
+              setView('dashboard');
+           }
+        };
+        reader.readAsDataURL(blob);
+        stream.getTracks().forEach(t => t.stop());
+      };
+      
+      recorder.start();
+      setIsRecording(true);
+      let count = 8;
+      setCountdown(8);
+      const timer = setInterval(() => {
+        count--;
+        setCountdown(count);
+        if (count === 0) {
+          clearInterval(timer);
+          recorder.stop();
+          setIsRecording(false);
+        }
+      }, 1000);
+    } catch (e) { alert("Accesso camera negato."); }
+  };
+
   const handleUndo = async () => {
     if (undoHistory.length === 0 || !state) return;
     setIsProcessing(true);
@@ -347,18 +414,34 @@ const App: React.FC = () => {
     } finally { setIsProcessing(false); }
   };
 
+  // Fix: Added handleSendMessage to handle chat message persistence
   const handleSendMessage = async (msg: Partial<ChatMessage>) => {
     if (!currentUser || !state) return;
-    const newMsg: ChatMessage = { id: `msg-${Date.now()}`, userId: currentUser.id, username: currentUser.username, role: currentUser.role, workgroup: currentUser.workgroup, text: msg.text || '', timestamp: new Date().toISOString(), attachments: msg.attachments || [], isVoice: msg.isVoice || false, recipientId: msg.recipientId };
-    setState(prev => prev ? ({ ...prev, chatMessages: [...(prev.chatMessages || []), newMsg], version: (prev.version || 0) + 1 }) : null);
-    setTimeout(() => { if(stateRef.current) writeToDisk(stateRef.current); }, 100);
+    const newMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      userId: currentUser.id,
+      username: currentUser.username,
+      role: currentUser.role,
+      workgroup: currentUser.workgroup,
+      text: msg.text || '',
+      timestamp: new Date().toISOString(),
+      attachments: msg.attachments,
+      isVoice: msg.isVoice,
+      recipientId: msg.recipientId
+    };
+    await updateVault((prev) => ({ chatMessages: [...(prev.chatMessages || []), newMessage] }));
   };
 
+  // Fix: Added handleMarkChatRead to update last read timestamps for the current user
   const handleMarkChatRead = async (chatId: string) => {
     if (!currentUser || !state) return;
-    const updatedUser = { ...currentUser, lastReadTimestamps: { ...(currentUser.lastReadTimestamps || {}), [chatId]: new Date().toISOString() } };
+    const now = new Date().toISOString();
+    const updatedTimestamps = { ...(currentUser.lastReadTimestamps || {}), [chatId]: now };
+    const updatedUser = { ...currentUser, lastReadTimestamps: updatedTimestamps };
     setCurrentUser(updatedUser);
-    await updateVault((prev) => ({ users: prev.users.map(u => u.id === currentUser.id ? updatedUser : u) }));
+    await updateVault((prev) => ({
+      users: prev.users.map(u => u.id === currentUser.id ? updatedUser : u)
+    }));
   };
 
   const handleGlobalExportPDF = async () => {
@@ -437,6 +520,80 @@ const App: React.FC = () => {
       <div className="bg-white rounded-[4rem] p-12 shadow-2xl max-w-lg w-full text-center border border-indigo-100 space-y-8"><EsercitoLogo size="md" /><h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter italic leading-none">Sblocco Identità</h2><div className="space-y-6 text-left"><div className="space-y-2"><label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-4">Operatore</label><select id="l-u" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold outline-none focus:border-indigo-600 appearance-none shadow-sm">{state.users.map(u => <option key={u.id} value={u.id}>{u.username.toUpperCase()} {u.role === UserRole.ADMIN ? '(Amministratore)' : `[${u.workgroup}]`}</option>)}</select></div><div className="space-y-2"><label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-4">Password</label><input type="password" placeholder="••••••••" id="l-p" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-200 rounded-3xl font-bold focus:border-indigo-600 outline-none shadow-sm" /></div><button onClick={() => handleLogin((document.getElementById('l-u') as any)?.value || '', (document.getElementById('l-p') as any)?.value || '')} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 transition-all border-b-4 border-indigo-900 active:translate-y-1">Apri Archivio DNA</button>
     <button onClick={handleTransparencyAccess} className="w-full text-[10px] font-black text-amber-600 uppercase tracking-widest hover:text-amber-700 transition-colors">Visualizzazione Pubblica Sola Lettura 👁️</button>
     </div></div></div>
+  );
+
+  // VIEW: PRIMO ACCESSO (IMPOSTA FOTO)
+  if (view === 'first-login-setup') return (
+    <div className="min-h-screen flex items-center justify-center bg-indigo-50 p-6">
+       <div className="bg-white rounded-[4rem] p-12 shadow-2xl max-w-lg w-full text-center border border-indigo-100 space-y-8">
+          <EsercitoLogo size="md" />
+          <h2 className="text-2xl font-black uppercase italic tracking-tighter">Profilo Operatore</h2>
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Caricamento Identità Bio-Digitale</p>
+          <div className="space-y-6">
+             <div className="w-32 h-32 mx-auto rounded-full bg-slate-50 border-4 border-dashed border-slate-200 flex items-center justify-center relative overflow-hidden group">
+                {currentUser?.profilePhoto ? <img src={currentUser.profilePhoto} className="w-full h-full object-cover" /> : <span className="text-4xl">📸</span>}
+                <input type="file" accept="image/*" onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => handleFirstLoginSetup(ev.target?.result as string);
+                    reader.readAsDataURL(file);
+                  }
+                }} className="absolute inset-0 opacity-0 cursor-pointer" />
+             </div>
+             <p className="text-[9px] font-bold text-slate-400 uppercase italic">Clicca sul cerchio per caricare la foto del profilo istituzionale</p>
+          </div>
+       </div>
+    </div>
+  );
+
+  // VIEW: ACCREDITAMENTO VIDEO 8S
+  if (view === 'responsibility-accreditation') return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 p-6">
+       <div className="bg-white rounded-[4rem] p-12 shadow-2xl max-w-2xl w-full text-center space-y-8 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-2 bg-rose-600"></div>
+          <h2 className="text-2xl font-black uppercase italic tracking-tighter">Accreditamento Forense DNA</h2>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest leading-relaxed">Per procedere è necessario registrare un video di assunzione responsabilità di 8 secondi. <br/>Il video sarà sigillato nel DNA e visibile solo agli organi di controllo.</p>
+          
+          <div className="aspect-video bg-black rounded-3xl overflow-hidden relative shadow-2xl border-4 border-slate-900">
+             <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+             {isRecording && (
+                <div className="absolute top-4 right-4 flex items-center gap-2 bg-rose-600 text-white px-4 py-2 rounded-full font-black animate-pulse">
+                   <div className="w-2 h-2 rounded-full bg-white animate-ping"></div>
+                   REC: {countdown}s
+                </div>
+             )}
+          </div>
+
+          <div className="flex gap-4">
+             <button onClick={() => setView('dashboard')} className="flex-1 py-5 text-slate-400 font-black uppercase text-[10px] tracking-widest">Salta (Facoltativo)</button>
+             <button onClick={startAccreditationVideo} disabled={isRecording} className="flex-[2] py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-rose-700 transition-all border-b-4 border-rose-900 active:translate-y-1">
+                {isRecording ? 'Registrazione in corso...' : 'Inizia Registrazione 8s'}
+             </button>
+          </div>
+       </div>
+    </div>
+  );
+
+  // VIEW: CAMBIO PASSWORD OBBLIGATORIO
+  if (view === 'change-password') return (
+    <div className="min-h-screen flex items-center justify-center bg-indigo-50 p-6">
+       <div className="bg-white rounded-[4rem] p-12 shadow-2xl max-w-lg w-full text-center border border-indigo-100 space-y-8">
+          <EsercitoLogo size="md" />
+          <h2 className="text-2xl font-black uppercase italic tracking-tighter">Nuova Chiave di Accesso</h2>
+          <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Procedura Obbligatoria di Sicurezza DNA</p>
+          <div className="space-y-4 text-left">
+             <input type="password" id="np1" placeholder="Nuova Password" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
+             <input type="password" id="np2" placeholder="Conferma Password" className="w-full px-8 py-5 bg-slate-50 border-2 border-slate-100 rounded-3xl font-bold focus:border-indigo-600 outline-none" />
+             <button onClick={() => {
+                const p1 = (document.getElementById('np1') as HTMLInputElement).value;
+                const p2 = (document.getElementById('np2') as HTMLInputElement).value;
+                if (p1 && p1 === p2) handlePasswordChange(p1);
+                else alert("Le password non coincidono o sono vuote.");
+             }} className="w-full py-6 bg-indigo-600 text-white rounded-3xl font-black uppercase shadow-xl hover:bg-indigo-700 border-b-4 border-indigo-900 active:translate-y-1">Applica Nuova Chiave</button>
+          </div>
+       </div>
+    </div>
   );
 
   if (!state || !currentUser) return null;
