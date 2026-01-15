@@ -17,65 +17,100 @@ import SaveProjectModal from './components/SaveProjectModal';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
-import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
-import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import WelcomeModal from './components/WelcomeModal';
+import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems, generateWbsCategories } from './services/geminiService';
+import { generateComputoMetricPdf, generateElencoPrezziPdf } from './services/pdfGenerator';
 
-// --- Global Types & Helpers ---
-type ViewMode = 'COMPUTO' | 'ANALISI';
-interface Snapshot { articles: Article[]; categories: Category[]; analyses: PriceAnalysis[]; }
+// --- Helper Functions ---
+const formatCurrency = (val: number) => {
+  return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
+};
 
-const formatCurrency = (val: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
-const formatNumber = (val: number | undefined) => (val === undefined || val === null || val === 0) ? '' : val.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const getWbsNumber = (code: string) => { const match = code.match(/WBS\.(\d+)/); return match ? parseInt(match[1], 10) : code; };
-const roundTwoDecimals = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+const formatNumber = (val: number | undefined) => {
+    if (val === undefined || val === null || val === 0) return '';
+    return val.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
-// --- Calculation Engine ---
+const getWbsNumber = (code: string) => {
+    const match = code.match(/WBS\.(\d+)/);
+    return match ? parseInt(match[1], 10) : code;
+};
+
+const roundTwoDecimals = (num: number) => {
+    return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
+// --- Core Calculation Engine ---
 const calculateRowValue = (m: Measurement, linkedValue: number = 0): number => {
   if (m.type === 'subtotal') return 0;
   if (m.linkedArticleId) {
     const mult = m.multiplier === undefined ? 1 : m.multiplier;
     return (linkedValue || 0) * mult * (m.type === 'deduction' ? -1 : 1);
   }
-  const factors = [m.length, m.width, m.height].filter(v => v !== undefined && v !== 0 && v !== null);
+  const l = m.length;
+  const w = m.width;
+  const h = m.height;
+  const factors = [l, w, h].filter(v => v !== undefined && v !== 0 && v !== null);
   const base = factors.length > 0 ? factors.reduce((a, b) => (a || 1) * (b || 1), 1) : 0;
-  let mult = (m.multiplier !== undefined) ? m.multiplier : (factors.length > 0 ? 1 : 0);
-  const val = ((factors.length === 0 && mult !== 0) ? 1 : base) * mult;
+  let effectiveMultiplier = 0;
+  if (m.multiplier !== undefined) {
+      effectiveMultiplier = m.multiplier;
+  } else {
+      if (factors.length > 0) effectiveMultiplier = 1;
+      else if (m.length === undefined && m.width === undefined && m.height === undefined) effectiveMultiplier = 0;
+  }
+  const effectiveBase = (factors.length === 0 && effectiveMultiplier !== 0) ? 1 : base;
+  const val = effectiveBase * effectiveMultiplier;
   return m.type === 'deduction' ? -val : val;
 };
 
-const resolveArticleQuantity = (id: string, map: Map<string, Article>, visited: Set<string> = new Set()): number => {
-  if (visited.has(id)) return 0;
-  visited.add(id);
-  const art = map.get(id);
-  if (!art) return 0;
-  return art.measurements.reduce((sum, m) => {
+const resolveArticleQuantity = (
+  articleId: string, 
+  allArticlesMap: Map<string, Article>, 
+  visited: Set<string> = new Set()
+): number => {
+  if (visited.has(articleId)) return 0;
+  visited.add(articleId);
+  const article = allArticlesMap.get(articleId);
+  if (!article) return 0;
+  return article.measurements.reduce((sum, m) => {
     let rowVal = 0;
     if (m.linkedArticleId) {
-       const srcQty = resolveArticleQuantity(m.linkedArticleId, map, new Set(visited));
-       let base = srcQty;
-       if (m.linkedType === 'amount') { const src = map.get(m.linkedArticleId); if (src) base = srcQty * src.unitPrice; }
-       rowVal = calculateRowValue(m, base);
-    } else { rowVal = calculateRowValue(m); }
+       const sourceQty = resolveArticleQuantity(m.linkedArticleId, allArticlesMap, new Set(visited));
+       let finalSourceVal = sourceQty;
+       if (m.linkedType === 'amount') {
+         const sourceArt = allArticlesMap.get(m.linkedArticleId);
+         if (sourceArt) finalSourceVal = sourceQty * sourceArt.unitPrice;
+       }
+       rowVal = calculateRowValue(m, finalSourceVal);
+    } else {
+       rowVal = calculateRowValue(m);
+    }
     return sum + rowVal;
   }, 0);
 };
 
 const recalculateAllArticles = (articles: Article[]): Article[] => {
-  const map = new Map(articles.map(a => [a.id, a]));
-  return articles.map(art => ({ ...art, quantity: resolveArticleQuantity(art.id, map) }));
+  const articleMap = new Map(articles.map(a => [a.id, a]));
+  return articles.map(art => {
+    const calculatedQty = resolveArticleQuantity(art.id, articleMap);
+    return { ...art, quantity: calculatedQty };
+  });
 };
 
-// --- Table Components ---
-const TableHeader: React.FC<{ activeColumn: string | null }> = ({ activeColumn }) => (
+// --- Components ---
+interface TableHeaderProps { activeColumn: string | null; }
+
+const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
   <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-20 shadow-sm">
     <tr>
       <th className="py-1 px-1 text-center w-[35px] border-r border-gray-300">N.</th>
       <th className="py-1 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
-      <th className={`py-1 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50' : ''}`}>Designazione dei Lavori</th>
-      <th className="py-1 px-1 text-center w-[45px] border-r border-gray-300">Par.Ug</th>
-      <th className="py-1 px-1 text-center w-[55px] border-r border-gray-300">Lung.</th>
-      <th className="py-1 px-1 text-center w-[55px] border-r border-gray-300">Largh.</th>
-      <th className="py-1 px-1 text-center w-[55px] border-r border-gray-300">H/Peso</th>
+      <th className={`py-1 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
+      <th className={`py-1 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
       <th className="py-1 px-1 text-center w-[70px] border-r border-gray-300 bg-gray-100">Quantità</th>
       <th className="py-1 px-1 text-right w-[80px] border-r border-gray-300">Prezzo €</th>
       <th className="py-1 px-1 text-right w-[90px] border-r border-gray-300">Importo €</th>
@@ -85,41 +120,46 @@ const TableHeader: React.FC<{ activeColumn: string | null }> = ({ activeColumn }
   </thead>
 );
 
-// Define ArticleGroupProps to fix missing name error
 interface ArticleGroupProps {
-  article: Article;
-  index: number;
-  allArticles: Article[];
-  isPrintMode: boolean;
-  isCategoryLocked?: boolean;
-  onUpdateArticle: (id: string, field: keyof Article, value: any) => void;
-  onEditArticleDetails: (article: Article) => void;
-  onDeleteArticle: (id: string) => void;
-  onAddMeasurement: (articleId: string) => void;
-  onAddSubtotal: (articleId: string) => void;
-  onUpdateMeasurement: (articleId: string, mId: string, field: keyof Measurement, value: any) => void;
+  article: Article; index: number; allArticles: Article[]; isPrintMode: boolean; isCategoryLocked?: boolean;
+  onUpdateArticle: (id: string, field: keyof Article, value: string | number) => void;
+  onEditArticleDetails: (article: Article) => void; onDeleteArticle: (id: string) => void;
+  onAddMeasurement: (articleId: string) => void; onAddSubtotal: (articleId: string) => void;
+  onAddVoiceMeasurement: (articleId: string, data: Partial<Measurement>) => void;
+  onUpdateMeasurement: (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => void;
   onDeleteMeasurement: (articleId: string, mId: string) => void;
   onToggleDeduction: (articleId: string, mId: string) => void;
   onOpenLinkModal: (articleId: string, measurementId: string) => void;
-  onScrollToArticle: (id: string) => void;
-  onReorderMeasurements: (articleId: string, startIndex: number, endIndex: number) => void;
+  onScrollToArticle: (id: string) => void; onReorderMeasurements: (articleId: string, startIndex: number, endIndex: number) => void;
   onArticleDragStart: (e: React.DragEvent, article: Article) => void;
   onArticleDrop: (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom') => void;
-  onArticleDragEnd: () => void;
-  lastAddedMeasurementId: string | null;
-  onColumnFocus: (col: string | null) => void;
-  onViewAnalysis: (analysisId: string) => void;
+  onArticleDragEnd: () => void; lastAddedMeasurementId: string | null; onColumnFocus: (col: string | null) => void;
+  onViewAnalysis: (analysisId: string) => void; onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onToggleArticleLock } = props;
+   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock } = props;
+   
+   const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
    const [articleDropPosition, setArticleDropPosition] = useState<'top' | 'bottom' | null>(null);
+   const [isListening, setIsListening] = useState(false);
+   const addBtnRef = useRef<HTMLButtonElement>(null);
+   const recognitionRef = useRef<any>(null);
+
    const isArticleLocked = article.isLocked || false;
    const areControlsDisabled = isCategoryLocked || isArticleLocked;
 
-   let runningPartialSum = 0;
+   const getLinkedInfo = (m: Measurement) => {
+     if (!m.linkedArticleId) return null;
+     return allArticles.find(a => a.id === m.linkedArticleId);
+   };
+
+   const hierarchicalNumber = `${getWbsNumber(article.categoryCode)}.${index + 1}`;
+   const totalAmount = article.quantity * article.unitPrice;
+   const laborValue = totalAmount * (article.laborRate / 100);
+
    const processedMeasurements = article.measurements.map(m => {
         let val = 0;
         if (m.type !== 'subtotal') {
@@ -129,182 +169,148 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     const baseVal = m.linkedType === 'amount' ? (linkedArt.quantity * linkedArt.unitPrice) : linkedArt.quantity;
                     val = calculateRowValue(m, baseVal);
                 }
-            } else { val = calculateRowValue(m); }
+            } else val = calculateRowValue(m);
         }
-        let displayValue = 0;
-        if (m.type === 'subtotal') { displayValue = runningPartialSum; runningPartialSum = 0; }
-        else { displayValue = val; runningPartialSum += val; }
-        return { ...m, displayValue };
+        return { ...m, calculatedValue: val };
    });
 
-   const hierarchicalNumber = `${getWbsNumber(article.categoryCode)}.${index + 1}`;
-   const isAnalysisLinked = !!article.linkedAnalysisId;
+   const handleArticleHeaderDragStart = (e: React.DragEvent) => {
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+        e.preventDefault(); return;
+      }
+      onArticleDragStart(e, article);
+   };
 
    return (
-      <tbody id={`article-${article.id}`} className={`bg-white border-b border-gray-400 relative ${isArticleLocked ? 'bg-gray-50' : ''}`}>
+      <tbody id={`article-${article.id}`} className={`bg-white border-b border-gray-400 group/article transition-colors relative ${isArticleLocked ? 'bg-gray-50' : ''}`}>
          {isArticleDragOver && articleDropPosition === 'top' && (
-             <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 -top-0.5 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
+             <tr className="h-0"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 -top-0.5 z-50"></div></td></tr>
          )}
          <tr 
-            className={`align-top ${!isPrintMode ? 'cursor-move hover:bg-slate-50' : ''} ${isArticleDragOver ? 'bg-green-50/10' : ''}`}
+            className={`align-top ${!isPrintMode ? 'cursor-move hover:bg-slate-50' : ''}`}
             draggable={!isPrintMode && !areControlsDisabled}
-            onDragStart={(e) => onArticleDragStart(e, article)}
-            onDragEnd={() => { onArticleDragEnd(); setArticleDropPosition(null); }}
-            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsArticleDragOver(true); const rect = e.currentTarget.getBoundingClientRect(); setArticleDropPosition(e.clientY < (rect.top + rect.height/2) ? 'top' : 'bottom'); }}
+            onDragStart={handleArticleHeaderDragStart}
+            onDragEnd={() => onArticleDragEnd()}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsArticleDragOver(true); const rect = e.currentTarget.getBoundingClientRect(); setArticleDropPosition(e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom'); }}
             onDragLeave={() => setIsArticleDragOver(false)}
             onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsArticleDragOver(false); onArticleDrop(e, article.id, articleDropPosition || 'bottom'); }}
          >
-            <td className="text-center py-2 text-xs font-bold text-gray-500 border-r border-gray-200 font-mono">{hierarchicalNumber}</td>
-            <td className="p-1 border-r border-gray-200 align-top">
-                <div className="flex flex-col relative">
-                    <textarea readOnly value={article.code} className={`font-mono font-bold text-xs w-full bg-transparent border-none px-1 resize-none leading-tight ${isAnalysisLinked ? 'text-purple-700' : ''}`} rows={2} disabled={true}/>
-                    {article.priceListSource && <div className="text-[9px] text-gray-400 px-1 truncate">{article.priceListSource}</div>}
-                    {isAnalysisLinked && <button onClick={() => article.linkedAnalysisId && onViewAnalysis(article.linkedAnalysisId)} className="absolute right-0 top-0 text-purple-500 hover:text-purple-700 p-0.5"><TestTubes className="w-3 h-3" /></button>}
+            <td className="text-center py-2 text-xs font-bold text-gray-500 border-r border-gray-200 bg-white font-mono">{hierarchicalNumber}</td>
+            <td className="p-1 border-r border-gray-200 align-top bg-white">
+                <div className="flex flex-col">
+                    <span className="font-mono font-bold text-xs text-purple-700">{article.code}</span>
+                    {article.soaCategory && <span className="text-[9px] text-gray-400">SOA: {article.soaCategory}</span>}
                 </div>
             </td>
-            <td className="p-2 border-r border-gray-200">
-                 <textarea readOnly value={article.description} className={`w-full min-h-[50px] text-sm text-gray-900 font-serif text-justify border-none focus:ring-0 bg-transparent resize-none p-1 ${isArticleLocked ? 'text-gray-400 italic' : ''}`} disabled={true}/>
-            </td>
-            <td colSpan={8} className="border-r border-gray-200"></td>
-            <td className="print:hidden text-center align-top pt-2">
-                {!isPrintMode && !isCategoryLocked && (
-                   <div className="flex flex-col items-center space-y-1">
-                      <button onClick={() => onToggleArticleLock(article.id)} className={`p-1 rounded ${isArticleLocked ? 'text-red-500 bg-red-50' : 'text-gray-300 hover:text-blue-500'}`}>{isArticleLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                      {!isArticleLocked && <><button onClick={() => onDeleteArticle(article.id)} className="text-gray-300 hover:text-red-600"><Trash2 className="w-4 h-4" /></button><button onClick={() => onEditArticleDetails(article)} className="text-gray-300 hover:text-blue-600"><PenLine className="w-4 h-4" /></button></>}
-                   </div>
+            <td className="p-2 border-r border-gray-200 bg-white">
+                <p className="text-sm text-gray-900 leading-relaxed font-serif text-justify">{article.description}</p>
+                {/* Fix: Added display of grounding sources from Google Search */}
+                {article.groundingUrls && article.groundingUrls.length > 0 && (
+                  <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded text-[10px]">
+                    <p className="font-bold text-blue-800 mb-1">Fonti consultate:</p>
+                    <ul className="list-disc pl-4">
+                      {article.groundingUrls.map((chunk, i) => (
+                        chunk.web && (
+                          <li key={i}>
+                            <a href={chunk.web.uri} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                              {chunk.web.title || chunk.web.uri}
+                            </a>
+                          </li>
+                        )
+                      ))}
+                    </ul>
+                  </div>
                 )}
+            </td>
+            <td colSpan={8} className="bg-white border-r border-gray-200"></td>
+            <td className="text-center pt-2 print:hidden bg-gray-50/30">
+                <div className="flex flex-col items-center gap-1 opacity-0 group-hover/article:opacity-100 transition-opacity">
+                    <button onClick={() => onToggleArticleLock(article.id)} className="p-1 text-gray-300 hover:text-blue-600">{article.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                    <button onClick={() => onEditArticleDetails(article)} className="p-1 text-gray-300 hover:text-blue-600"><PenLine className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => onDeleteArticle(article.id)} className="p-1 text-gray-300 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
             </td>
          </tr>
          {processedMeasurements.map((m, idx) => (
-            <tr key={m.id} className={`text-xs group/row cursor-default transition-all ${m.type === 'deduction' ? 'text-red-600' : 'text-gray-800'} ${m.type === 'subtotal' ? 'bg-yellow-50 font-bold' : 'bg-white'}`}>
+            <tr key={m.id} className={`text-xs ${m.type === 'subtotal' ? 'bg-yellow-50' : 'bg-white'}`}>
                 <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                <td className="pl-6 pr-2 py-1 border-r border-gray-200 relative">
-                     {m.type === 'subtotal' ? <div className="italic text-gray-600 text-right pr-2">Sommano parziale</div> : (
-                        <div className="flex items-center">
-                             <div className="absolute left-0 top-1/2 w-4 h-[1px] bg-gray-300"></div>
-                             {m.linkedArticleId ? (
-                               <button onClick={() => onScrollToArticle(m.linkedArticleId!)} className="text-blue-600 font-bold hover:underline text-[11px]">Vedi voce collegata</button>
-                             ) : (
-                                <input value={m.description} autoFocus={m.id === lastAddedMeasurementId} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} className="w-full bg-transparent border-none p-0 focus:ring-0" placeholder="Descrizione misura..." disabled={areControlsDisabled} />
-                             )}
-                        </div>
-                     )}
+                <td className="pl-6 pr-2 py-1 border-r border-gray-200">
+                    <input value={m.description} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} className="w-full bg-transparent border-none p-0 focus:ring-0 text-gray-700" placeholder="Misura..." disabled={areControlsDisabled} />
                 </td>
-                <td className="border-r border-gray-200 p-0 bg-gray-50"><input type="number" disabled={areControlsDisabled} className="w-full text-center bg-transparent border-none text-xs" value={m.multiplier || ''} placeholder="1" onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', e.target.value === '' ? undefined : parseFloat(e.target.value))} /></td>
-                <td className="border-r border-gray-200 p-0 bg-gray-50"><input type="number" disabled={areControlsDisabled || !!m.linkedArticleId} className="w-full text-center bg-transparent border-none text-xs" value={m.length || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'length', e.target.value === '' ? undefined : parseFloat(e.target.value))} /></td>
-                <td className="border-r border-gray-200 p-0 bg-gray-50"><input type="number" disabled={areControlsDisabled || !!m.linkedArticleId} className="w-full text-center bg-transparent border-none text-xs" value={m.width || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'width', e.target.value === '' ? undefined : parseFloat(e.target.value))} /></td>
-                <td className="border-r border-gray-200 p-0 bg-gray-50"><input type="number" disabled={areControlsDisabled || !!m.linkedArticleId} className="w-full text-center bg-transparent border-none text-xs" value={m.height || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} /></td>
-                <td className={`border-r border-gray-200 text-right font-mono pr-1 ${m.type === 'subtotal' ? 'bg-yellow-100' : 'bg-white'}`}>{formatNumber(m.displayValue)}</td>
-                <td colSpan={3} className="border-r border-gray-200"></td>
-                <td className="text-center print:hidden bg-gray-50/50">
-                    {!isPrintMode && !areControlsDisabled && (
-                        <div className="flex justify-center items-center space-x-1 opacity-0 group-hover/row:opacity-100">
-                            {m.type !== 'subtotal' && <><button onClick={() => onOpenLinkModal(article.id, m.id)} className={`rounded p-0.5 ${m.linkedArticleId ? 'bg-blue-600 text-white' : 'text-gray-300'}`}><LinkIcon className="w-3.5 h-3.5" /></button><button onClick={() => onToggleDeduction(article.id, m.id)} className={`p-0.5 ${m.type === 'positive' ? 'text-red-400' : 'text-blue-400'}`}>{m.type === 'positive' ? <MinusCircle className="w-3.5 h-3.5" /> : <PlusCircle className="w-3.5 h-3.5" />}</button></>}
-                            <button onClick={() => onDeleteMeasurement(article.id, m.id)} className="text-gray-300 hover:text-red-500 p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                    )}
-                </td>
+                <td className="border-r border-gray-200 text-center bg-gray-50"><input type="number" value={m.multiplier || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', parseFloat(e.target.value))} className="w-full bg-transparent text-center border-none p-0" placeholder="1" disabled={areControlsDisabled} /></td>
+                <td className="border-r border-gray-200 text-center bg-gray-50"><input type="number" value={m.length || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'length', parseFloat(e.target.value))} className="w-full bg-transparent text-center border-none p-0" disabled={areControlsDisabled} /></td>
+                <td className="border-r border-gray-200 text-center bg-gray-50"><input type="number" value={m.width || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'width', parseFloat(e.target.value))} className="w-full bg-transparent text-center border-none p-0" disabled={areControlsDisabled} /></td>
+                <td className="border-r border-gray-200 text-center bg-gray-50"><input type="number" value={m.height || ''} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', parseFloat(e.target.value))} className="w-full bg-transparent text-center border-none p-0" disabled={areControlsDisabled} /></td>
+                <td className="border-r border-gray-200 text-right pr-1 font-mono">{formatNumber(m.calculatedValue)}</td>
+                <td colSpan={4} className="bg-gray-50/30"></td>
             </tr>
          ))}
-         <tr className="bg-white font-bold text-xs border-t border-gray-300 border-b-2 border-gray-400">
-             <td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td>
-             <td className="px-2 py-2 text-right border-r border-gray-300 uppercase">Sommano {article.unit}</td>
+         <tr className="bg-white font-bold text-xs border-t border-gray-300">
+             <td colSpan={2} className="border-r border-gray-200"></td>
+             <td className="px-2 py-2 text-right border-r border-gray-300 uppercase text-gray-500">Sommano {article.unit}</td>
              <td colSpan={4} className="border-r border-gray-200"></td>
-             <td className="text-right pr-1 font-mono text-black border-t-4 border-double border-gray-800">{formatNumber(article.quantity)}</td>
-             <td className="border-l border-r border-gray-300 text-right pr-1 font-mono">{formatNumber(article.unitPrice)}</td>
-             <td className="border-r border-gray-300 text-right pr-1 font-mono text-blue-900">{formatNumber(article.quantity * article.unitPrice)}</td>
-             <td className="border-r border-gray-300 text-right pr-1 font-mono text-gray-400 font-normal text-[9px]">{formatCurrency((article.quantity * article.unitPrice) * (article.laborRate / 100))}</td>
-             <td className="text-center print:hidden bg-gray-50 align-middle">
-                {!isPrintMode && !areControlsDisabled && (
-                   <div className="flex items-center justify-center space-x-1">
-                        <button onClick={() => onAddSubtotal(article.id)} className="w-5 h-5 rounded-full text-orange-400 border border-orange-200 flex items-center justify-center"><Sigma className="w-3 h-3" /></button>
-                        <button onClick={() => onAddMeasurement(article.id)} className="w-6 h-6 rounded-full text-gray-500 border border-gray-300 hover:bg-slate-500 hover:text-white flex items-center justify-center"><Plus className="w-4 h-4" /></button>
-                   </div>
-                )}
+             <td className="text-right pr-1 font-mono border-r border-gray-200">{formatNumber(article.quantity)}</td>
+             <td className="text-right pr-1 font-mono border-r border-gray-200">{formatNumber(article.unitPrice)}</td>
+             <td className="text-right pr-1 font-mono text-blue-900 border-r border-gray-200">{formatNumber(totalAmount)}</td>
+             <td className="text-right pr-1 font-mono text-gray-500 border-r border-gray-200">{formatCurrency(laborValue)}</td>
+             <td className="text-center print:hidden bg-gray-50">
+                 <button onClick={() => onAddMeasurement(article.id)} className="p-1 text-blue-600 hover:bg-blue-100 rounded-full" disabled={areControlsDisabled}><Plus className="w-4 h-4" /></button>
              </td>
          </tr>
-         {isArticleDragOver && articleDropPosition === 'bottom' && (
-             <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 top-2 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
-         )}
       </tbody>
    );
 };
 
-// --- Main App Component ---
+// Fix: Added missing ViewMode type definition to resolve compilation error on line 250
+type ViewMode = 'COMPUTO' | 'ANALISI';
+
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  
-  useEffect(() => {
-    if (!auth) { setAuthLoading(false); return; }
-    return onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
-  }, []);
-
-  // GLOBAL DRAG OVER LISTENER: Forces copy effect and prevents the 'prohibited' cursor
-  useEffect(() => {
-    const handleGlobalDragOver = (e: DragEvent) => {
-      e.preventDefault(); // CRITICO: senza questo Chrome mostra il divieto
-      if (e.dataTransfer) { e.dataTransfer.dropEffect = 'copy'; }
-    };
-    const handleGlobalDrop = (e: DragEvent) => { e.preventDefault(); };
-    window.addEventListener('dragover', handleGlobalDragOver);
-    window.addEventListener('drop', handleGlobalDrop);
-    return () => { window.removeEventListener('dragover', handleGlobalDragOver); window.removeEventListener('drop', handleGlobalDrop); };
-  }, []);
-
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(CATEGORIES);
   const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
   const [analyses, setAnalyses] = useState<PriceAnalysis[]>(INITIAL_ANALYSES);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>(PROJECT_INFO);
   const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(CATEGORIES[0]?.code || 'WBS.01');
-  const [activeColumn, setActiveColumn] = useState<string | null>(null);
-  const [history, setHistory] = useState<Snapshot[]>([]);
-  const [future, setFuture] = useState<Snapshot[]>([]);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [linkTarget, setLinkTarget] = useState<{articleId: string, measurementId: string} | null>(null);
-  const [editingArticle, setEditingArticle] = useState<Article | null>(null);
+  const [isWelcomeOpen, setIsWelcomeOpen] = useState(true);
   const [draggedCategoryCode, setDraggedCategoryCode] = useState<string | null>(null);
-  const [wbsDropTarget, setWbsDropTarget] = useState<{ code: string, position: 'top' | 'bottom' | 'inside' } | null>(null);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isEditArticleModalOpen, setIsEditArticleModalOpen] = useState(false);
+  const [editingArticle, setEditingArticle] = useState<Article | null>(null);
+  const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [isAnalysisEditorOpen, setIsAnalysisEditorOpen] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState<PriceAnalysis | null>(null);
-  const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
-  const [lastAddedMeasurementId, setLastAddedMeasurementId] = useState<string | null>(null);
-  const [analysisSearchTerm, setAnalysisSearchTerm] = useState('');
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
+  const [activeSoaCategory, setActiveSoaCategory] = useState<string>('OG1');
 
-  const generateNextWbsCode = (cats: Category[]) => `WBS.${(cats.length + 1).toString().padStart(2, '0')}`;
-  const renumberCategories = (cats: Category[], arts: Article[]) => {
-      const map: Record<string, string> = {};
-      const newCats = cats.map((c, i) => { const n = `WBS.${(i+1).toString().padStart(2, '0')}`; map[c.code] = n; return { ...c, code: n }; });
-      const newArts = arts.map(a => map[a.categoryCode] ? { ...a, categoryCode: map[a.categoryCode] } : a);
-      return { newCats, newArts };
-  };
+  useEffect(() => {
+    if (!auth) { setAuthLoading(false); return; }
+    return onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); if(u) setIsWelcomeOpen(false); });
+  }, []);
 
-  const updateState = (newArticles: Article[], newCategories: Category[] = categories, newAnalyses: PriceAnalysis[] = analyses) => {
-      setHistory(prev => [...prev, { articles, categories, analyses }].slice(-50));
-      setFuture([]);
+  // MIRACOLO: Global Drag Over per abilitare drop tra schede
+  useEffect(() => {
+    const handleGlobalDragOver = (e: DragEvent) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    window.addEventListener('dragover', (e) => handleGlobalDragOver(e as unknown as DragEvent));
+    return () => window.removeEventListener('dragover', (e) => handleGlobalDragOver(e as unknown as DragEvent));
+  }, []);
+
+  const updateState = (newArticles: Article[], newCats = categories, newAn = analyses) => {
       setArticles(recalculateAllArticles(newArticles));
-      setCategories(newCategories);
-      setAnalyses(newAnalyses);
+      setCategories(newCats);
+      setAnalyses(newAn);
   };
 
-  const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
-  const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
-  const filteredAnalyses = useMemo(() => analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase())), [analyses, analysisSearchTerm]);
-  const totals = useMemo(() => {
-    const totalWorks = articles.reduce((acc, art) => { const cat = categories.find(c => c.code === art.categoryCode); return (cat && cat.isEnabled !== false) ? acc + (art.quantity * art.unitPrice) : acc; }, 0);
-    const safety = totalWorks * (projectInfo.safetyRate / 100);
-    const tax = totalWorks + safety;
-    return { totalWorks, safetyCosts: safety, totalTaxable: tax, vatAmount: tax * (projectInfo.vatRate / 100), grandTotal: tax * (1 + projectInfo.vatRate / 100) };
-  }, [articles, categories, projectInfo]);
-
-  const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
-      e.dataTransfer.effectAllowed = 'all'; 
+  const handleWbsDragStart = (e: React.DragEvent, code: string) => {
+      setDraggedCategoryCode(code);
       // TRUCCO: Aggiungiamo un finto URL per forzare il Tab Switch del browser
       e.dataTransfer.setData('text/uri-list', window.location.href);
-      setDraggedCategoryCode(code); 
       const cat = categories.find(c => c.code === code);
       if (cat) {
           const catArticles = articles.filter(a => a.categoryCode === code);
@@ -312,135 +318,145 @@ const App: React.FC = () => {
           const bundle = { type: 'CROSS_TAB_WBS_BUNDLE', category: cat, articles: catArticles, analyses: relatedAnalyses };
           e.dataTransfer.setData('text/plain', JSON.stringify(bundle));
       }
+      e.dataTransfer.effectAllowed = 'all';
   };
 
-  const handleWbsDragOver = (e: React.DragEvent, targetCode: string | null) => { 
-    e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy';
-    if (!targetCode) return;
-    if (draggedCategoryCode && draggedCategoryCode !== targetCode) { 
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); 
-        setWbsDropTarget({ code: targetCode, position: e.clientY < (rect.top + rect.height/2) ? 'top' : 'bottom' }); 
-    } else { setWbsDropTarget({ code: targetCode, position: 'inside' }); }
-  };
-
-  const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { 
-      e.preventDefault(); e.stopPropagation(); setWbsDropTarget(null); 
-      const artId = e.dataTransfer.getData('articleId');
-      if (artId && targetCode) { updateState(articles.map(a => a.id === artId ? { ...a, categoryCode: targetCode } : a)); return; }
-
+  const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => {
+      e.preventDefault();
       const textData = e.dataTransfer.getData('text/plain');
       if (textData) {
           try {
               const payload = JSON.parse(textData);
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
-                  const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
-                  const newCatCode = generateNextWbsCode(categories);
-                  const analysisIdMap = new Map<string, string>();
-                  const newAnalysesList = [...analyses];
-                  if (importedAnalyses) {
-                      importedAnalyses.forEach((an: PriceAnalysis) => {
-                          const nid = Math.random().toString(36).substr(2, 9);
-                          let nCode = an.code; if (analyses.some(ex => { return ex.code === nCode; })) nCode += "-Copy";
-                          analysisIdMap.set(an.id, nid);
-                          newAnalysesList.push({ ...an, id: nid, code: nCode, components: an.components.map(c => ({...c, id: Math.random().toString(36).substr(2,9)})) });
-                      });
-                  }
-                  const newArticles = importedArticles.map((art: Article) => {
-                      const nid = Math.random().toString(36).substr(2, 9);
-                      let nLid = art.linkedAnalysisId; if (nLid && analysisIdMap.has(nLid)) nLid = analysisIdMap.get(nLid);
-                      return { ...art, id: nid, categoryCode: newCatCode, linkedAnalysisId: nLid, measurements: art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2,9), linkedArticleId: undefined })) };
+                  const { category: impCat, articles: impArts, analyses: impAn } = payload;
+                  const newCode = `WBS.${(categories.length + 1).toString().padStart(2, '0')}`;
+                  const newCat = { ...impCat, code: newCode, name: impCat.name + " (Copia)" };
+                  
+                  // Rigenerazione ID per indipendenza
+                  const idMap = new Map();
+                  const anMap = new Map();
+                  const newAnList = [...analyses];
+                  
+                  impAn.forEach((an: any) => {
+                      const newAnId = Math.random().toString(36).substr(2, 9);
+                      anMap.set(an.id, newAnId);
+                      newAnList.push({ ...an, id: newAnId });
                   });
-                  updateState([...articles, ...newArticles], [...categories, { ...importedCat, code: newCatCode, name: importedCat.name + " (Import)" }], newAnalysesList);
-                  setSelectedCategoryCode(newCatCode);
+
+                  const newArts = impArts.map((art: any) => {
+                      const newArtId = Math.random().toString(36).substr(2, 9);
+                      return { 
+                          ...art, 
+                          id: newArtId, 
+                          categoryCode: newCode, 
+                          linkedAnalysisId: anMap.get(art.linkedAnalysisId) || art.linkedAnalysisId,
+                          measurements: art.measurements.map((m: any) => ({ ...m, id: Math.random().toString(36).substr(2, 9) }))
+                      };
+                  });
+
+                  updateState([...articles, ...newArts], [...categories, newCat], newAnList);
+                  setSelectedCategoryCode(newCode);
               }
-          } catch (e) { /* ignore */ }
-      }
-      if (draggedCategoryCode && targetCode && draggedCategoryCode !== targetCode) {
-          const sIdx = categories.findIndex(c => c.code === draggedCategoryCode);
-          let tIdx = categories.findIndex(c => c.code === targetCode);
-          const nCats = [...categories]; const [moved] = nCats.splice(sIdx, 1);
-          if (wbsDropTarget?.position === 'bottom') tIdx++;
-          nCats.splice(tIdx, 0, moved);
-          const res = renumberCategories(nCats, articles); updateState(res.newArts, res.newCats);
+          } catch (e) { console.error("Drop Error", e); }
       }
       setDraggedCategoryCode(null);
   };
 
-  const handleUpdateArticle = (id: string, field: keyof Article, val: any) => updateState(articles.map(a => a.id === id ? { ...a, [field]: val } : a));
-  const handleAddMeasurement = (aid: string) => { const nid = Math.random().toString(36).substr(2,9); setLastAddedMeasurementId(nid); updateState(articles.map(a => a.id === aid ? { ...a, measurements: [...a.measurements, {id: nid, description: '', type: 'positive'}] } : a)); };
-  const handleDeleteArticle = (id: string) => window.confirm("Eliminare?") && updateState(articles.filter(a => a.id !== id));
-  const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => { e.dataTransfer.setData('text/plain', `ANALYSIS_BUNDLE::${JSON.stringify(analysis)}`); e.dataTransfer.effectAllowed = 'copy'; };
+  const totals: Totals = useMemo(() => {
+    const totalWorks = articles.reduce((acc, a) => acc + (a.quantity * a.unitPrice), 0);
+    const safetyCosts = totalWorks * (projectInfo.safetyRate / 100);
+    const totalTaxable = totalWorks + safetyCosts;
+    const vatAmount = totalTaxable * (projectInfo.vatRate / 100);
+    return { totalWorks, safetyCosts, totalTaxable, vatAmount, grandTotal: totalTaxable + vatAmount };
+  }, [articles, projectInfo]);
 
-  if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-800 text-white"><Loader2 className="animate-spin mr-2"/> Caricamento Sicurezza...</div>;
-  if (!user) return <Login />;
+  const handleWelcomeComplete = async (info: ProjectInfo, description?: string) => {
+      setProjectInfo(info);
+      if (description) {
+          setIsGenerating(true);
+          const newWbs = await generateWbsCategories(description);
+          if (newWbs.length > 0) {
+              setCategories(newWbs);
+              setSelectedCategoryCode(newWbs[0].code);
+          }
+          setIsGenerating(false);
+      }
+      setIsWelcomeOpen(false);
+  };
+
+  if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white">Caricamento...</div>;
+  if (!user && auth) return <Login />;
+
+  const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
+  const activeCategory = categories.find(c => c.code === selectedCategoryCode);
 
   return (
-    <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800" onDragOver={(e) => handleWbsDragOver(e, null)} onDrop={(e) => handleWbsDrop(e, null)}>
+    <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800">
       <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600">
-          <div className="flex items-center space-x-3 w-64 flex-shrink-0"><div className="bg-orange-500 p-1.5 rounded-lg"><Calculator className="text-white w-5 h-5"/></div><span className="font-bold text-white text-lg">GeCoLa <span className="font-light opacity-80 text-xs">v3.0</span></span></div>
-          <div className="flex-1 flex justify-center"><div className="bg-slate-800/50 px-4 py-1 rounded-full text-white font-bold text-sm truncate max-w-[400px]">{projectInfo.title}</div></div>
-          <div className="flex items-center space-x-3 w-64 justify-end">
-              <button onClick={() => setIsSaveModalOpen(true)} className="p-1.5 text-slate-300 hover:text-white rounded"><Share2 className="w-5 h-5"/></button>
-              <button onClick={() => signOut(auth)} className="p-1.5 text-red-400 hover:text-white rounded ml-2"><LogOut className="w-5 h-5"/></button>
+          <div className="flex items-center space-x-3 w-64">
+            <div className="bg-orange-500 p-1.5 rounded-lg"><Calculator className="w-5 h-5 text-white" /></div>
+            <span className="font-bold text-lg text-white">GeCoLa Pro</span>
+          </div>
+          <div className="flex-1 px-6 flex justify-center">
+              <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer" onClick={() => setIsSettingsModalOpen(true)}>
+                  {projectInfo.title} <Edit3 className="w-3 h-3" />
+              </div>
+          </div>
+          <div className="flex items-center space-x-3">
+             <button onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} className="p-1.5 text-slate-300 hover:text-white relative"><FileText className="w-5 h-5" />
+                {isPrintMenuOpen && (<div className="absolute right-0 top-full mt-2 w-48 bg-white shadow-xl rounded-lg py-2 z-50"><button onClick={() => generateComputoMetricPdf(projectInfo, categories, articles)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Computo Metrico</button></div>)}
+             </button>
+             <button onClick={() => signOut(auth)} className="p-1.5 text-red-400 hover:text-white"><LogOut className="w-5 h-5" /></button>
           </div>
       </div>
+      
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-64 bg-white border-r border-slate-300 flex flex-col z-10 shadow-lg">
-          <div className="p-3 bg-slate-50 border-b flex gap-1"><button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 shadow-md' : 'text-slate-500'}`}>Computo</button><button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 shadow-md' : 'text-slate-500'}`}>Analisi</button></div>
-          <div className="flex-1 overflow-y-auto">
-            {viewMode === 'COMPUTO' ? (
-                <ul className="py-2">{categories.map(cat => (
-                  <li key={cat.code} className="relative group/cat" onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
-                    {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'top' && <div className="absolute top-0 left-0 right-0 h-1 bg-green-500 z-50" />}
-                    <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDragEnd={() => setDraggedCategoryCode(null)}>
-                      <button onClick={() => setSelectedCategoryCode(cat.code)} className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all ${selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500' : 'border-transparent hover:bg-slate-50'}`}>
-                        <div className="flex items-center gap-2"><GripVertical className="w-3 h-3 text-gray-300"/><span className="text-[9px] font-bold font-mono px-1.5 bg-slate-200 rounded">{cat.code}</span></div>
-                        <div className="pl-5 text-xs font-medium truncate">{cat.name}</div>
-                        <div className="pl-5 text-[10px] font-mono text-blue-600">{formatCurrency(articles.filter(a => a.categoryCode === cat.code).reduce((s, a) => s + a.quantity * a.unitPrice, 0))}</div>
-                      </button>
-                    </div>
-                    {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'bottom' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-500 z-50" />}
-                  </li>
-                ))}</ul>
-            ) : (
-                <div className="p-2 space-y-2">{filteredAnalyses.map(an => (
-                    <div key={an.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, an)} className="bg-white p-3 rounded border shadow-sm hover:border-purple-300 cursor-grab">
-                        <div className="flex justify-between font-bold text-[10px] text-purple-700"><span>{an.code}</span><span>{formatCurrency(an.totalUnitPrice)}</span></div>
-                        <p className="text-xs line-clamp-2">{an.description}</p>
-                    </div>
-                ))}</div>
-            )}
+        <div className="w-64 bg-white border-r border-slate-300 flex flex-col shadow-lg z-10">
+          <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center">
+              <span>WBS Progetto</span>
+              <button onClick={() => setViewMode('COMPUTO')} className="text-blue-600"><PlusCircle className="w-4 h-4" /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto" onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDrop={(e) => handleWbsDrop(e, null)}>
+              {categories.map(cat => (
+                  <div key={cat.code} draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)} className={`p-3 border-l-4 cursor-pointer hover:bg-slate-50 transition-all ${selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500' : 'border-transparent'}`} onClick={() => setSelectedCategoryCode(cat.code)}>
+                      <div className="flex items-center gap-2"><span className="text-[10px] font-mono font-bold bg-slate-200 px-1 rounded">{cat.code}</span></div>
+                      <span className="text-xs font-medium block truncate mt-1">{cat.name}</span>
+                  </div>
+              ))}
+              <div className="mt-auto p-3 border-t bg-slate-50" onClick={() => setSelectedCategoryCode('SUMMARY')}>
+                  <button className={`w-full flex items-center p-2 rounded text-xs font-bold ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo</button>
+              </div>
           </div>
         </div>
-        <div className="flex-1 flex flex-col h-full bg-[#f0f2f5] p-4">
-           <div className="flex-1 overflow-y-auto bg-white shadow-lg border border-gray-300 rounded-xl flex flex-col">
-              {viewMode === 'COMPUTO' && activeCategory ? (
-                <div className="flex flex-col h-full">
-                  <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
-                      <div className="flex items-center gap-3"><div className="bg-white border p-2 rounded shadow-sm text-center"><span className="text-xs text-gray-400 block">WBS</span><span className="text-2xl font-black">{activeCategory.code}</span></div><h2 className="text-lg font-bold uppercase truncate max-w-[300px]">{activeCategory.name}</h2></div>
-                      <div className="flex items-center gap-3">
-                          <CategoryDropGate onDropContent={(txt) => { const p = parseDroppedContent(txt); if(p) updateState([...articles, { ...p, id: Math.random().toString(36).substr(2,9), categoryCode: activeCategory.code, measurements: [{id: Math.random().toString(36).substr(2,9), description: '', type: 'positive'}] } as Article]) }} isLoading={false} categoryCode={activeCategory.code} />
-                          <button onClick={() => setIsImportAnalysisModalOpen(true)} className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg"><Plus/></button>
+
+        <div className="flex-1 overflow-y-auto p-4 bg-[#f0f2f5]">
+           <div className="bg-white rounded-xl shadow-lg border border-gray-300 min-h-full">
+              {selectedCategoryCode === 'SUMMARY' ? (
+                  <div className="p-8"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
+              ) : activeCategory ? (
+                  <div>
+                      <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                          <h2 className="text-xl font-black text-gray-800 uppercase">{activeCategory.code} - {activeCategory.name}</h2>
+                          <button onClick={() => setIsImportAnalysisModalOpen(true)} className="bg-blue-600 text-white p-2 rounded-full shadow-lg"><Plus className="w-5 h-5" /></button>
                       </div>
+                      <table className="w-full text-left">
+                          <TableHeader activeColumn={null} />
+                          {activeArticles.map((art, idx) => (
+                              <ArticleGroup key={art.id} article={art} index={idx} allArticles={articles} isPrintMode={false} onUpdateArticle={() => {}} onEditArticleDetails={setEditingArticle} onDeleteArticle={() => {}} onAddMeasurement={() => {}} onAddSubtotal={() => {}} onAddVoiceMeasurement={() => {}} onUpdateMeasurement={() => {}} onDeleteMeasurement={() => {}} onToggleDeduction={() => {}} onOpenLinkModal={() => {}} onScrollToArticle={() => {}} onReorderMeasurements={() => {}} onArticleDragStart={() => {}} onArticleDrop={() => {}} onArticleDragEnd={() => {}} lastAddedMeasurementId={null} onColumnFocus={() => {}} onViewAnalysis={() => {}} onInsertExternalArticle={() => {}} onToggleArticleLock={() => {}} />
+                          ))}
+                      </table>
                   </div>
-                  <div className="flex-1 overflow-y-auto"><table className="w-full text-left border-collapse"><TableHeader activeColumn={activeColumn}/>
-                      {activeArticles.map((art, idx) => (
-                        <ArticleGroup key={art.id} article={art} index={idx} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={setEditingArticle} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={() => {}} onUpdateMeasurement={(aid, mid, f, v) => updateState(articles.map(a => a.id === aid ? {...a, measurements: a.measurements.map(m => m.id === mid ? {...m, [f]: v} : m)} : a))} onDeleteMeasurement={(aid, mid) => updateState(articles.map(a => a.id === aid ? {...a, measurements: a.measurements.filter(m => m.id !== mid)} : a))} onToggleDeduction={(aid, mid) => updateState(articles.map(a => a.id === aid ? {...a, measurements: a.measurements.map(m => m.id === mid ? {...m, type: m.type === 'positive' ? 'deduction' : 'positive'} : m)} : a))} onOpenLinkModal={(aid, mid) => setLinkTarget({articleId: aid, measurementId: mid})} onScrollToArticle={(id) => { const el = document.getElementById(`article-${id}`); if(el) el.scrollIntoView({behavior:'smooth'}); }} onReorderMeasurements={() => {}} onArticleDragStart={(e, a) => {e.dataTransfer.setData('articleId', a.id); e.dataTransfer.effectAllowed = 'copyMove'; }} onArticleDrop={() => {}} onArticleDragEnd={() => {}} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={(id) => { const a = analyses.find(x => x.id === id); if(a) {setEditingAnalysis(a); setIsAnalysisEditorOpen(true);}}} onInsertExternalArticle={() => {}} onToggleArticleLock={(id) => updateState(articles.map(a => a.id === id ? {...a, isLocked: !a.isLocked} : a))} />
-                      ))}
-                  </table></div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full text-center p-10"><TestTubes className="w-16 h-16 text-purple-200 mb-4"/><h2 className="text-xl font-bold text-gray-800">Seleziona un capitolo o gestisci le analisi</h2></div>
-              )}
+              ) : null}
            </div>
         </div>
       </div>
-      <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
-      <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={(an) => { let list = [...analyses]; const i = list.findIndex(x => x.id === an.id); if(i!==-1) list[i]=an; else list.push(an); setAnalyses(list); updateState(articles.map(a => a.linkedAnalysisId === an.id ? {...a, description: an.description, unitPrice: an.totalUnitPrice} : a), categories, list); }} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
-      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={(an) => { updateState([...articles, {id: Math.random().toString(36).substr(2,9), categoryCode: selectedCategoryCode, code: an.code, description: an.description, unit: an.unit, unitPrice: an.totalUnitPrice, laborRate: 0, measurements: [{id: Math.random().toString(36).substr(2,9), description: '', type: 'positive'}], quantity: 0, linkedAnalysisId: an.id }]); setIsImportAnalysisModalOpen(false); }} onCreateNew={() => { setIsImportAnalysisModalOpen(false); setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} />
-      {editingArticle && <ArticleEditModal isOpen={!!editingArticle} onClose={() => setEditingArticle(null)} article={editingArticle} onSave={(id, up) => updateState(articles.map(a => a.id === id ? {...a, ...up} : a))} onConvertToAnalysis={() => {}} />}
-      {linkTarget && <LinkArticleModal isOpen={!!linkTarget} onClose={() => setLinkTarget(null)} articles={articles} currentArticleId={linkTarget.articleId} onLink={(src, type) => { updateState(articles.map(a => a.id === linkTarget.articleId ? {...a, measurements: a.measurements.map(m => m.id === linkTarget.measurementId ? {...m, linkedArticleId: src.id, linkedType: type} : m)} : a)); setLinkTarget(null); }} />}
+      
+      <WelcomeModal isOpen={isWelcomeOpen} onComplete={handleWelcomeComplete} isLoading={isGenerating} />
+      <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={setProjectInfo} />
+      {editingArticle && <ArticleEditModal isOpen={!!editingArticle} onClose={() => setEditingArticle(null)} article={editingArticle} onSave={() => {}} />}
+      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={() => {}} />
     </div>
   );
 };
+
 export default App;

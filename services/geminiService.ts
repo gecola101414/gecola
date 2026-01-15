@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { Article, Measurement, Category } from '../types';
 import { CATEGORIES } from '../constants';
 
@@ -63,12 +63,23 @@ export const generateWbsCategories = async (description: string): Promise<Catego
     ]
     `;
 
-    // Use gemini-3-flash-preview for basic text tasks
+    // Fix: Updated to recommended gemini-3-flash-preview model and implemented responseSchema
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              code: { type: Type.STRING },
+              name: { type: Type.STRING }
+            },
+            propertyOrdering: ["code", "name"]
+          }
+        }
       }
     });
 
@@ -143,12 +154,13 @@ export const generateArticleItem = async (
     }
     `;
 
-    // Use gemini-3-flash-preview for text tasks with tools
+    // Fix: Updated model to gemini-3-flash-preview and added groundingMetadata extraction
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json"
       },
     });
 
@@ -161,6 +173,9 @@ export const generateArticleItem = async (
       return null;
     }
 
+    // Fix: Extract website URLs from grounding chunks as required by guidelines
+    const groundingUrls = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
     return {
       code: data.code,
       description: data.description,
@@ -168,7 +183,8 @@ export const generateArticleItem = async (
       unitPrice: data.unitPrice,
       laborRate: data.laborRate,
       priceListSource: data.priceListSource,
-      quantity: 1 // Default to 1 if not specified
+      quantity: 1, // Default to 1 if not specified
+      groundingUrls: groundingUrls
     };
 
   } catch (error) {
@@ -220,12 +236,13 @@ export const generateBulkItems = async (
     }
     `;
 
-    // Using gemini-3-pro-preview for bulk reasoning tasks
+    // Fix: Using gemini-3-pro-preview for complex reasoning task with search grounding
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json"
       },
     });
 
@@ -233,7 +250,13 @@ export const generateBulkItems = async (
     if (!text) return [];
 
     const data = cleanAndParseJson(text);
-    return data?.items || [];
+    const groundingUrls = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+    // Inject grounding URLs into generated items
+    return (data?.items || []).map((item: any) => ({
+        ...item,
+        groundingUrls: groundingUrls
+    }));
 
   } catch (error) {
     console.error("Gemini Bulk API Error:", error);
@@ -339,11 +362,23 @@ export const parseVoiceMeasurement = async (transcript: string): Promise<Partial
         Example: "2 finestre soggiorno uno e venti per due e dieci" -> {"description": "finestre soggiorno", "length": 1.20, "width": 2.10, "height": null, "multiplier": 2}
         `;
 
-        // Use gemini-3-flash-preview for voice parsing tasks
+        // Fix: Updated model to gemini-3-flash-preview and implemented responseSchema for parsing spoken inputs
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: prompt,
-            config: { responseMimeType: "application/json" } // Force JSON
+            config: { 
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  length: { type: Type.NUMBER, nullable: true },
+                  width: { type: Type.NUMBER, nullable: true },
+                  height: { type: Type.NUMBER, nullable: true },
+                  multiplier: { type: Type.NUMBER, nullable: true }
+                }
+              }
+            }
         });
 
         const text = response.text;

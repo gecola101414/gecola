@@ -1,4 +1,5 @@
 
+
 export interface Category {
   code: string;
   name: string;
@@ -33,6 +34,7 @@ export interface Article {
   linkedAnalysisId?: string; // ID of the PriceAnalysis if linked
   isLocked?: boolean; // NEW: Lock individual article
   soaCategory?: string; // NEW: SOA Category (e.g., OG1, OS3)
+  groundingUrls?: any[]; // For Google Search grounding citations
 }
 
 export interface AnalysisComponent {
