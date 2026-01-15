@@ -1,9 +1,7 @@
-
 {
-  "name": "PPB 12 - DNA Registro Obiettivi",
-  "description": "Sistema professionale con DNA del file immutabile, Registro Obiettivi analitico e video-accreditamento forense.",
+  "name": "GeCoLa AI_SPW_3.0   drop tra due file di wbs compreso di analisi contenute",
+  "description": "A professional construction estimate application (Computo Metrico Estimativo) tailored for Italian standards, featuring dynamic calculations, categorization, and AI-assisted item generation.",
   "requestFramePermissions": [
-    "camera",
     "microphone"
   ]
 }

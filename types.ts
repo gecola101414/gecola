@@ -1,199 +1,90 @@
 
-export enum UserRole {
-  ADMIN = 'Amministratore',
-  PPB = 'P.P.B.',
-  REPPE = 'R.E.P.P.E.',
-  COMANDANTE = 'Comandante',
-  EDITOR = 'Ufficio Tecnico',
-  ACCOUNTANT = 'Ufficio Amministrativo',
-  VIEWER = 'Visualizzatore'
-}
-
-export interface UserPermissions {
-  canManageFunds: boolean;
-  canManageWorks: boolean;
-  canManagePlanning: boolean;
-  canAccessAudit: boolean;
-  canAdminUsers: boolean;
-  canExportData: boolean;
-}
-
-export interface User {
-  id: string;
-  username: string;
-  passwordHash: string;
-  role: UserRole;
-  workgroup: string;
-  mustChangePassword?: boolean;
-  isFirstLogin?: boolean;
-  profilePhoto?: string;
-  accreditationVideo?: string;
-  lastActive?: string;
-  loginCount?: number;
-  lastReadTimestamps?: Record<string, string>;
-  permissions: UserPermissions; // Nuova gestione spunte
-}
-
-export interface Attachment {
-  id: string;
+export interface Category {
+  code: string;
   name: string;
-  data: string;
-  type: string;
-  size: number;
-  uploadedAt: string;
+  isLocked?: boolean;
+  isEnabled?: boolean;
 }
 
-export interface DecretationEntry {
+export interface Measurement {
   id: string;
-  text?: string;
-  mediaProof?: string; 
-  mediaType?: 'video' | 'audio';
-  author: string;
-  role: UserRole;
-  date: string;
-}
-
-export interface PlanningNeed {
-  id: string;
-  chapter: string;
-  barracks: string;
   description: string;
-  projectValue: number;
-  priority: 1 | 2 | 3;
-  attachments: Attachment[];
-  listId?: string;
-  locked?: boolean;
-  createdAt: string; 
-  ownerName: string;
-  ownerId: string; 
-  workgroup: string;
-  decretations?: DecretationEntry[];
-  isApprovedByReppe?: boolean;
-  isApprovedByComandante?: boolean;
-  approvalDateReppe?: string;
-  approvalDateComandante?: string;
-  isFunded?: boolean;
-  linkedIdvId?: string;
+  type: 'positive' | 'deduction' | 'subtotal';
+  length?: number; // Lunghezza
+  width?: number;  // Larghezza
+  height?: number; // Altezza / Peso
+  multiplier?: number; // Parti uguali - Optional/Undefined means 1 visually but blank
+  // Dynamic Linking fields
+  linkedArticleId?: string;
+  linkedType?: 'quantity' | 'amount';
 }
 
-export interface PlanningList {
+export interface Article {
   id: string;
-  name: string;
-  description?: string;
-  createdAt: string;
-  locked?: boolean;
-  isApprovedByReppe?: boolean;
-  isApprovedByComandante?: boolean;
+  categoryCode: string;
+  code: string;
+  priceListSource?: string; // e.g. "Prezzario DEI 2024" or "Da Analisi AP.01"
+  description: string;
+  unit: string;
+  unitPrice: number;
+  laborRate: number; // Incidenza Manodopera %
+  measurements: Measurement[]; // The list of detailed measurements
+  quantity: number; // Calculated cached sum
+  linkedAnalysisId?: string; // ID of the PriceAnalysis if linked
+  isLocked?: boolean; // NEW: Lock individual article
+  soaCategory?: string; // NEW: SOA Category (e.g., OG1, OS3)
 }
 
-export interface Briefing {
+export interface AnalysisComponent {
   id: string;
+  type: 'material' | 'labor' | 'equipment' | 'general';
+  description: string;
+  unit: string;
+  unitPrice: number;
+  quantity: number; // Quantity needed for the analysis batch
+}
+
+export interface PriceAnalysis {
+  id: string;
+  code: string; // e.g. "AP.01"
+  description: string; // Title of the analysis
+  unit: string; // U.M. of the resulting item (e.g. m2)
+  analysisQuantity: number; // NEW: The quantity being analyzed (sample size)
+  components: AnalysisComponent[];
+  generalExpensesRate: number; // % Spese Generali (default 15%)
+  profitRate: number; // % Utile d'Impresa (default 10%)
+  
+  // Calculated values (cached for display)
+  totalMaterials: number;
+  totalLabor: number;
+  totalEquipment: number;
+  costoTecnico: number; // Sum of above
+  valoreSpese: number;
+  valoreUtile: number;
+  totalBatchValue: number; // Total value of the batch
+  totalUnitPrice: number; // The final price per unit (Batch / Quantity)
+}
+
+export interface ProjectInfo {
   title: string;
-  date: string;
-  time: string;
-  description: string;
+  client: string;
   location: string;
-  status: 'scheduled' | 'completed' | 'cancelled';
-}
-
-export interface FundingIDV {
-  id: string;
-  idvCode: string;
-  capitolo: string;
-  amount: number;
-  motivation: string;
-  createdAt: string;
-  ownerId: string;
-  ownerName: string;
-  ownerWorkgroup: string;
-  assignedWorkgroup: string;
-  locked?: boolean;
-  sourceProjectId?: string;
-}
-
-export interface BidResult {
-  winner: string;
-  bidValue: number;
   date: string;
-  contractPdf?: { name: string; data: string };
+  priceList: string; 
+  region: string;
+  year: string;
+  vatRate: number;
+  safetyRate: number;
 }
 
-export interface PaymentResult {
-  paidValue: number;
-  invoiceDate: string;
-  invoiceNumber: string;
-  invoicePdf?: { name: string; data: string };
-  creGenerated: boolean;
-  creDate: string;
+export interface Totals {
+  totalWorks: number;
+  safetyCosts: number;
+  totalTaxable: number;
+  vatAmount: number;
+  grandTotal: number;
 }
 
-export interface WorkOrder {
-  id: string;
-  orderNumber: string;
-  description: string;
-  estimatedValue: number;
-  contractValue?: number;
-  paidValue?: number;
-  linkedIdvIds: string[];
-  status: WorkStatus;
-  winner?: string;
-  createdAt: string;
-  ownerId: string;
-  ownerName: string;
-  workgroup: string;
-  locked?: boolean;
-  projectPdf?: { name: string; data: string; };
-  contractPdf?: { name: string; data: string; };
-  invoicePdf?: { name: string; data: string; };
-  invoiceNumber?: string;
-  invoiceDate?: string;
-  creGenerated?: boolean;
-  creDate?: string;
-}
-
-export interface AuditEntry {
-  id: string;
-  timestamp: string;
-  userId: string;
-  username: string;
-  workgroup: string; 
-  action: string;
-  details: string;
-  videoProof?: string; 
-  relatedId?: string; 
-}
-
-export enum WorkStatus {
-  PROGETTO = 'Progetto (Stima)',
-  AFFIDAMENTO = 'Affidamento (Contratto)',
-  PAGAMENTO = 'Pagamento (Fattura)',
-  ANNULLATO = 'Annullato'
-}
-
-export interface ChatMessage {
-  id: string;
-  userId: string;
-  username: string;
-  role: UserRole;
-  workgroup: string;
-  text: string;
-  timestamp: string;
-  attachments?: Attachment[];
-  isVoice?: boolean;
-  recipientId?: string;
-}
-
-export interface AppState {
-  version: number;
-  vaultId: string; 
-  commandName: string;
-  users: User[];
-  idvs: FundingIDV[];
-  orders: WorkOrder[];
-  planningNeeds: PlanningNeed[];
-  planningLists: PlanningList[];
-  auditLog: AuditEntry[];
-  chatMessages: ChatMessage[];
-  briefings: Briefing[];
-  lastSync: string;
+export interface BulkGenerationResult {
+  items: Partial<Article>[];
 }

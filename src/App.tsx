@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Wand2, Calculator, Printer, LayoutDashboard, FolderOpen, Sparkles, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -8,10 +8,7 @@ import Login from './components/Login';
 import { CATEGORIES, INITIAL_ARTICLES, PROJECT_INFO, INITIAL_ANALYSES, SOA_CATEGORIES } from './constants';
 import { Article, Totals, ProjectInfo, Measurement, Category, PriceAnalysis, AnalysisComponent } from './types';
 import Summary from './components/Summary';
-import AiGeneratorModal from './components/AiGeneratorModal';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
-import BulkGeneratorModal from './components/BulkGeneratorModal';
-// WelcomeModal import removed
 import LinkArticleModal from './components/LinkArticleModal';
 import ArticleEditModal from './components/ArticleEditModal';
 import CategoryDropGate from './components/CategoryDropGate';
@@ -19,7 +16,8 @@ import CategoryEditModal from './components/CategoryEditModal';
 import SaveProjectModal from './components/SaveProjectModal';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
-import { generateArticleItem, generateBulkItems, parseDroppedContent, parseVoiceMeasurement, generateWbsCategories } from './services/geminiService';
+import BulkGeneratorModal from './components/BulkGeneratorModal';
+import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
 import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 
 // --- Helper Functions ---
@@ -37,7 +35,6 @@ const getWbsNumber = (code: string) => {
     return match ? parseInt(match[1], 10) : code;
 };
 
-// Strict Rounding Helper (2 decimals)
 const roundTwoDecimals = (num: number) => {
     return Math.round((num + Number.EPSILON) * 100) / 100;
 };
@@ -120,7 +117,7 @@ interface TableHeaderProps {
 }
 
 const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
-  <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800">
+  <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-20 shadow-sm">
     <tr>
       <th className="py-1 px-1 text-center w-[35px] border-r border-gray-300">N.</th>
       <th className="py-1 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
@@ -171,7 +168,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
-   const [articleDropPosition, setArticleDropPosition] = useState<'top' | 'bottom' | null>(null); // New state for line position
+   const [articleDropPosition, setArticleDropPosition] = useState<'top' | 'bottom' | null>(null);
    const [isListening, setIsListening] = useState(false);
    const addBtnRef = useRef<HTMLButtonElement>(null);
    const recognitionRef = useRef<any>(null);
@@ -191,7 +188,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
      return linkedArt;
    };
 
-   // Helper to get formatted hierarchical number for any article
    const getLinkedArticleNumber = (linkedArt: Article) => {
        const catArticles = allArticles.filter(a => a.categoryCode === linkedArt.categoryCode);
        const localIndex = catArticles.findIndex(a => a.id === linkedArt.id) + 1;
@@ -277,14 +273,10 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const handleArticleHeaderDragOver = (e: React.DragEvent) => {
       e.preventDefault();
-      
-      // 1. If WBS is locked, disable drag-over visuals and gate
       if (isCategoryLocked) return;
-
       const rect = e.currentTarget.getBoundingClientRect();
       const midPoint = rect.top + rect.height / 2;
       const isTop = e.clientY < midPoint;
-      
       setArticleDropPosition(isTop ? 'top' : 'bottom');
       setIsArticleDragOver(true);
    };
@@ -296,32 +288,22 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const handleArticleHeaderDrop = (e: React.DragEvent) => {
       e.preventDefault();
-      
-      // 1. If WBS is locked, prevent drop
       if (isCategoryLocked) {
           setIsArticleDragOver(false);
           setArticleDropPosition(null);
           return;
       }
-
-      // 2. Check for External Text Drop (Gate Logic)
       const textData = e.dataTransfer.getData('text');
-      // If it has text but NO internal type, it's an external drop
       const isExternal = textData && !e.dataTransfer.getData('type');
-
       if (isExternal) {
-          // Calculate insertion index
-          // If drop position is bottom, we insert AFTER this element (index + 1)
           const insertionIndex = articleDropPosition === 'bottom' ? index + 1 : index;
           onInsertExternalArticle(insertionIndex, textData);
       } else {
-          // 3. Internal Article Reorder
           const type = e.dataTransfer.getData('type');
           if (type === 'ARTICLE') {
               onArticleDrop(e, article.id, articleDropPosition || 'bottom');
           }
       }
-
       setIsArticleDragOver(false);
       setArticleDropPosition(null);
    };
@@ -364,7 +346,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    return (
       <tbody id={`article-${article.id}`} className={`bg-white border-b border-gray-400 group/article transition-colors relative ${isArticleLocked ? 'bg-gray-50' : ''}`}>
-         {/* Visual Green Line Indicator - TOP */}
          {isArticleDragOver && articleDropPosition === 'top' && (
              <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 -top-0.5 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
          )}
@@ -392,15 +373,12 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         placeholder="Codice"
                         disabled={true}
                     />
-                    
-                    {/* Source and SOA Tag - Subtle Layout */}
                     {article.priceListSource && <div className="text-[9px] text-gray-400 px-1 mt-1 leading-tight truncate max-w-full" title={article.priceListSource}>{article.priceListSource}</div>}
                     {article.soaCategory && (
                         <div className="text-[9px] text-gray-400 px-1 italic leading-tight" title={`Categoria SOA: ${article.soaCategory}`}>
                             ({article.soaCategory})
                         </div>
                     )}
-
                     {isAnalysisLinked && (
                         <button 
                             onClick={() => article.linkedAnalysisId && onViewAnalysis(article.linkedAnalysisId)}
@@ -445,7 +423,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 {isCategoryLocked && <Lock className="w-3 h-3 text-gray-300 mx-auto" />}
             </td>
          </tr>
-
          <tr><td className="border-r border-gray-200 bg-white"></td><td className="border-r border-gray-200 bg-white"></td><td className="px-3 pt-2 text-[10px] font-bold text-gray-500 uppercase border-r border-gray-200 bg-white">Misure</td><td colSpan={9} className="bg-white"></td></tr>
          <tr className="h-1"><td colSpan={12} className="border-r border-gray-200 bg-white"></td></tr>
          {processedMeasurements.map((m, idx) => {
@@ -467,7 +444,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                      </span>
                                      <LinkIcon className="w-3 h-3 text-blue-400 opacity-0 group-hover/link:opacity-100 transition-opacity" />
                                   </button>
-                               </div>
+                                </div>
                              ) : (
                                 isPrintMode ? <div className={`truncate ${m.type === 'deduction' ? 'italic' : ''}`}>{m.description}</div> : (
                                     <input value={m.description} autoFocus={m.id === lastAddedMeasurementId} onFocus={() => onColumnFocus('desc')} onBlur={() => onColumnFocus(null)} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300' : 'placeholder-gray-300'} disabled:cursor-not-allowed`} placeholder={m.type === 'deduction' ? "A dedurre..." : "Descrizione misura..."} disabled={areControlsDisabled} />
@@ -527,7 +504,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              </td>
          </tr>
          
-         {/* Visual Green Line Indicator - BOTTOM (Moved outside rows for clean spacing) */}
          {isArticleDragOver && articleDropPosition === 'bottom' && (
              <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 top-2 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
          )}
@@ -550,46 +526,27 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionError, setSessionError] = useState(false);
 
-  // 1. AUTH LISTENER
   useEffect(() => {
-    if (!auth) {
-        setAuthLoading(false); 
-        return;
-    }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-        setUser(currentUser);
-        setAuthLoading(false);
-    });
+    if (!auth) { setAuthLoading(false); return; }
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setAuthLoading(false); });
     return () => unsubscribe();
   }, []);
 
-  // 2. STRICT SESSION ENFORCEMENT
   useEffect(() => {
     if (!user || !db) return;
     const currentSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const userSessionRef = ref(db, `sessions/${user.uid}`);
     let isMounted = true;
-    set(userSessionRef, {
-        sessionId: currentSessionId,
-        lastLogin: new Date().toISOString(),
-        device: navigator.userAgent,
-        platform: navigator.platform
-    }).catch(err => console.error("Session Write Failed:", err));
+    set(userSessionRef, { sessionId: currentSessionId, lastLogin: new Date().toISOString(), device: navigator.userAgent, platform: navigator.platform }).catch(err => console.error("Session Write Failed:", err));
     const unsubscribeDb = onValue(userSessionRef, (snapshot) => {
         if (!isMounted) return;
         const data = snapshot.val();
         if (data && data.sessionId && data.sessionId !== currentSessionId) {
             setSessionError(true);
-            if (auth.currentUser) {
-                signOut(auth).catch(e => console.error("Logout error", e));
-            }
+            if (auth.currentUser) { signOut(auth).catch(e => console.error("Logout error", e)); }
         }
     });
-    return () => {
-        isMounted = false;
-        off(userSessionRef);
-        unsubscribeDb();
-    };
+    return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
@@ -597,17 +554,14 @@ const App: React.FC = () => {
   const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
   const [analyses, setAnalyses] = useState<PriceAnalysis[]>(INITIAL_ANALYSES);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>(PROJECT_INFO);
-  const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>('SUMMARY');
+  const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(CATEGORIES[0]?.code || 'WBS.01');
   const [activeColumn, setActiveColumn] = useState<string | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [future, setFuture] = useState<Snapshot[]>([]);
   const [currentFileHandle, setCurrentFileHandle] = useState<any>(null); 
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
-  // isWelcomeModalOpen REMOVED
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
@@ -615,7 +569,6 @@ const App: React.FC = () => {
   const [linkTarget, setLinkTarget] = useState<{articleId: string, measurementId: string} | null>(null);
   const [isEditArticleModalOpen, setIsEditArticleModalOpen] = useState(false);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isProcessingDrop, setIsProcessingDrop] = useState(false);
   const [lastAddedMeasurementId, setLastAddedMeasurementId] = useState<string | null>(null);
   const [draggedCategoryCode, setDraggedCategoryCode] = useState<string | null>(null);
@@ -628,16 +581,14 @@ const App: React.FC = () => {
   const [analysisSearchTerm, setAnalysisSearchTerm] = useState('');
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [isAnalysisDragOver, setIsAnalysisDragOver] = useState(false);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   
-  // New State for "Contextual AI Generation"
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Basic Security Checks
-    const userAgent = window.navigator.userAgent;
-    const isChrome = /Chrome/.test(userAgent) && /Google Inc/.test(navigator.vendor);
     const handleContextMenu = (e: MouseEvent) => { e.preventDefault(); return false; };
     document.addEventListener('contextmenu', handleContextMenu);
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -646,12 +597,8 @@ const App: React.FC = () => {
       }
     };
     document.addEventListener('keydown', handleKeyDown);
-    // WELCOME MODAL LOGIC REMOVED
-    return () => {
-        document.removeEventListener('contextmenu', handleContextMenu);
-        document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []); // REMOVED DEPENDENCIES
+    return () => { document.removeEventListener('contextmenu', handleContextMenu); document.removeEventListener('keydown', handleKeyDown); };
+  }, []); 
 
   useEffect(() => {
       document.title = projectInfo.title ? `${projectInfo.title} - GeCoLa` : 'GeCoLa - Computo Metrico';
@@ -660,11 +607,7 @@ const App: React.FC = () => {
   const updateState = (newArticles: Article[], newCategories: Category[] = categories, newAnalyses: PriceAnalysis[] = analyses, saveHistory: boolean = true) => {
       const recomputed = recalculateAllArticles(newArticles);
       if (saveHistory) {
-          setHistory(prev => {
-              const newHist = [...prev, { articles, categories, analyses }];
-              if (newHist.length > 50) return newHist.slice(newHist.length - 50);
-              return newHist;
-          });
+          setHistory(prev => { const newHist = [...prev, { articles, categories, analyses }]; return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist; });
           setFuture([]); 
       }
       setArticles(recomputed);
@@ -675,9 +618,8 @@ const App: React.FC = () => {
   const handleUndo = useCallback(() => {
     if (history.length === 0) return;
     const previous = history[history.length - 1];
-    const newHistory = history.slice(0, -1);
     setFuture(prev => [{ articles, categories, analyses }, ...prev]);
-    setHistory(newHistory);
+    setHistory(history.slice(0, -1));
     setArticles(previous.articles);
     setCategories(previous.categories);
     setAnalyses(previous.analyses);
@@ -686,9 +628,8 @@ const App: React.FC = () => {
   const handleRedo = useCallback(() => {
     if (future.length === 0) return;
     const next = future[0];
-    const newFuture = future.slice(1);
     setHistory(prev => [...prev, { articles, categories, analyses }]);
-    setFuture(newFuture);
+    setFuture(future.slice(1));
     setArticles(next.articles);
     setCategories(next.categories);
     setAnalyses(next.analyses);
@@ -732,13 +673,8 @@ const App: React.FC = () => {
       return { newCategories, newArticles, codeMap };
   };
 
-  // ANALYSIS LOGIC
   const handleSaveAnalysis = (updatedAnalysis: PriceAnalysis) => {
-      const roundedAnalysis = {
-          ...updatedAnalysis,
-          totalUnitPrice: roundTwoDecimals(updatedAnalysis.totalUnitPrice),
-          totalBatchValue: roundTwoDecimals(updatedAnalysis.totalBatchValue)
-      };
+      const roundedAnalysis = { ...updatedAnalysis, totalUnitPrice: roundTwoDecimals(updatedAnalysis.totalUnitPrice), totalBatchValue: roundTwoDecimals(updatedAnalysis.totalBatchValue) };
       let newAnalyses = [...analyses];
       const index = newAnalyses.findIndex(a => a.id === roundedAnalysis.id);
       if (index !== -1) newAnalyses[index] = roundedAnalysis; else newAnalyses.push(roundedAnalysis);
@@ -755,26 +691,21 @@ const App: React.FC = () => {
   const handleDeleteAnalysis = (id: string) => {
       if (window.confirm("Se elimini questa analisi, le voci di computo collegate rimarranno ma perderanno il collegamento dinamico. Continuare?")) {
          const newAnalyses = analyses.filter(a => a.id !== id);
-         const newArticles = articles.map(art => {
-             if (art.linkedAnalysisId === id) return { ...art, linkedAnalysisId: undefined };
-             return art;
-         });
+         const newArticles = articles.map(art => { if (art.linkedAnalysisId === id) return { ...art, linkedAnalysisId: undefined }; return art; });
          updateState(newArticles, categories, newAnalyses);
       }
   };
 
   const handleImportAnalysisToArticle = (analysis: PriceAnalysis) => {
-      // Import into current active or first category
-      const targetCode = activeCategoryForAi || categories[0].code;
+      const targetCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
-      const roundedPrice = roundTwoDecimals(analysis.totalUnitPrice);
       const newArticle: Article = {
           id: Math.random().toString(36).substr(2, 9),
           categoryCode: targetCode,
           code: analysis.code,
           description: analysis.description,
           unit: analysis.unit,
-          unitPrice: roundedPrice,
+          unitPrice: roundTwoDecimals(analysis.totalUnitPrice),
           laborRate: laborRate,
           linkedAnalysisId: analysis.id,
           priceListSource: `Da Analisi ${analysis.code}`,
@@ -789,39 +720,17 @@ const App: React.FC = () => {
 
   const handleViewLinkedAnalysis = (analysisId: string) => {
       const analysis = analyses.find(a => a.id === analysisId);
-      if (analysis) {
-          setEditingAnalysis(analysis);
-          setIsAnalysisEditorOpen(true);
-      } else {
-          alert("Attenzione: L'analisi originale non è stata trovata.");
-      }
+      if (analysis) { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); } else { alert("Attenzione: L'analisi originale non è stata trovata."); }
   };
 
   const handleConvertArticleToAnalysis = (article: Article) => {
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newAnalysisId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId,
-          code: nextAnalysisCode,
-          description: article.description,
-          unit: article.unit,
-          analysisQuantity: 1,
-          generalExpensesRate: 15,
-          profitRate: 10,
-          totalMaterials: 0,
-          totalLabor: 0,
-          totalEquipment: 0,
-          costoTecnico: 0,
-          valoreSpese: 0,
-          valoreUtile: 0,
-          totalBatchValue: 0,
-          totalUnitPrice: 0,
+          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0,
           components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
       };
-      const updatedArticles = articles.map(a => {
-          if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` };
-          return a;
-      });
+      const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
       setAnalyses(prev => [...prev, newAnalysis]);
       updateState(updatedArticles, categories, [...analyses, newAnalysis]);
       setEditingAnalysis(newAnalysis);
@@ -830,12 +739,12 @@ const App: React.FC = () => {
   };
 
   const handleInsertExternalArticle = (insertIndex: number, rawText: string) => {
-      // Default to first category if dropped vaguely
+      const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
       const parsed = parseDroppedContent(rawText);
       if (parsed) {
           const newArticle: Article = {
               id: Math.random().toString(36).substr(2, 9),
-              categoryCode: categories[0].code, // Default fallback
+              categoryCode: targetCode,
               code: parsed.code || 'NP.001',
               priceListSource: parsed.priceListSource,
               description: parsed.description || 'Voce importata',
@@ -850,11 +759,7 @@ const App: React.FC = () => {
       }
   };
 
-  const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => {
-      e.dataTransfer.setData('text/plain', `GECOLA_DATA::ANALYSIS::${JSON.stringify(analysis)}`);
-      e.dataTransfer.effectAllowed = 'copy';
-  };
-
+  const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => { e.dataTransfer.setData('text/plain', `GECOLA_DATA::ANALYSIS::${JSON.stringify(analysis)}`); e.dataTransfer.effectAllowed = 'copy'; };
   const handleAnalysisDrop = (e: React.DragEvent) => {
       e.preventDefault();
       setIsAnalysisDragOver(false);
@@ -885,82 +790,133 @@ const App: React.FC = () => {
   const handleToggleCategoryLock = (code: string, e: React.MouseEvent) => { e.stopPropagation(); const newCats = categories.map(c => c.code === code ? { ...c, isLocked: !c.isLocked } : c); updateState(articles, newCats); };
   const handleToggleCategoryVisibility = (code: string, e: React.MouseEvent) => { e.stopPropagation(); const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c); updateState(articles, newCats); };
   const handleDeleteCategory = (code: string, e: React.MouseEvent) => { e.stopPropagation(); if (window.confirm(`Sei sicuro di voler eliminare la WBS ${code} e tutte le sue voci?`)) { let newCats = categories.filter(c => c.code !== code); let newArts = articles.filter(a => a.categoryCode !== code); const result = renumberCategories(newCats, newArts); updateState(result.newArticles, result.newCategories); } };
+  const handleCloneCategory = (code: string, e: React.MouseEvent) => { e.stopPropagation(); const sourceCat = categories.find(c => c.code === code); if (!sourceCat) return; const sourceArticles = articles.filter(a => a.categoryCode === code); const newCategory = { ...sourceCat, name: `${sourceCat.name} (Copia)` }; const tempCode = `TEMP_CLONE_${Date.now()}`; newCategory.code = tempCode; const newArticlesRaw = sourceArticles.map(art => ({ ...art, id: Math.random().toString(36).substr(2, 9), categoryCode: tempCode, measurements: art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) })); const sourceIndex = categories.findIndex(c => c.code === code); const newCatsList = [...categories]; newCatsList.splice(sourceIndex + 1, 0, newCategory); const allArticles = [...articles, ...newArticlesRaw]; const result = renumberCategories(newCatsList, allArticles); updateState(result.newArticles, result.newCategories); };
   
-  const handleCloneCategory = (code: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const sourceCat = categories.find(c => c.code === code);
-    if (!sourceCat) return;
-    const sourceArticles = articles.filter(a => a.categoryCode === code);
-    const newCategory = { ...sourceCat, name: `${sourceCat.name} (Copia)` };
-    const tempCode = `TEMP_CLONE_${Date.now()}`;
-    newCategory.code = tempCode;
-    const newArticlesRaw = sourceArticles.map(art => ({
-        ...art, id: Math.random().toString(36).substr(2, 9), categoryCode: tempCode,
-        measurements: art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }))
-    }));
-    const sourceIndex = categories.findIndex(c => c.code === code);
-    const newCatsList = [...categories];
-    newCatsList.splice(sourceIndex + 1, 0, newCategory);
-    const allArticles = [...articles, ...newArticlesRaw];
-    const result = renumberCategories(newCatsList, allArticles);
-    updateState(result.newArticles, result.newCategories);
-  };
-
   const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
       setDraggedCategoryCode(code); 
+      
+      const cat = categories.find(c => c.code === code);
+      if (cat) {
+          const catArticles = articles.filter(a => a.categoryCode === code);
+          const relatedAnalysesIds = new Set(catArticles.map(a => a.linkedAnalysisId).filter(Boolean));
+          const relatedAnalyses = analyses.filter(an => relatedAnalysesIds.has(an.id));
+          
+          const payload = {
+              type: 'CROSS_TAB_WBS_BUNDLE',
+              category: cat,
+              articles: catArticles,
+              analyses: relatedAnalyses
+          };
+          
+          e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+      }
+      
       e.dataTransfer.setData('wbsCode', code); 
-      e.dataTransfer.effectAllowed = 'copyMove'; 
+      e.dataTransfer.effectAllowed = 'all'; 
   };
 
-  const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => {
-      e.preventDefault(); e.stopPropagation();
-      if (isDraggingArticle) {
-          if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') setWbsDropTarget({ code: targetCode, position: 'inside' });
-          return;
-      }
-      if (draggedCategoryCode) {
-          if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
-          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const isTop = e.clientY < (rect.top + rect.height / 2);
-          setWbsDropTarget({ code: targetCode, position: isTop ? 'top' : 'bottom' });
-      }
+  const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    if (isDraggingArticle) { 
+        if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') setWbsDropTarget({ code: targetCode, position: 'inside' }); 
+        return; 
+    } 
+    if (draggedCategoryCode) { 
+        if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; } 
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); 
+        const isTop = e.clientY < (rect.top + rect.height / 2); 
+        setWbsDropTarget({ code: targetCode, position: isTop ? 'top' : 'bottom' }); 
+    } 
   };
-
+  
   const handleWbsDragLeave = (e: React.DragEvent) => { e.preventDefault(); };
-
+  
   const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { 
-      e.preventDefault(); e.stopPropagation(); setWbsDropTarget(null);
-      const droppedArticleId = e.dataTransfer.getData('articleId');
-      if (droppedArticleId && targetCode) {
-          const targetCategory = categories.find(c => c.code === targetCode);
-          if (targetCategory?.isLocked) { alert("WBS bloccata."); return; }
-          const article = articles.find(a => a.id === droppedArticleId);
-          if (!article) return;
-          if (article.categoryCode === targetCode) return;
-          if (e.ctrlKey) {
-              const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
-              updateState([...articles, newArticle]);
-          } else {
-              const updatedArticles = articles.map(a => a.id === droppedArticleId ? { ...a, categoryCode: targetCode } : a);
-              updateState(updatedArticles);
-          }
-          setDraggedCategoryCode(null); setIsDraggingArticle(false);
+      e.preventDefault(); 
+      e.stopPropagation(); 
+      setWbsDropTarget(null); 
+      
+      const droppedArticleId = e.dataTransfer.getData('articleId'); 
+      if (droppedArticleId && targetCode) { 
+          const targetCategory = categories.find(c => c.code === targetCode); 
+          if (targetCategory?.isLocked) { alert("WBS bloccata."); return; } 
+          const article = articles.find(a => a.id === droppedArticleId); 
+          if (!article) return; 
+          if (article.categoryCode === targetCode) return; 
+          if (e.ctrlKey) { 
+              const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) }; 
+              updateState([...articles, newArticle]); 
+          } else { 
+              const updatedArticles = articles.map(a => a.id === droppedArticleId ? { ...a, categoryCode: targetCode } : a); 
+              updateState(updatedArticles); 
+          } 
+          setDraggedCategoryCode(null); 
+          setIsDraggingArticle(false); 
+          return; 
+      } 
+      
+      const textData = e.dataTransfer.getData('text/plain');
+      if (textData && !draggedCategoryCode) {
+          try {
+              const payload = JSON.parse(textData);
+              if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
+                  const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
+                  if (importedCat && Array.isArray(importedArticles)) {
+                      const newCatCode = generateNextWbsCode(categories);
+                      const newCategory: Category = { ...importedCat, code: newCatCode, name: importedCat.name + " (Importato)" };
+                      const analysisIdMap = new Map<string, string>();
+                      const analysisCodeMap = new Map<string, string>();
+                      const newAnalysesList = [...analyses];
+                      if (Array.isArray(importedAnalyses)) {
+                          importedAnalyses.forEach((an: PriceAnalysis) => {
+                              const newId = Math.random().toString(36).substr(2, 9);
+                              let newCode = an.code;
+                              if (analyses.some(existing => existing.code === newCode)) {
+                                  newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`;
+                              }
+                              analysisIdMap.set(an.id, newId);
+                              analysisCodeMap.set(an.code, newCode);
+                              const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
+                              newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
+                          });
+                      }
+                      const processedArticles = importedArticles.map((art: Article) => {
+                          const newArticleId = Math.random().toString(36).substr(2, 9);
+                          let newLinkedAnalysisId = art.linkedAnalysisId;
+                          let newSource = art.priceListSource;
+                          let newCode = art.code;
+                          if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) {
+                              newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId);
+                              if (art.code && analysisCodeMap.has(art.code)) {
+                                 newCode = analysisCodeMap.get(art.code) || art.code;
+                                 newSource = `Da Analisi ${newCode}`;
+                              }
+                          }
+                          return { ...art, id: newArticleId, categoryCode: newCatCode, code: newCode, linkedAnalysisId: newLinkedAnalysisId, priceListSource: newSource, measurements: art.measurements.map((m: Measurement) => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) };
+                      });
+                      updateState([...articles, ...processedArticles], [...categories, newCategory], newAnalysesList);
+                      setSelectedCategoryCode(newCatCode);
+                  }
+              }
+          } catch (e) { console.error("Drop error", e); }
           return;
       }
-      if (draggedCategoryCode) {
-          if (!targetCode || draggedCategoryCode === targetCode) { setDraggedCategoryCode(null); return; }
+
+      if (draggedCategoryCode) { 
+          if (!targetCode || draggedCategoryCode === targetCode) { setDraggedCategoryCode(null); return; } 
           const sourceIndex = categories.findIndex(c => c.code === draggedCategoryCode); 
           let targetIndex = categories.findIndex(c => c.code === targetCode); 
-          if (sourceIndex === -1 || targetIndex === -1) { setDraggedCategoryCode(null); return; }
+          if (sourceIndex === -1 || targetIndex === -1) { setDraggedCategoryCode(null); return; } 
           const newCatsOrder = [...categories]; 
           const [movedCat] = newCatsOrder.splice(sourceIndex, 1); 
-          if (sourceIndex < targetIndex) targetIndex--;
-          if (wbsDropTarget?.position === 'bottom') targetIndex++;
+          if (sourceIndex < targetIndex) targetIndex--; 
+          if (wbsDropTarget?.position === 'bottom') targetIndex++; 
           newCatsOrder.splice(targetIndex, 0, movedCat); 
           const result = renumberCategories(newCatsOrder, articles); 
           updateState(result.newArticles, result.newCategories); 
-          setDraggedCategoryCode(null);
-      }
+          setDraggedCategoryCode(null); 
+      } 
   };
 
   const handleUpdateArticle = (id: string, field: keyof Article, value: string | number) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
@@ -981,15 +937,6 @@ const App: React.FC = () => {
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
   const handleScrollToArticle = (id: string) => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'center' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } };
   
-  // NEW: Scroll to Category (Anchor)
-  const handleScrollToCategory = (code: string) => {
-      setSelectedCategoryCode(code); // Highlight sidebar
-      const element = document.getElementById(`category-${code}`);
-      if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-  };
-
   const handleAddEmptyArticle = (categoryCode: string) => { 
       const newArticleId = Math.random().toString(36).substr(2, 9);
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
@@ -1002,36 +949,45 @@ const App: React.FC = () => {
       setIsAnalysisEditorOpen(true);
   };
 
-  const handleAiGenerate = async (instruction: string) => { 
-      if (!process.env.API_KEY) { alert("API Key missing."); return; } 
-      // Use explicit category from button click
-      const targetCatCode = activeCategoryForAi || categories[0].code;
-      const currentCat = categories.find(c => c.code === targetCatCode);
-      if (!currentCat) return; 
-      
-      setIsGenerating(true); 
-      try { 
-          const generated = await generateArticleItem(currentCat.name, currentCat.code, instruction, projectInfo.region, projectInfo.year); 
-          if (generated) { 
-              const qty = generated.quantity || 1; 
-              const newAnalysisId = Math.random().toString(36).substr(2, 9);
-              const analysisCode = generated.code?.startsWith('NP') ? generated.code : `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
-              const newAnalysis: PriceAnalysis = { id: newAnalysisId, code: analysisCode, description: generated.description || 'Descrizione generata', unit: generated.unit || 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima Sintetica (Valore AI)', unit: 'cad', unitPrice: generated.unitPrice || 0, quantity: 1 }] };
-              const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: analysisCode, priceListSource: generated.priceListSource || `Da Analisi ${analysisCode}`, description: generated.description || 'Descrizione generata', unit: generated.unit || 'cad', unitPrice: generated.unitPrice || 0, laborRate: generated.laborRate || 0, linkedAnalysisId: newAnalysisId, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: qty, width: undefined, height: undefined, multiplier: 1 }], quantity: qty }; 
-              setAnalyses(prev => [...prev, newAnalysis]);
-              updateState([...articles, newArticle], categories, [...analyses, newAnalysis]); 
-              setIsAiModalOpen(false); 
-              setTimeout(() => { setEditingAnalysis(newAnalysis); setViewMode('ANALISI'); setIsAnalysisEditorOpen(true); }, 100);
-          } 
-      } catch (e) { alert("Errore nella generazione AI."); } finally { setIsGenerating(false); } 
-  };
-  
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
-  // handleWelcomeComplete removed
-  const handleBulkGenerate = async (description: string) => { if (!process.env.API_KEY) { alert("API Key missing."); return; } setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || 'WBS.01', code: item.code || 'NP.001', priceListSource: item.priceListSource, description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: qty, multiplier: 1 }], quantity: qty }; }); updateState([...articles, ...newArticles]); setIsBulkModalOpen(false); } else { alert("Errore generazione."); } } catch (e) { console.error(e); alert("Errore generazione."); } finally { setIsGenerating(false); } };
+  
+  const handleBulkGenerate = async (description: string) => {
+    if (!process.env.API_KEY) { alert("API Key missing."); return; }
+    setIsGenerating(true);
+    try {
+        const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories);
+        if (generatedItems && generatedItems.length > 0) {
+            const newArticles: Article[] = generatedItems.map(item => {
+                const qty = item.quantity || 1;
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    categoryCode: item.categoryCode || 'WBS.01',
+                    code: item.code || 'NP.001',
+                    priceListSource: item.priceListSource,
+                    description: item.description || 'Voce generata',
+                    unit: item.unit || 'cad',
+                    unitPrice: item.unitPrice || 0,
+                    laborRate: item.laborRate || 0,
+                    soaCategory: activeSoaCategory,
+                    measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: qty, multiplier: 1 }],
+                    quantity: qty
+                };
+            });
+            updateState([...articles, ...newArticles]);
+            setIsBulkModalOpen(false);
+        } else {
+            alert("Errore generazione.");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Errore generazione.");
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
   const handleDropContent = (rawText: string) => { 
-      // Insert into the currently "active" category for AI/Insertion or default to first
-      const targetCatCode = activeCategoryForAi || categories[0].code;
+      const targetCatCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
       const currentCat = categories.find(c => c.code === targetCatCode);
       if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; }
       if (!rawText) return; 
@@ -1098,9 +1054,8 @@ const App: React.FC = () => {
       return <Login />;
   }
 
-  // Derive current category name for AI modal
-  const aiCategory = categories.find(c => c.code === activeCategoryForAi);
-  const activeAiCategoryName = aiCategory ? aiCategory.name : 'Generico';
+  const activeCategory = categories.find(c => c.code === selectedCategoryCode);
+  const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
 
   const filteredAnalyses = analyses.filter(a => 
     a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || 
@@ -1118,7 +1073,8 @@ const App: React.FC = () => {
           <div className="flex items-center space-x-3 w-64 flex-shrink-0">
             <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
             <div className="flex flex-col">
-                <span className="font-bold text-lg tracking-tight leading-none text-white">GeCoLa <span className="font-light opacity-80 text-xs">v10.7</span></span>
+                <span className="font-bold text-lg tracking-tight leading-none text-white">GeCoLa <span className="font-light opacity-80 text-xs">v10.9</span></span>
+                <span className="text-[10px] text-orange-400 font-bold uppercase tracking-widest leading-none mt-0.5">Professional</span>
             </div>
           </div>
 
@@ -1146,7 +1102,6 @@ const App: React.FC = () => {
                     <button onClick={handleRedo} disabled={future.length === 0} className={`p-1.5 rounded transition-colors ${future.length === 0 ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:text-white hover:bg-slate-600'}`} title="Ripristina"><Redo2 className="w-4 h-4" /></button>
                 </div>
              )}
-             <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center px-3 py-1.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded border border-indigo-400/50 shadow-sm transition-all"><Sparkles className="w-3 h-3 mr-2 text-yellow-300" />Wizard</button>
              <button onClick={() => handleSmartSave(false)} className="p-1.5 text-slate-300 hover:text-white hover:bg-blue-600 rounded transition-colors" title="Salva"><Save className="w-5 h-5" /></button>
              <button onClick={() => setIsSaveModalOpen(true)} className="p-1.5 text-slate-300 hover:text-white hover:bg-purple-600 rounded transition-colors" title="Esporta"><Share2 className="w-5 h-5" /></button>
              <button onClick={() => fileInputRef.current?.click()} className="p-1.5 text-slate-300 hover:text-white hover:bg-green-600 rounded transition-colors" title="Apri"><FolderOpen className="w-5 h-5" /></button>
@@ -1176,9 +1131,13 @@ const App: React.FC = () => {
               <>
                 <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
                     <div className="flex items-center"><FolderOpen className="w-3 h-3 mr-2 text-slate-400" />Indice Documento</div>
-                    <button onClick={handleAddCategory} className="text-blue-500 hover:text-blue-700 p-1 hover:bg-blue-50 rounded" title="Nuovo Capitolo"><PlusCircle className="w-3 h-3" /></button>
+                    <button onClick={handleAddCategory} className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-100 rounded-full transition-colors" title="Nuovo Capitolo"><PlusCircle className="w-5 h-5" /></button>
                 </div>
-                <div className="flex-1 overflow-y-auto">
+                <div 
+                    className="flex-1 overflow-y-auto"
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDrop={(e) => handleWbsDrop(e, null)}
+                >
                     <ul className="py-2">
                         {categories.map(cat => (
                         <li 
@@ -1193,16 +1152,19 @@ const App: React.FC = () => {
                             )}
                             <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)}>
                                 <button 
-                                    onClick={() => handleScrollToCategory(cat.code)} 
-                                    className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col group border-transparent hover:bg-slate-50 hover:border-slate-300 ${draggedCategoryCode === cat.code ? 'opacity-50' : ''} ${selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500' : ''} ${wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'inside' ? 'border-2 border-green-500 bg-green-50 !border-l-4' : ''}`}
+                                    onClick={() => setSelectedCategoryCode(cat.code)} 
+                                    className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col group border-transparent hover:bg-slate-50 hover:border-slate-300 ${draggedCategoryCode === cat.code ? 'opacity-50' : ''} ${selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : ''} ${wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'inside' ? 'border-2 border-green-500 bg-green-50 !border-l-4' : ''}`}
                                 >
                                 <div className="flex justify-between items-center w-full mb-0.5">
                                     <div className="flex items-center gap-2">
                                         <GripVertical className="w-3 h-3 text-gray-300 cursor-move opacity-0 group-hover:opacity-100" />
-                                        <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded flex items-center gap-1 bg-slate-200 text-slate-600`}>{cat.code}{cat.isLocked && <Lock className="w-3 h-3" />}</span>
+                                        <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded flex items-center gap-1 ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}{cat.isLocked && <Lock className="w-3 h-3" />}</span>
                                     </div>
                                 </div>
-                                <span className={`text-xs font-medium leading-tight truncate w-full pl-5 text-slate-700 ${!cat.isEnabled ? 'opacity-50 line-through' : ''}`}>{cat.name}</span>
+                                <div className="pl-5 w-full">
+                                    <span className={`text-xs font-medium leading-tight truncate block ${selectedCategoryCode === cat.code ? 'text-blue-900' : 'text-slate-700'} ${!cat.isEnabled ? 'opacity-50 line-through' : ''}`}>{cat.name}</span>
+                                    <span className={`text-[10px] font-mono block mt-0.5 ${selectedCategoryCode === cat.code ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+                                </div>
                                 </button>
                             </div>
                             {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'bottom' && (
@@ -1218,8 +1180,20 @@ const App: React.FC = () => {
                         </li>
                         ))}
                     </ul>
-                    <div className="p-2 flex justify-center min-h-[50px] border-t border-dashed border-gray-300 mt-2" onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }} onDrop={(e) => handleWbsDrop(e, null)}>
-                        <button onClick={handleAddCategory} className="text-xs flex items-center text-blue-600 hover:text-blue-800 font-medium py-2 px-4 rounded hover:bg-blue-50 transition-colors w-full justify-center border border-dashed border-blue-200 hover:border-blue-400"><FolderPlus className="w-3 h-3 mr-2" />Nuovo Capitolo</button>
+                    
+                    {/* Summary Link in Sidebar */}
+                    <div className="mt-auto p-2 border-t border-gray-300 bg-slate-50">
+                        <button 
+                            onClick={() => setSelectedCategoryCode('SUMMARY')}
+                            className={`w-full flex items-center p-2 rounded text-xs font-bold uppercase tracking-wider transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-white border border-transparent hover:border-gray-200'}`}
+                        >
+                            <Layers className="w-4 h-4 mr-2" />
+                            Riepilogo Generale
+                        </button>
+                        <div className="mt-2 text-right px-2 pb-1">
+                            <span className="text-[9px] text-slate-400 uppercase font-bold block">Totale Lavori</span>
+                            <span className="font-mono font-black text-sm text-slate-700">{formatCurrency(totals.totalWorks)}</span>
+                        </div>
                     </div>
                 </div>
               </>
@@ -1261,12 +1235,6 @@ const App: React.FC = () => {
                              </div>
                          </div>
                      ))}
-                     {filteredAnalyses.length === 0 && (
-                        <div className="text-center py-8 text-gray-400 text-xs italic border-2 border-dashed border-gray-200 rounded m-2">
-                            <p>Nessuna analisi trovata.</p>
-                            <p className="mt-1">Trascina qui un'analisi da un altro progetto</p>
-                        </div>
-                     )}
                  </div>
                  <div className="p-3 border-t border-gray-200 bg-white">
                     <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs py-2 px-4 rounded shadow flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> NUOVA ANALISI</button>
@@ -1275,144 +1243,128 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* CONTENT AREA (PAPER VIEW) */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#525659] relative shadow-inner">
-           
-           <div className="flex-1 overflow-y-auto scroll-smooth pb-20" onKeyDown={handleInputKeyDown}>
-              
-              {/* DOCUMENT PAPER CONTAINER */}
+        {/* CONTENT AREA */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] relative shadow-inner p-4">
+           <div className="flex-1 overflow-y-auto scroll-smooth pb-20 rounded-xl bg-white shadow-lg border border-gray-300 flex flex-col" onKeyDown={handleInputKeyDown}>
               {viewMode === 'COMPUTO' && (
-                  <div className="flex justify-center p-8 min-h-full">
-                      <div className="bg-white w-full max-w-[1100px] min-h-[1200px] shadow-2xl relative flex flex-col">
-                          
-                          {/* PAPER HEADER (DOCUMENT TITLE) */}
-                          <div className="p-12 pb-6 border-b-2 border-black mb-8 bg-white">
-                                <div className="flex justify-between items-start">
-                                    <div className="flex-1 pr-10">
-                                        <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2"><FileText className="w-4 h-4"/> Documento Tecnico</div>
-                                        <h1 className="text-4xl font-black text-gray-900 leading-tight uppercase tracking-tight mb-4" title="Titolo del Progetto">
-                                            {projectInfo.title || "Nuovo Progetto"}
-                                        </h1>
-                                        <div className="flex flex-col gap-1 text-sm text-gray-600">
-                                            <span className="font-semibold flex items-center"><User className="w-4 h-4 mr-2 text-gray-400" /> Committente: {projectInfo.client || "---"}</span>
-                                            <span className="flex items-center"><MapPin className="w-4 h-4 mr-2 text-gray-400" /> Luogo: {projectInfo.location || "---"}</span>
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="bg-gray-100 px-4 py-2 border border-gray-200 inline-block mb-2 rounded">
-                                            <span className="block text-[10px] font-bold text-gray-500 uppercase">Prezzario Riferimento</span>
-                                            <span className="block text-lg font-bold text-blue-900">{projectInfo.region} {projectInfo.year}</span>
-                                        </div>
-                                        <div className="text-xs text-gray-400 uppercase font-bold tracking-wider mt-2">Computo Metrico Estimativo</div>
-                                    </div>
-                                </div>
+                  selectedCategoryCode === 'SUMMARY' ? (
+                      <div className="p-8">
+                          <h2 className="text-2xl font-black text-gray-900 uppercase mb-6 flex items-center"><Calculator className="w-6 h-6 mr-2"/> Quadro Economico Generale</h2>
+                          <Summary totals={totals} info={projectInfo} categories={categories} articles={articles} />
+                      </div>
+                  ) : activeCategory ? (
+                      <div key={activeCategory.code} className="flex flex-col h-full">
+                          <div className="flex flex-col border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                              <div className="flex items-center justify-between p-4 bg-gray-50 gap-4">
+                                  <div className="flex items-center gap-3">
+                                      <div className="bg-white border border-gray-300 rounded p-2 shadow-sm flex-shrink-0">
+                                          <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-0.5">Capitolo</span>
+                                          <span className="text-2xl font-black text-gray-800 leading-none">{activeCategory.code}</span>
+                                      </div>
+                                      <div>
+                                          <h2 className="text-lg font-bold text-gray-900 uppercase leading-tight max-w-[300px] truncate" title={activeCategory.name}>{activeCategory.name}</h2>
+                                          <span className="text-xs font-bold text-blue-800 uppercase tracking-widest block mt-1">Totale: {formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
+                                      </div>
+                                  </div>
+
+                                  <div className="flex-1 max-w-md mx-4 h-full flex items-center">
+                                      <CategoryDropGate 
+                                          onDropContent={handleDropContent} 
+                                          isLoading={isProcessingDrop} 
+                                          categoryCode={activeCategory.code} 
+                                      />
+                                  </div>
+
+                                  <div className="flex items-center gap-3">
+                                      <div className="flex flex-col items-end">
+                                          <label className="text-[9px] font-bold text-gray-400 uppercase mb-0.5 flex items-center gap-1"><Award className="w-3 h-3"/> SOA Attiva</label>
+                                          <select 
+                                              value={activeSoaCategory} 
+                                              onChange={(e) => setActiveSoaCategory(e.target.value)}
+                                              className="bg-white border border-gray-300 text-gray-700 text-xs rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 outline-none font-bold w-24"
+                                          >
+                                              {SOA_CATEGORIES.map(cat => (
+                                                  <option key={cat.code} value={cat.code}>{cat.code}</option>
+                                              ))}
+                                          </select>
+                                      </div>
+
+                                      {!activeCategory.isLocked && (
+                                          <button 
+                                              onClick={() => { 
+                                                  setActiveCategoryForAi(activeCategory.code);
+                                                  setIsImportAnalysisModalOpen(true);
+                                              }} 
+                                              className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110" 
+                                              title="Aggiungi Voce da Analisi"
+                                          >
+                                              <Plus className="w-5 h-5" />
+                                          </button>
+                                      )}
+                                  </div>
+                              </div>
                           </div>
 
-                          {/* PAPER CONTENT - CONTINUOUS SCROLL */}
-                          <div className="px-12 pb-20 flex-1">
-                                {categories.map((cat, index) => {
-                                    const catArticles = articles.filter(a => a.categoryCode === cat.code);
-                                    
-                                    return (
-                                        <div key={cat.code} id={`category-${cat.code}`} className="mb-12 scroll-mt-60">
-                                            {/* CATEGORY HEADER */}
-                                            <div className="flex items-end justify-between border-b-2 border-black pb-2 mb-4 group/cat-header">
-                                                <div className="flex items-end gap-3">
-                                                    <span className="text-3xl font-black text-gray-800 leading-none">{index + 1}.</span>
-                                                    <div>
-                                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-0.5">Capitolo {cat.code}</span>
-                                                        <h2 className="text-xl font-bold text-gray-900 uppercase leading-none">{cat.name}</h2>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2 opacity-0 group-hover/cat-header:opacity-100 transition-opacity">
-                                                    {!cat.isLocked && (
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => { setActiveCategoryForAi(cat.code); handleAddEmptyArticle(cat.code); }} className="text-xs flex items-center px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded" title="Aggiungi voce qui"><Plus className="w-3 h-3 mr-1"/> Voce</button>
-                                                            <button onClick={() => { setActiveCategoryForAi(cat.code); setIsAiModalOpen(true); }} className="text-xs flex items-center px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded" title="Genera voce con AI"><Wand2 className="w-3 h-3 mr-1"/> AI</button>
-                                                        </div>
-                                                    )}
-                                                    <span className="font-mono font-bold text-gray-400">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
-                                                </div>
-                                            </div>
-
-                                            {/* ARTICLES TABLE */}
-                                            {catArticles.length > 0 ? (
-                                                <div className="mb-4 border border-gray-300 rounded-sm overflow-hidden">
-                                                    <table className="w-full text-left border-collapse">
-                                                        <TableHeader activeColumn={activeColumn} />
-                                                        {catArticles.map((article, artIndex) => (
-                                                            <ArticleGroup 
-                                                                key={article.id} 
-                                                                article={article} 
-                                                                index={artIndex} 
-                                                                allArticles={articles} 
-                                                                isPrintMode={false} 
-                                                                isCategoryLocked={cat.isLocked} 
-                                                                onUpdateArticle={handleUpdateArticle} 
-                                                                onEditArticleDetails={handleEditArticleDetails} 
-                                                                onDeleteArticle={handleDeleteArticle} 
-                                                                onAddMeasurement={handleAddMeasurement} 
-                                                                onAddSubtotal={handleAddSubtotal} 
-                                                                onAddVoiceMeasurement={handleAddVoiceMeasurement} 
-                                                                onUpdateMeasurement={handleUpdateMeasurement} 
-                                                                onDeleteMeasurement={handleDeleteMeasurement} 
-                                                                onToggleDeduction={handleToggleDeduction} 
-                                                                onOpenLinkModal={handleOpenLinkModal} 
-                                                                onScrollToArticle={handleScrollToArticle} 
-                                                                onReorderMeasurements={handleReorderMeasurements} 
-                                                                onArticleDragStart={handleArticleDragStart} 
-                                                                onArticleDrop={handleArticleDrop} 
-                                                                onArticleDragEnd={handleArticleDragEnd} 
-                                                                lastAddedMeasurementId={lastAddedMeasurementId} 
-                                                                onColumnFocus={setActiveColumn} 
-                                                                onViewAnalysis={handleViewLinkedAnalysis} 
-                                                                onInsertExternalArticle={handleInsertExternalArticle} 
-                                                                onToggleArticleLock={handleToggleArticleLock} 
-                                                            />
-                                                        ))}
-                                                    </table>
-                                                </div>
-                                            ) : (
-                                                <div className="py-8 border-2 border-dashed border-gray-200 rounded text-center mb-4">
-                                                    <p className="text-gray-400 text-sm italic mb-2">Nessuna voce in questo capitolo.</p>
-                                                    {!cat.isLocked && (
-                                                        <button onClick={() => { setActiveCategoryForAi(cat.code); handleAddEmptyArticle(cat.code); }} className="text-blue-500 hover:text-blue-700 text-xs font-bold underline">
-                                                            + Aggiungi la prima voce
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                            
-                                            {/* FOOTER CAPITOLO */}
-                                            <div className="flex justify-end border-t border-gray-300 pt-2">
-                                                <div className="text-right">
-                                                    <span className="text-[10px] text-gray-500 uppercase font-bold mr-2">Totale {cat.name}</span>
-                                                    <span className="font-mono font-bold text-base text-gray-800">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-
-                                {/* SUMMARY SECTION AT END OF DOCUMENT */}
-                                <div className="mt-20 border-t-4 border-black pt-10 break-before-page">
-                                    <h2 className="text-2xl font-black text-gray-900 uppercase mb-6 flex items-center"><Calculator className="w-6 h-6 mr-2"/> Quadro Economico Generale</h2>
-                                    <Summary totals={totals} info={projectInfo} categories={categories} articles={articles} />
-                                </div>
+                          <div className="flex-1 overflow-y-auto">
+                              {activeArticles.length > 0 ? (
+                                  <table className="w-full text-left border-collapse">
+                                      <TableHeader activeColumn={activeColumn} />
+                                      {activeArticles.map((article, artIndex) => (
+                                          <ArticleGroup 
+                                              key={article.id} 
+                                              article={article} 
+                                              index={artIndex} 
+                                              allArticles={articles} 
+                                              isPrintMode={false} 
+                                              isCategoryLocked={activeCategory.isLocked} 
+                                              onUpdateArticle={handleUpdateArticle} 
+                                              onEditArticleDetails={handleEditArticleDetails} 
+                                              onDeleteArticle={handleDeleteArticle} 
+                                              onAddMeasurement={handleAddMeasurement} 
+                                              onAddSubtotal={handleAddSubtotal} 
+                                              onAddVoiceMeasurement={handleAddVoiceMeasurement} 
+                                              onUpdateMeasurement={handleUpdateMeasurement} 
+                                              onDeleteMeasurement={handleDeleteMeasurement} 
+                                              onToggleDeduction={handleToggleDeduction} 
+                                              onOpenLinkModal={handleOpenLinkModal} 
+                                              onScrollToArticle={handleScrollToArticle} 
+                                              onReorderMeasurements={handleReorderMeasurements} 
+                                              onArticleDragStart={handleArticleDragStart} 
+                                              onArticleDrop={handleArticleDrop} 
+                                              onArticleDragEnd={handleArticleDragEnd} 
+                                              lastAddedMeasurementId={lastAddedMeasurementId} 
+                                              onColumnFocus={setActiveColumn} 
+                                              onViewAnalysis={handleViewLinkedAnalysis} 
+                                              onInsertExternalArticle={handleInsertExternalArticle} 
+                                              onToggleArticleLock={handleToggleArticleLock} 
+                                          />
+                                      ))}
+                                  </table>
+                              ) : (
+                                  <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                                      <p className="mb-4 text-sm italic">Nessuna voce in questo capitolo.</p>
+                                      {!activeCategory.isLocked && (
+                                          <button onClick={() => { handleAddEmptyArticle(activeCategory.code); }} className="text-blue-500 hover:text-blue-700 text-sm font-bold underline">
+                                              + Aggiungi la prima voce
+                                          </button>
+                                      )}
+                                  </div>
+                              )}
                           </div>
                       </div>
-                  </div>
+                  ) : (
+                      <div className="flex items-center justify-center h-full text-gray-400">Seleziona un capitolo</div>
+                  )
               )}
 
-              {/* ANALYSIS VIEW (Standard) */}
               {viewMode === 'ANALISI' && (
-                  <div className="flex flex-col items-center justify-center h-full text-center p-10">
+                  <div className="flex flex-col items-center justify-center h-full text-center p-10 bg-white">
                       <div className="bg-white p-10 rounded-2xl shadow-xl border border-purple-100 max-w-2xl">
                           <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-6">
                               <TestTubes className="w-10 h-10 text-purple-600" />
                           </div>
                           <h2 className="text-2xl font-bold text-gray-800 mb-2">Gestione Analisi Prezzi</h2>
-                          <p className="text-gray-600 mb-6">Crea "mini-computi" per calcolare il prezzo di applicazione partendo da materiali, manodopera e noli. <br/>Le voci del computo collegate si aggiorneranno automaticamente.</p>
+                          <p className="text-gray-600 mb-6">Crea "mini-computi" per calcolare il prezzo di applicazione partendo da materiali, manodopera e noli.</p>
                           <div className="flex justify-center gap-4">
                               <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-transform hover:scale-105 flex items-center gap-2"><Plus className="w-5 h-5" /> Crea Nuova Analisi</button>
                               <button onClick={() => setViewMode('COMPUTO')} className="bg-white text-gray-700 border border-gray-300 px-6 py-3 rounded-lg font-bold hover:bg-gray-50 flex items-center gap-2"><ArrowRightLeft className="w-5 h-5" /> Torna al Computo</button>
@@ -1420,17 +1372,13 @@ const App: React.FC = () => {
                       </div>
                   </div>
               )}
-
            </div>
         </div>
       </div>
       
       {/* Modals */}
-      <AiGeneratorModal isOpen={isAiModalOpen} onClose={() => setIsAiModalOpen(false)} onGenerate={handleAiGenerate} categoryName={activeAiCategoryName} isLoading={isGenerating} />
       <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
       <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerate} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
-      
-      {/* Pass onConvertToAnalysis prop */}
       {editingArticle && (
         <ArticleEditModal 
             isOpen={isEditArticleModalOpen} 
@@ -1440,27 +1388,11 @@ const App: React.FC = () => {
             onConvertToAnalysis={handleConvertArticleToAnalysis} 
         />
       )}
-
       {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
       <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={editingCategory ? undefined : generateNextWbsCode(categories)} />
       <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
-      
-      {/* Analysis Modal */}
-      <AnalysisEditorModal 
-         isOpen={isAnalysisEditorOpen} 
-         onClose={() => setIsAnalysisEditorOpen(false)} 
-         analysis={editingAnalysis} 
-         onSave={handleSaveAnalysis}
-         nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`}
-      />
-
-      {/* Import Analysis Modal */}
-      <ImportAnalysisModal
-        isOpen={isImportAnalysisModalOpen}
-        onClose={() => setIsImportAnalysisModalOpen(false)}
-        analyses={analyses}
-        onImport={handleImportAnalysisToArticle}
-      />
+      <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
+      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
     </div>
   );
 };
