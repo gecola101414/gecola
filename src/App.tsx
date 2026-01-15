@@ -231,6 +231,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const handleMeasDragOver = (e: React.DragEvent, mId: string) => {
        e.preventDefault(); 
        e.stopPropagation();
+       e.dataTransfer.dropEffect = 'move';
        if (measurementDragOverId !== mId) setMeasurementDragOverId(mId);
    };
 
@@ -261,6 +262,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const handleArticleHeaderDragOver = (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
       if (isCategoryLocked) return;
       const rect = e.currentTarget.getBoundingClientRect();
       const midPoint = rect.top + rect.height / 2;
@@ -276,6 +279,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const handleArticleHeaderDrop = (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       if (isCategoryLocked) {
           setIsArticleDragOver(false);
           setArticleDropPosition(null);
@@ -743,7 +747,7 @@ const App: React.FC = () => {
   };
 
   const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => { 
-      // MIRACOLO: Trick URI list per cambio scheda
+      // MIRACOLO: Trick URI list per cambio scheda (Chrome richiede uri-list per switchare tab)
       const dummyUrl = 'https://gecola.it/transfer/analysis/' + analysis.id;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
@@ -753,6 +757,7 @@ const App: React.FC = () => {
 
   const handleAnalysisDrop = (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       setIsAnalysisDragOver(false);
       const textData = e.dataTransfer.getData('text/plain');
       if (textData && textData.startsWith('GECOLA_DATA::ANALYSIS::')) {
@@ -785,7 +790,7 @@ const App: React.FC = () => {
   
   const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
       setDraggedCategoryCode(code); 
-      // MIRACOLO: Inseriamo PRIMA la URI list fittizia per ingannare Chrome
+      // MIRACOLO: Inseriamo PRIMA la URI list fittizia per ingannare Chrome e forzare il cambio scheda
       const dummyUrl = 'https://gecola.it/transfer/wbs/' + code;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
@@ -806,7 +811,7 @@ const App: React.FC = () => {
   const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
       e.preventDefault(); 
       e.stopPropagation(); 
-      e.dataTransfer.dropEffect = 'copy';
+      e.dataTransfer.dropEffect = 'copy'; // Forza cursore copia (+) e rimuove divieto
       if (isDraggingArticle) {
           if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') setWbsDropTarget({ code: targetCode, position: 'inside' });
           return;
@@ -904,7 +909,7 @@ const App: React.FC = () => {
   const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleArticleDragStart = (e: React.DragEvent, article: Article) => { 
       setIsDraggingArticle(true); 
-      // MIRACOLO URI
+      // MIRACOLO URI list per cambio scheda
       const dummyUrl = 'https://gecola.it/transfer/article/' + article.id;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
@@ -971,7 +976,11 @@ const App: React.FC = () => {
   const filteredAnalyses = analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase()));
 
   return (
-    <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800">
+    <div 
+        className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} // Pulisce il divieto globale
+        onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+    >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
       <div className="bg-[#2c3e50] shadow-md z-50 print:hidden flex-shrink-0 h-14 flex items-center justify-between px-6 border-b border-slate-600">
           <div className="flex items-center space-x-3 w-64 flex-shrink-0">
@@ -1014,6 +1023,11 @@ const App: React.FC = () => {
                         e.stopPropagation(); 
                         e.dataTransfer.dropEffect = 'copy'; // Forza cursore su copia (rimuove divieto)
                     }}
+                    onDragEnter={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = 'copy';
+                    }}
                     onDrop={(e) => handleWbsDrop(e, null)}
                 >
                     <ul className="py-2">
@@ -1022,6 +1036,7 @@ const App: React.FC = () => {
                             key={cat.code} 
                             className="relative group/cat" 
                             onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
+                            onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                             onDragLeave={handleWbsDragLeave}
                             onDrop={(e) => handleWbsDrop(e, cat.code)}
                         >
@@ -1043,7 +1058,6 @@ const App: React.FC = () => {
                         ))}
                     </ul>
                     
-                    {/* Summary Link in Sidebar */}
                     <div className="mt-auto p-2 border-t border-gray-300 bg-slate-50">
                         <button 
                             onClick={() => setSelectedCategoryCode('SUMMARY')}
@@ -1067,6 +1081,7 @@ const App: React.FC = () => {
                  <div 
                     className="flex-1 overflow-y-auto p-2 space-y-2"
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setIsAnalysisDragOver(true); }}
+                    onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                     onDragLeave={() => setIsAnalysisDragOver(false)}
                     onDrop={handleAnalysisDrop}
                  >
