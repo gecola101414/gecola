@@ -1,5 +1,5 @@
 {
-  "name": "GeCoLa AI_SPW_3.0   drop tra due file di wbs compreso di analisi contenute",
+  "name": " GeCoLa AI_SPW_2.1 funziona tutto bene tranne che copia i gruppi di lavorazione da un file ad un altro",
   "description": "A professional construction estimate application (Computo Metrico Estimativo) tailored for Italian standards, featuring dynamic calculations, categorization, and AI-assisted item generation.",
   "requestFramePermissions": [
     "microphone"
