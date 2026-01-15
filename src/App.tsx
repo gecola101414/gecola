@@ -424,7 +424,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             </td>
          </tr>
          <tr><td className="border-r border-gray-200 bg-white"></td><td className="border-r border-gray-200 bg-white"></td><td className="px-3 pt-2 text-[10px] font-bold text-gray-500 uppercase border-r border-gray-200 bg-white">Misure</td><td colSpan={9} className="bg-white"></td></tr>
-         <tr className="h-1"><td colSpan={12} className="border-r border-gray-200 bg-white"></td></tr>
          {processedMeasurements.map((m, idx) => {
             const linkedArt = getLinkedInfo(m);
             const isSubtotal = m.type === 'subtotal';
@@ -793,7 +792,7 @@ const App: React.FC = () => {
   const handleCloneCategory = (code: string, e: React.MouseEvent) => { e.stopPropagation(); const sourceCat = categories.find(c => c.code === code); if (!sourceCat) return; const sourceArticles = articles.filter(a => a.categoryCode === code); const newCategory = { ...sourceCat, name: `${sourceCat.name} (Copia)` }; const tempCode = `TEMP_CLONE_${Date.now()}`; newCategory.code = tempCode; const newArticlesRaw = sourceArticles.map(art => ({ ...art, id: Math.random().toString(36).substr(2, 9), categoryCode: tempCode, measurements: art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) })); const sourceIndex = categories.findIndex(c => c.code === code); const newCatsList = [...categories]; newCatsList.splice(sourceIndex + 1, 0, newCategory); const allArticles = [...articles, ...newArticlesRaw]; const result = renumberCategories(newCatsList, allArticles); updateState(result.newArticles, result.newCategories); };
   
   const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
-      // CRITICO: Impostare effectAllowed a 'all' abilita il cambio scheda automatico nel browser (Tab Switch on hover)
+      // CRITICO: effectAllowed 'all' abilita il cambio scheda nel browser quando si trascina sopra il titolo del tab
       e.dataTransfer.effectAllowed = 'all'; 
       setDraggedCategoryCode(code); 
       
@@ -810,25 +809,25 @@ const App: React.FC = () => {
               analyses: relatedAnalyses
           };
           
-          // Serializzazione robusta per passaggio tra Tab diverse
+          // Impostiamo text/plain per la massima compatibilità cross-tab
           e.dataTransfer.setData('text/plain', JSON.stringify(payload));
+          e.dataTransfer.setData('wbsCode', code); 
       }
-      
-      e.dataTransfer.setData('wbsCode', code); 
   };
 
-  const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
+  const handleWbsDragOver = (e: React.DragEvent, targetCode: string | null) => { 
+    // CRITICO: preventDefault() è obbligatorio per accettare il drop e rimuovere il divieto di accesso
     e.preventDefault(); 
     e.stopPropagation(); 
     
-    // Indica al browser che l'operazione di copia/importazione è valida qui
+    // Specifichiamo l'effetto di copia
     e.dataTransfer.dropEffect = 'copy';
 
-    if (isDraggingArticle) { 
+    if (isDraggingArticle && targetCode) { 
         if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') setWbsDropTarget({ code: targetCode, position: 'inside' }); 
         return; 
     } 
-    if (draggedCategoryCode) { 
+    if (draggedCategoryCode && targetCode) { 
         if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; } 
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); 
         const isTop = e.clientY < (rect.top + rect.height / 2); 
@@ -836,14 +835,15 @@ const App: React.FC = () => {
     } 
   };
   
-  const handleWbsDragLeave = (e: React.DragEvent) => { e.preventDefault(); };
+  const handleWbsDragLeave = (e: React.DragEvent) => { 
+    e.preventDefault(); 
+  };
   
   const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { 
       e.preventDefault(); 
       e.stopPropagation(); 
       setWbsDropTarget(null); 
       
-      // 1. Gestione spostamento articolo interno
       const droppedArticleId = e.dataTransfer.getData('articleId'); 
       if (droppedArticleId && targetCode) { 
           const targetCategory = categories.find(c => c.code === targetCode); 
@@ -863,27 +863,27 @@ const App: React.FC = () => {
           return; 
       } 
       
-      // 2. Gestione IMPORTAZIONE CROSS-TAB (WBS Bundle)
       const textData = e.dataTransfer.getData('text/plain');
-      if (textData && !draggedCategoryCode) {
+      if (textData) {
           try {
               const payload = JSON.parse(textData);
+              // Gestione IMPORTAZIONE CROSS-TAB (BUNDLE WBS)
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
                   const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
                   if (importedCat && Array.isArray(importedArticles)) {
                       const newCatCode = generateNextWbsCode(categories);
-                      const newCategory: Category = { ...importedCat, code: newCatCode, name: importedCat.name + " (Importato)" };
+                      const newCategory: Category = { ...importedCat, code: newCatCode, name: importedCat.name + " (Copia Esterna)" };
                       
-                      // Rimappatura Analisi Prezzi per evitare conflitti e mantenere collegamenti
                       const analysisIdMap = new Map<string, string>();
                       const analysisCodeMap = new Map<string, string>();
                       const newAnalysesList = [...analyses];
                       
+                      // 1. Importa le analisi collegate (evitando duplicati e collisioni ID)
                       if (Array.isArray(importedAnalyses)) {
                           importedAnalyses.forEach((an: PriceAnalysis) => {
                               const newId = Math.random().toString(36).substr(2, 9);
                               let newCode = an.code;
-                              // Evita collisioni di codice analisi (es. AP.01 già esistente)
+                              // Evita duplicati di codice nell'elenco analisi
                               if (analyses.some(existing => existing.code === newCode)) {
                                   newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`;
                               }
@@ -895,7 +895,7 @@ const App: React.FC = () => {
                           });
                       }
                       
-                      // Processamento articoli importati: aggiorna collegamenti alle nuove analisi
+                      // 2. Importa gli articoli e ri-mappa i collegamenti alle analisi
                       const processedArticles = importedArticles.map((art: Article) => {
                           const newArticleId = Math.random().toString(36).substr(2, 9);
                           let newLinkedAnalysisId = art.linkedAnalysisId;
@@ -920,21 +920,21 @@ const App: React.FC = () => {
                               measurements: art.measurements.map((m: Measurement) => ({ 
                                   ...m, 
                                   id: Math.random().toString(36).substr(2, 9), 
-                                  linkedArticleId: undefined // Scollega riferimenti incrociati a voci esterne per sicurezza
+                                  linkedArticleId: undefined 
                               })) 
                           };
                       });
                       
                       updateState([...articles, ...processedArticles], [...categories, newCategory], newAnalysesList);
                       setSelectedCategoryCode(newCatCode);
-                      alert(`WBS ${importedCat.code} importata con successo insieme a ${importedArticles.length} articoli e relative analisi prezzi.`);
+                      alert(`Importazione completata: WBS ${importedCat.code} aggiunta come ${newCatCode}.`);
                   }
               }
-          } catch (e) { console.error("Drop error", e); }
-          return;
+          } catch (e) { 
+              // Se non è un JSON valido o non è il nostro bundle, ignoriamo
+          }
       }
 
-      // 3. Gestione riordinamento WBS interno
       if (draggedCategoryCode) { 
           if (!targetCode || draggedCategoryCode === targetCode) { setDraggedCategoryCode(null); return; } 
           const sourceIndex = categories.findIndex(c => c.code === draggedCategoryCode); 
@@ -1095,7 +1095,9 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800">
+    <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
+         onDragOver={(e) => handleWbsDragOver(e, null)}
+         onDrop={(e) => handleWbsDrop(e, null)}>
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
       
       {/* HEADER PRINCIPALE (Fixed Top) */}
@@ -1167,7 +1169,7 @@ const App: React.FC = () => {
                 </div>
                 <div 
                     className="flex-1 overflow-y-auto"
-                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    onDragOver={(e) => handleWbsDragOver(e, null)}
                     onDrop={(e) => handleWbsDrop(e, null)}
                 >
                     <ul className="py-2">
@@ -1240,7 +1242,7 @@ const App: React.FC = () => {
                  </div>
                  <div 
                     className={`flex-1 overflow-y-auto p-2 space-y-2 transition-colors ${isAnalysisDragOver ? 'bg-purple-50 ring-2 ring-inset ring-purple-300' : 'bg-slate-50/50'}`}
-                    onDragOver={(e) => { e.preventDefault(); setIsAnalysisDragOver(true); }}
+                    onDragOver={(e) => { e.preventDefault(); setIsAnalysisDragOver(true); e.dataTransfer.dropEffect = 'copy'; }}
                     onDragLeave={() => setIsAnalysisDragOver(false)}
                     onDrop={handleAnalysisDrop}
                  >
@@ -1275,9 +1277,13 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* CONTENT AREA */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] relative shadow-inner p-4">
+        {/* CONTENT AREA (SINGLE CATEGORY VIEW) */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] relative shadow-inner p-4"
+             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+             onDrop={(e) => handleWbsDrop(e, null)}>
+           
            <div className="flex-1 overflow-y-auto scroll-smooth pb-20 rounded-xl bg-white shadow-lg border border-gray-300 flex flex-col" onKeyDown={handleInputKeyDown}>
+              
               {viewMode === 'COMPUTO' && (
                   selectedCategoryCode === 'SUMMARY' ? (
                       <div className="p-8">
@@ -1286,8 +1292,11 @@ const App: React.FC = () => {
                       </div>
                   ) : activeCategory ? (
                       <div key={activeCategory.code} className="flex flex-col h-full">
+                          {/* CATEGORY HEADER FIXED */}
                           <div className="flex flex-col border-b border-gray-200 bg-gray-50 flex-shrink-0">
+                              {/* SINGLE ROW HEADER */}
                               <div className="flex items-center justify-between p-4 bg-gray-50 gap-4">
+                                  {/* LEFT: TITLE */}
                                   <div className="flex items-center gap-3">
                                       <div className="bg-white border border-gray-300 rounded p-2 shadow-sm flex-shrink-0">
                                           <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-0.5">Capitolo</span>
@@ -1299,6 +1308,7 @@ const App: React.FC = () => {
                                       </div>
                                   </div>
 
+                                  {/* CENTER: GATE (COMPACT) */}
                                   <div className="flex-1 max-w-md mx-4 h-full flex items-center">
                                       <CategoryDropGate 
                                           onDropContent={handleDropContent} 
@@ -1307,7 +1317,9 @@ const App: React.FC = () => {
                                       />
                                   </div>
 
+                                  {/* RIGHT: BUTTONS & SOA */}
                                   <div className="flex items-center gap-3">
+                                      {/* SOA Selector */}
                                       <div className="flex flex-col items-end">
                                           <label className="text-[9px] font-bold text-gray-400 uppercase mb-0.5 flex items-center gap-1"><Award className="w-3 h-3"/> SOA Attiva</label>
                                           <select 
@@ -1337,6 +1349,7 @@ const App: React.FC = () => {
                               </div>
                           </div>
 
+                          {/* ARTICLES TABLE (SCROLLABLE) */}
                           <div className="flex-1 overflow-y-auto">
                               {activeArticles.length > 0 ? (
                                   <table className="w-full text-left border-collapse">
@@ -1389,6 +1402,7 @@ const App: React.FC = () => {
                   )
               )}
 
+              {/* ANALYSIS VIEW (Standard) */}
               {viewMode === 'ANALISI' && (
                   <div className="flex flex-col items-center justify-center h-full text-center p-10 bg-white">
                       <div className="bg-white p-10 rounded-2xl shadow-xl border border-purple-100 max-w-2xl">
@@ -1396,7 +1410,7 @@ const App: React.FC = () => {
                               <TestTubes className="w-10 h-10 text-purple-600" />
                           </div>
                           <h2 className="text-2xl font-bold text-gray-800 mb-2">Gestione Analisi Prezzi</h2>
-                          <p className="text-gray-600 mb-6">Crea "mini-computi" per calcolare il prezzo di applicazione partendo da materiali, manodopera e noli.</p>
+                          <p className="text-gray-600 mb-6">Crea "mini-computi" per calcolare il prezzo di applicazione partendo da materiali, manodopera e noli. <br/>Le voci del computo collegate si aggiorneranno automaticamente.</p>
                           <div className="flex justify-center gap-4">
                               <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-transform hover:scale-105 flex items-center gap-2"><Plus className="w-5 h-5" /> Crea Nuova Analisi</button>
                               <button onClick={() => setViewMode('COMPUTO')} className="bg-white text-gray-700 border border-gray-300 px-6 py-3 rounded-lg font-bold hover:bg-gray-50 flex items-center gap-2"><ArrowRightLeft className="w-5 h-5" /> Torna al Computo</button>
@@ -1404,6 +1418,7 @@ const App: React.FC = () => {
                       </div>
                   </div>
               )}
+
            </div>
         </div>
       </div>
@@ -1411,6 +1426,8 @@ const App: React.FC = () => {
       {/* Modals */}
       <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
       <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerate} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
+      
+      {/* Pass onConvertToAnalysis prop */}
       {editingArticle && (
         <ArticleEditModal 
             isOpen={isEditArticleModalOpen} 
@@ -1420,11 +1437,28 @@ const App: React.FC = () => {
             onConvertToAnalysis={handleConvertArticleToAnalysis} 
         />
       )}
+
       {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
       <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={editingCategory ? undefined : generateNextWbsCode(categories)} />
       <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
-      <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
-      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
+      
+      {/* Analysis Modal */}
+      <AnalysisEditorModal 
+         isOpen={isAnalysisEditorOpen} 
+         onClose={() => setIsAnalysisEditorOpen(false)} 
+         analysis={editingAnalysis} 
+         onSave={handleSaveAnalysis}
+         nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`}
+      />
+
+      {/* Import Analysis Modal */}
+      <ImportAnalysisModal
+        isOpen={isImportAnalysisModalOpen}
+        onClose={() => setIsImportAnalysisModalOpen(false)}
+        analyses={analyses}
+        onImport={handleImportAnalysisToArticle}
+        onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }}
+      />
     </div>
   );
 };
