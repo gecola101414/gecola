@@ -743,11 +743,12 @@ const App: React.FC = () => {
   };
 
   const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => { 
-      e.dataTransfer.setData('text/plain', `GECOLA_DATA::ANALYSIS::${JSON.stringify(analysis)}`); 
-      e.dataTransfer.effectAllowed = 'all'; 
-      const dummyUrl = 'https://gecola.it/transfer/analysis';
+      // MIRACOLO: Trick URI list per cambio scheda
+      const dummyUrl = 'https://gecola.it/transfer/analysis/' + analysis.id;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
+      e.dataTransfer.setData('text/plain', `GECOLA_DATA::ANALYSIS::${JSON.stringify(analysis)}`); 
+      e.dataTransfer.effectAllowed = 'all'; 
   };
 
   const handleAnalysisDrop = (e: React.DragEvent) => {
@@ -784,6 +785,11 @@ const App: React.FC = () => {
   
   const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
       setDraggedCategoryCode(code); 
+      // MIRACOLO: Inseriamo PRIMA la URI list fittizia per ingannare Chrome
+      const dummyUrl = 'https://gecola.it/transfer/wbs/' + code;
+      e.dataTransfer.setData('text/uri-list', dummyUrl);
+      e.dataTransfer.setData('URL', dummyUrl);
+
       const cat = categories.find(c => c.code === code);
       if (cat) {
           const catArticles = articles.filter(a => a.categoryCode === code);
@@ -792,10 +798,6 @@ const App: React.FC = () => {
           const payload = { type: 'CROSS_TAB_WBS_BUNDLE', category: cat, articles: catArticles, analyses: relatedAnalyses };
           const jsonPayload = JSON.stringify(payload);
           e.dataTransfer.setData('text/plain', jsonPayload);
-          // MIRACLE TRICK: FORCED URL LIST FOR CHROME TAB SWITCHING
-          const dummyUrl = 'https://gecola.it/transfer/wbs/' + code;
-          e.dataTransfer.setData('text/uri-list', dummyUrl);
-          e.dataTransfer.setData('URL', dummyUrl);
       }
       e.dataTransfer.setData('wbsCode', code); 
       e.dataTransfer.effectAllowed = 'all'; 
@@ -902,12 +904,13 @@ const App: React.FC = () => {
   const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleArticleDragStart = (e: React.DragEvent, article: Article) => { 
       setIsDraggingArticle(true); 
+      // MIRACOLO URI
+      const dummyUrl = 'https://gecola.it/transfer/article/' + article.id;
+      e.dataTransfer.setData('text/uri-list', dummyUrl);
+      e.dataTransfer.setData('URL', dummyUrl);
       e.dataTransfer.setData('type', 'ARTICLE'); 
       e.dataTransfer.setData('articleId', article.id); 
       e.dataTransfer.effectAllowed = 'all'; 
-      const dummyUrl = 'https://gecola.it/transfer/article';
-      e.dataTransfer.setData('text/uri-list', dummyUrl);
-      e.dataTransfer.setData('URL', dummyUrl);
   };
   const handleArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
   const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === targetArticleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
@@ -1003,13 +1006,13 @@ const App: React.FC = () => {
                     <span>Indice Documento</span>
                     <button onClick={handleAddCategory} className="text-blue-600 hover:bg-blue-100 rounded-full p-1"><PlusCircle className="w-4 h-4" /></button>
                 </div>
-                {/* MIRACOLO: Questo div gestisce l'accettazione del drop tra schede diverse */}
+                {/* MIRACOLO: Questo div gestisce l'accettazione del drop tra schede diverse e rimuove il divieto */}
                 <div 
                     className="flex-1 overflow-y-auto"
                     onDragOver={(e) => {
                         e.preventDefault(); 
                         e.stopPropagation(); 
-                        e.dataTransfer.dropEffect = 'copy'; // Convalida visiva del cursore
+                        e.dataTransfer.dropEffect = 'copy'; // Forza cursore su copia (rimuove divieto)
                     }}
                     onDrop={(e) => handleWbsDrop(e, null)}
                 >
@@ -1024,7 +1027,7 @@ const App: React.FC = () => {
                         >
                             {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'top' && <div className="absolute top-0 left-0 right-0 h-1 bg-green-500 z-50 pointer-events-none shadow-[0_0_8px_rgba(34,197,94,0.8)]" />}
                             <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)}>
-                                <button onClick={() => setSelectedCategoryCode(cat.code)} className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col border-transparent hover:bg-slate-50 ${selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : ''}`}>
+                                <button onClick={() => setSelectedCategoryCode(cat.code)} className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col border-transparent hover:bg-slate-50 ${selectedCategoryCode === 'SUMMARY' ? '' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : '')}`}>
                                     <div className="flex items-center gap-2 mb-0.5">
                                         <GripVertical className="w-3 h-3 text-gray-300 opacity-0 group-hover:opacity-100" />
                                         <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}{cat.isLocked && <Lock className="w-3 h-3 ml-1 inline" />}</span>
@@ -1039,6 +1042,21 @@ const App: React.FC = () => {
                         </li>
                         ))}
                     </ul>
+                    
+                    {/* Summary Link in Sidebar */}
+                    <div className="mt-auto p-2 border-t border-gray-300 bg-slate-50">
+                        <button 
+                            onClick={() => setSelectedCategoryCode('SUMMARY')}
+                            className={`w-full flex items-center p-2 rounded text-xs font-bold uppercase tracking-wider transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-white border border-transparent hover:border-gray-200'}`}
+                        >
+                            <Layers className="w-4 h-4 mr-2" />
+                            Riepilogo Generale
+                        </button>
+                        <div className="mt-2 text-right px-2 pb-1">
+                            <span className="text-[9px] text-slate-400 uppercase font-bold block">Totale Lavori</span>
+                            <span className="font-mono font-black text-sm text-slate-700">{formatCurrency(totals.totalWorks)}</span>
+                        </div>
+                    </div>
                 </div>
               </>
           ) : (
