@@ -793,6 +793,8 @@ const App: React.FC = () => {
   const handleCloneCategory = (code: string, e: React.MouseEvent) => { e.stopPropagation(); const sourceCat = categories.find(c => c.code === code); if (!sourceCat) return; const sourceArticles = articles.filter(a => a.categoryCode === code); const newCategory = { ...sourceCat, name: `${sourceCat.name} (Copia)` }; const tempCode = `TEMP_CLONE_${Date.now()}`; newCategory.code = tempCode; const newArticlesRaw = sourceArticles.map(art => ({ ...art, id: Math.random().toString(36).substr(2, 9), categoryCode: tempCode, measurements: art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) })); const sourceIndex = categories.findIndex(c => c.code === code); const newCatsList = [...categories]; newCatsList.splice(sourceIndex + 1, 0, newCategory); const allArticles = [...articles, ...newArticlesRaw]; const result = renumberCategories(newCatsList, allArticles); updateState(result.newArticles, result.newCategories); };
   
   const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
+      // CRITICO: Impostare effectAllowed a 'all' abilita il cambio scheda automatico nel browser (Tab Switch on hover)
+      e.dataTransfer.effectAllowed = 'all'; 
       setDraggedCategoryCode(code); 
       
       const cat = categories.find(c => c.code === code);
@@ -808,16 +810,20 @@ const App: React.FC = () => {
               analyses: relatedAnalyses
           };
           
+          // Serializzazione robusta per passaggio tra Tab diverse
           e.dataTransfer.setData('text/plain', JSON.stringify(payload));
       }
       
       e.dataTransfer.setData('wbsCode', code); 
-      e.dataTransfer.effectAllowed = 'all'; 
   };
 
   const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
     e.preventDefault(); 
     e.stopPropagation(); 
+    
+    // Indica al browser che l'operazione di copia/importazione è valida qui
+    e.dataTransfer.dropEffect = 'copy';
+
     if (isDraggingArticle) { 
         if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') setWbsDropTarget({ code: targetCode, position: 'inside' }); 
         return; 
@@ -837,6 +843,7 @@ const App: React.FC = () => {
       e.stopPropagation(); 
       setWbsDropTarget(null); 
       
+      // 1. Gestione spostamento articolo interno
       const droppedArticleId = e.dataTransfer.getData('articleId'); 
       if (droppedArticleId && targetCode) { 
           const targetCategory = categories.find(c => c.code === targetCode); 
@@ -856,6 +863,7 @@ const App: React.FC = () => {
           return; 
       } 
       
+      // 2. Gestione IMPORTAZIONE CROSS-TAB (WBS Bundle)
       const textData = e.dataTransfer.getData('text/plain');
       if (textData && !draggedCategoryCode) {
           try {
@@ -865,27 +873,35 @@ const App: React.FC = () => {
                   if (importedCat && Array.isArray(importedArticles)) {
                       const newCatCode = generateNextWbsCode(categories);
                       const newCategory: Category = { ...importedCat, code: newCatCode, name: importedCat.name + " (Importato)" };
+                      
+                      // Rimappatura Analisi Prezzi per evitare conflitti e mantenere collegamenti
                       const analysisIdMap = new Map<string, string>();
                       const analysisCodeMap = new Map<string, string>();
                       const newAnalysesList = [...analyses];
+                      
                       if (Array.isArray(importedAnalyses)) {
                           importedAnalyses.forEach((an: PriceAnalysis) => {
                               const newId = Math.random().toString(36).substr(2, 9);
                               let newCode = an.code;
+                              // Evita collisioni di codice analisi (es. AP.01 già esistente)
                               if (analyses.some(existing => existing.code === newCode)) {
                                   newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`;
                               }
                               analysisIdMap.set(an.id, newId);
                               analysisCodeMap.set(an.code, newCode);
+                              
                               const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
                               newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
                           });
                       }
+                      
+                      // Processamento articoli importati: aggiorna collegamenti alle nuove analisi
                       const processedArticles = importedArticles.map((art: Article) => {
                           const newArticleId = Math.random().toString(36).substr(2, 9);
                           let newLinkedAnalysisId = art.linkedAnalysisId;
                           let newSource = art.priceListSource;
                           let newCode = art.code;
+                          
                           if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) {
                               newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId);
                               if (art.code && analysisCodeMap.has(art.code)) {
@@ -893,16 +909,32 @@ const App: React.FC = () => {
                                  newSource = `Da Analisi ${newCode}`;
                               }
                           }
-                          return { ...art, id: newArticleId, categoryCode: newCatCode, code: newCode, linkedAnalysisId: newLinkedAnalysisId, priceListSource: newSource, measurements: art.measurements.map((m: Measurement) => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) };
+                          
+                          return { 
+                              ...art, 
+                              id: newArticleId, 
+                              categoryCode: newCatCode, 
+                              code: newCode,
+                              linkedAnalysisId: newLinkedAnalysisId, 
+                              priceListSource: newSource,
+                              measurements: art.measurements.map((m: Measurement) => ({ 
+                                  ...m, 
+                                  id: Math.random().toString(36).substr(2, 9), 
+                                  linkedArticleId: undefined // Scollega riferimenti incrociati a voci esterne per sicurezza
+                              })) 
+                          };
                       });
+                      
                       updateState([...articles, ...processedArticles], [...categories, newCategory], newAnalysesList);
                       setSelectedCategoryCode(newCatCode);
+                      alert(`WBS ${importedCat.code} importata con successo insieme a ${importedArticles.length} articoli e relative analisi prezzi.`);
                   }
               }
           } catch (e) { console.error("Drop error", e); }
           return;
       }
 
+      // 3. Gestione riordinamento WBS interno
       if (draggedCategoryCode) { 
           if (!targetCode || draggedCategoryCode === targetCode) { setDraggedCategoryCode(null); return; } 
           const sourceIndex = categories.findIndex(c => c.code === draggedCategoryCode); 
