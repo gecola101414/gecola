@@ -88,7 +88,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = ({ article, index, allArticles
    const totalAmount = article.quantity * article.unitPrice;
    const laborValue = totalAmount * (article.laborRate / 100);
    
-   // Sfida vinta: Recupero descrizione SOA
+   // Recupero descrizione SOA per sfida vinta
    const soaInfo = SOA_CATEGORIES.find(s => s.code === article.soaCategory);
 
    return (
@@ -111,9 +111,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = ({ article, index, allArticles
             <td colSpan={8} className="bg-white border-r border-gray-200"></td>
             <td className="text-center pt-3 print:hidden bg-gray-50/30 border-l border-gray-200">
                 <div className="flex flex-col items-center gap-1 opacity-0 group-hover/article:opacity-100 transition-opacity">
-                    <button onClick={() => onToggleLock(article.id)} className="p-1 text-gray-400 hover:text-blue-600" title="Blocca Voce">{article.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                    <button onClick={() => onEditDetails(article)} className="p-1 text-gray-400 hover:text-blue-600" title="Modifica Dettagli"><PenLine className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => onDelete(article.id)} className="p-1 text-gray-400 hover:text-red-600" title="Elimina Voce"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => onToggleLock(article.id)} className="p-1 text-gray-400 hover:text-blue-600" title="Blocca">{article.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                    <button onClick={() => onEditDetails(article)} className="p-1 text-gray-400 hover:text-blue-600" title="Modifica"><PenLine className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => onDelete(article.id)} className="p-1 text-gray-400 hover:text-red-600" title="Elimina"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
             </td>
          </tr>
@@ -285,7 +285,7 @@ const App: React.FC = () => {
       <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
           <div className="flex items-center space-x-3 w-64">
             <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
-            <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.2</span></span>
+            <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.5</span></span>
           </div>
           <div className="flex-1 px-6 flex justify-center items-center gap-6">
               <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
@@ -335,7 +335,7 @@ const App: React.FC = () => {
                         className={`relative px-3 py-3 border-l-4 cursor-pointer group transition-all ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50')} ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} onClick={() => setSelectedCategoryCode(cat.code)}>
                           {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)]`}></div>}
                           <div className="flex items-center gap-2 mb-0.5">
-                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover:opacity-100" />
+                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/article:opacity-100" />
                             <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
                             {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase">Import</span>}
                             {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
@@ -343,10 +343,10 @@ const App: React.FC = () => {
                           <span className="text-xs font-semibold block truncate pr-8">{cat.name}</span>
                           <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotalsLookup[cat.code] || 0)}</span>
                           
-                          {/* 4 Pulsanti WBS Orizzontali */}
-                          <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover:opacity-100 z-20 space-x-0.5 transition-all">
+                          {/* 4 Pulsanti WBS Orizzontali (Ripristinati) */}
+                          <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/article:opacity-100 z-20 space-x-0.5 transition-all">
                             <button onClick={(e) => { e.stopPropagation(); setCategories(categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c)); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
-                            <button onClick={(e) => { e.stopPropagation(); setCategories(categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c)); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                            <button onClick={(e) => { e.stopPropagation(); setCategories(categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c)); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
                             <button onClick={(e) => { e.stopPropagation(); setEditingCategory(cat); setIsCategoryModalOpen(true); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
                             <button onClick={(e) => { e.stopPropagation(); if(window.confirm('Eliminare intero capitolo?')) updateState(articles.filter(a => a.categoryCode !== cat.code), categories.filter(c => c.code !== cat.code)); }} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                           </div>

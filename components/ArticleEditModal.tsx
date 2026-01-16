@@ -44,7 +44,7 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
         <div className="bg-slate-700 px-5 py-3 flex justify-between items-center border-b border-gray-600 flex-shrink-0">
           <h3 className="text-white font-semibold flex items-center gap-2">
             <Edit3 className="w-4 h-4 text-slate-300" />
-            Modifica Dettagli Voce
+            Dettagli Articolo di Computo
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
             <X className="w-5 h-5" />
@@ -56,39 +56,39 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               
               <div className="col-span-1">
-                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Codice</label>
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Tariffa / Codice</label>
                 <input type="text" value={formData.code || ''} onChange={(e) => setFormData({...formData, code: e.target.value})} className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-sm font-bold" />
               </div>
 
-              <div className="col-span-1">
-                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1 text-purple-700 flex items-center gap-1"><Award className="w-3 h-3"/> Categ. SOA</label>
+              <div className="col-span-3">
+                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1 text-purple-700 flex items-center gap-1"><Award className="w-3 h-3"/> Qualificazione SOA (Codice e Descrizione)</label>
                  <select 
                     value={formData.soaCategory || ''}
                     onChange={(e) => setFormData({...formData, soaCategory: e.target.value})}
                     className="w-full border border-purple-200 bg-purple-50 rounded p-2 focus:ring-1 focus:ring-purple-500 outline-none text-xs font-bold text-purple-900"
                  >
-                    <option value="">Nessuna</option>
+                    <option value="">Nessuna Categoria</option>
                     {SOA_CATEGORIES.map(cat => (
                         <option key={cat.code} value={cat.code}>
-                            {cat.code} - {cat.desc.length > 40 ? cat.desc.substring(0, 40) + '...' : cat.desc}
+                            {cat.code} - {cat.desc}
                         </option>
                     ))}
                  </select>
               </div>
 
-              <div className="col-span-2">
-                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Fonte Prezzario</label>
-                 <input type="text" value={formData.priceListSource || ''} onChange={(e) => setFormData({...formData, priceListSource: e.target.value})} className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm" placeholder="Es. Prezzario Reg. 2024" />
+              <div className="col-span-4">
+                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Fonte Prezzario / Riferimento</label>
+                 <input type="text" value={formData.priceListSource || ''} onChange={(e) => setFormData({...formData, priceListSource: e.target.value})} className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-sm" placeholder="Es. Prezzario Reg. 2025 o Analisi NP" />
               </div>
 
               <div className="col-span-4">
-                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Descrizione Completa</label>
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Designazione dei Lavori</label>
                 <textarea value={formData.description || ''} onChange={(e) => setFormData({...formData, description: e.target.value})} className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none h-32 text-sm font-serif leading-relaxed shadow-inner" />
               </div>
 
               <div className="col-span-1">
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1">U.M.</label>
-                <input type="text" list={datalistId} value={formData.unit || ''} onChange={(e) => setFormData({...formData, unit: e.target.value})} className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-center font-bold" placeholder="Seleziona..." autoComplete="off" />
+                <input type="text" list={datalistId} value={formData.unit || ''} onChange={(e) => setFormData({...formData, unit: e.target.value})} className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-center font-bold" placeholder="m2/cad..." autoComplete="off" />
                 <datalist id={datalistId}>{COMMON_UNITS.map((u, i) => (<option key={`${u}-${i}`} value={u} />))}</datalist>
               </div>
 
@@ -110,8 +110,8 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
         </div>
 
         <div className="flex justify-end items-center px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 gap-3">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 shadow-sm">Annulla</button>
-            <button type="submit" form="edit-article-form" className="px-4 py-2 text-sm font-bold text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 flex items-center shadow-md transition-transform active:scale-95"><Save className="w-4 h-4 mr-2" /> Applica Modifiche</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 shadow-sm">Chiudi</button>
+            <button type="submit" form="edit-article-form" className="px-4 py-2 text-sm font-bold text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 flex items-center shadow-md transition-transform active:scale-95"><Save className="w-4 h-4 mr-2" /> Salva Modifiche</button>
         </div>
       </div>
     </div>
