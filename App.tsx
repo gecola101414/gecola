@@ -386,31 +386,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                {isPrintMode ? (
                  <p className="text-sm text-gray-900 leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap">{article.description}</p>
                ) : (
-                 <div className="w-full min-h-[50px] flex flex-col">
-                    <textarea 
-                        readOnly
-                        value={article.description}
-                        className={`w-full min-h-[50px] text-sm text-gray-900 font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : ''}`}
-                        placeholder="Descrizione..."
-                        disabled={true}
-                    />
-                    {article.groundingUrls && article.groundingUrls.length > 0 && (
-                      <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded text-[10px] no-print">
-                        <p className="font-bold text-blue-800 mb-1">Fonti Web:</p>
-                        <ul className="list-disc pl-4">
-                          {article.groundingUrls.map((chunk: any, i: number) => (
-                            chunk.web && (
-                              <li key={i}>
-                                <a href={chunk.web.uri} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                                  {chunk.web.title || chunk.web.uri}
-                                </a>
-                              </li>
-                            )
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                 </div>
+                 <textarea 
+                    readOnly
+                    value={article.description}
+                    className={`w-full min-h-[50px] text-sm text-gray-900 font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : ''}`}
+                    placeholder="Descrizione..."
+                    disabled={true}
+                 />
                )}
             </td>
             <td colSpan={8} className="border-r border-gray-200 bg-white"></td>
@@ -554,16 +536,6 @@ const App: React.FC = () => {
     });
     return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
-
-  // MIRACOLO: Global Drag Over per abilitare drop tra schede
-  useEffect(() => {
-    const handleGlobalDragOver = (e: DragEvent) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-    };
-    window.addEventListener('dragover', (e) => handleGlobalDragOver(e as unknown as DragEvent));
-    return () => window.removeEventListener('dragover', (e) => handleGlobalDragOver(e as unknown as DragEvent));
-  }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(CATEGORIES);
@@ -775,6 +747,7 @@ const App: React.FC = () => {
   };
 
   const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => { 
+      // MIRACOLO: Trick URI list per cambio scheda (Chrome richiede uri-list per switchare tab)
       const dummyUrl = 'https://gecola.it/transfer/analysis/' + analysis.id;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
@@ -817,6 +790,7 @@ const App: React.FC = () => {
   
   const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
       setDraggedCategoryCode(code); 
+      // MIRACOLO: Inseriamo PRIMA la URI list fittizia per ingannare Chrome e forzare il cambio scheda
       const dummyUrl = 'https://gecola.it/transfer/wbs/' + code;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
@@ -837,13 +811,12 @@ const App: React.FC = () => {
   const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
       e.preventDefault(); 
       e.stopPropagation(); 
-      e.dataTransfer.dropEffect = 'copy'; 
+      e.dataTransfer.dropEffect = 'copy'; // Forza cursore copia (+) e rimuove divieto
       if (isDraggingArticle) {
           if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') setWbsDropTarget({ code: targetCode, position: 'inside' });
           return;
       }
-      if (draggedCategoryCode) {
-          if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
+      if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain')) {
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
           const isTop = e.clientY < (rect.top + rect.height / 2);
           setWbsDropTarget({ code: targetCode, position: isTop ? 'top' : 'bottom' });
@@ -855,6 +828,7 @@ const App: React.FC = () => {
   const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { 
       e.preventDefault(); 
       e.stopPropagation(); 
+      const dropPos = wbsDropTarget?.position || 'bottom';
       setWbsDropTarget(null);
       const droppedArticleId = e.dataTransfer.getData('articleId');
       if (droppedArticleId && targetCode) {
@@ -880,10 +854,10 @@ const App: React.FC = () => {
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
                   const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
                   if (importedCat && Array.isArray(importedArticles)) {
-                      const newCatCode = generateNextWbsCode(categories);
-                      const newCategory: Category = { ...importedCat, code: newCatCode, name: importedCat.name + " (Copia)" };
-                      const analysisIdMap = new Map<string, string>();
+                      const newCategory: Category = { ...importedCat, name: importedCat.name + " (Import)", isImported: true };
                       const newAnalysesList = [...analyses];
+                      const analysisIdMap = new Map<string, string>();
+                      
                       if (Array.isArray(importedAnalyses)) {
                           importedAnalyses.forEach((an: PriceAnalysis) => {
                               const newId = Math.random().toString(36).substr(2, 9);
@@ -894,13 +868,25 @@ const App: React.FC = () => {
                               newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
                           });
                       }
+
+                      // Trova indice di inserimento corretto in base alla riga verde
+                      let insertionIdx = targetCode ? categories.findIndex(c => c.code === targetCode) : categories.length;
+                      if (targetCode && dropPos === 'bottom') insertionIdx++;
+                      
+                      const newCatsList = [...categories];
+                      newCatsList.splice(insertionIdx, 0, newCategory);
+                      
+                      const result = renumberCategories(newCatsList, articles); // Rigenera i codici WBS.XX in ordine
+                      const newCatCode = result.codeMap[newCategory.code] || newCategory.code;
+
                       const processedArticles = importedArticles.map((art: Article) => {
                           const newArticleId = Math.random().toString(36).substr(2, 9);
                           let newLinkedAnalysisId = art.linkedAnalysisId;
                           if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId); }
                           return { ...art, id: newArticleId, categoryCode: newCatCode, linkedAnalysisId: newLinkedAnalysisId, measurements: art.measurements.map((m: Measurement) => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) };
                       });
-                      updateState([...articles, ...processedArticles], [...categories, newCategory], newAnalysesList);
+                      
+                      updateState([...result.newArticles, ...processedArticles], result.newCategories, newAnalysesList);
                   }
               }
           } catch (e) { console.error("Import Error", e); }
@@ -914,7 +900,7 @@ const App: React.FC = () => {
           const newCatsOrder = [...categories]; 
           const [movedCat] = newCatsOrder.splice(sourceIndex, 1); 
           if (sourceIndex < targetIndex) targetIndex--;
-          if (wbsDropTarget?.position === 'bottom') targetIndex++;
+          if (dropPos === 'bottom') targetIndex++;
           newCatsOrder.splice(targetIndex, 0, movedCat); 
           const result = renumberCategories(newCatsOrder, articles); 
           updateState(result.newArticles, result.newCategories); 
@@ -935,6 +921,7 @@ const App: React.FC = () => {
   const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleArticleDragStart = (e: React.DragEvent, article: Article) => { 
       setIsDraggingArticle(true); 
+      // MIRACOLO URI list per cambio scheda
       const dummyUrl = 'https://gecola.it/transfer/article/' + article.id;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
@@ -1003,7 +990,7 @@ const App: React.FC = () => {
   return (
     <div 
         className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} 
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} // Pulisce il divieto globale
         onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
     >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
@@ -1019,11 +1006,7 @@ const App: React.FC = () => {
               </div>
           </div>
           <div className="flex items-center space-x-3 w-auto flex-shrink-0 justify-end">
-             <div className="flex items-center border-r border-slate-700 pr-3 mr-3 space-x-1">
-                <button onClick={handleUndo} disabled={history.length === 0} className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded transition-all disabled:opacity-20" title="Annulla azione"><Undo2 className="w-5 h-5" /></button>
-                <button onClick={handleRedo} disabled={future.length === 0} className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 rounded transition-all disabled:opacity-20" title="Ripristina azione"><Redo2 className="w-5 h-5" /></button>
-             </div>
-             <button onClick={() => handleSmartSave(false)} className="p-1.5 text-slate-300 hover:text-white hover:bg-blue-600 rounded transition-colors" title="Salva Progetto"><Save className="w-5 h-5" /></button>
+             <button onClick={() => handleSmartSave(false)} className="p-1.5 text-slate-300 hover:text-white hover:bg-blue-600 rounded transition-colors"><Save className="w-5 h-5" /></button>
              <button onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} className="p-1.5 text-slate-300 hover:text-white hover:bg-red-600 rounded relative"><FileText className="w-5 h-5" />
                 {isPrintMenuOpen && (<div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50 text-left"><button onClick={() => generateComputoMetricPdf(projectInfo, categories, articles)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Computo Metrico</button></div>)}
              </button>
@@ -1031,7 +1014,7 @@ const App: React.FC = () => {
           </div>
       </div>
       
-      <div className="flex flex-1 overflow-hidden bg-[#f0f2f5] print:hidden">
+      <div className="flex flex-1 overflow-hidden print:hidden">
         <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
           <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
              <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Computo</button>
@@ -1044,9 +1027,19 @@ const App: React.FC = () => {
                     <span>Indice Documento</span>
                     <button onClick={handleAddCategory} className="text-blue-600 hover:bg-blue-100 rounded-full p-1"><PlusCircle className="w-4 h-4" /></button>
                 </div>
+                {/* MIRACOLO: Questo div gestisce l'accettazione del drop tra schede diverse e rimuove il divieto */}
                 <div 
                     className="flex-1 overflow-y-auto"
-                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; }}
+                    onDragOver={(e) => {
+                        e.preventDefault(); 
+                        e.stopPropagation(); 
+                        e.dataTransfer.dropEffect = 'copy'; // Forza cursore su copia (rimuove divieto)
+                    }}
+                    onDragEnter={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = 'copy';
+                    }}
                     onDrop={(e) => handleWbsDrop(e, null)}
                 >
                     <ul className="py-2">
@@ -1055,25 +1048,26 @@ const App: React.FC = () => {
                             key={cat.code} 
                             className="relative group/cat" 
                             onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
+                            onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                             onDragLeave={handleWbsDragLeave}
                             onDrop={(e) => handleWbsDrop(e, cat.code)}
                         >
                             {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'top' && <div className="absolute top-0 left-0 right-0 h-1 bg-green-500 z-50 pointer-events-none shadow-[0_0_8px_rgba(34,197,94,0.8)]" />}
                             <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)}>
-                                <button onClick={() => setSelectedCategoryCode(cat.code)} className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col border-transparent hover:bg-slate-50 ${!cat.isEnabled ? 'opacity-50' : ''} ${selectedCategoryCode === 'SUMMARY' ? '' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : '')}`}>
+                                <button onClick={() => setSelectedCategoryCode(cat.code)} className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : 'border-transparent'} hover:bg-slate-50 ${selectedCategoryCode === 'SUMMARY' ? '' : (selectedCategoryCode === cat.code ? `bg-blue-50 shadow-sm ${!cat.isImported ? 'border-blue-500' : ''}` : '')}`}>
                                     <div className="flex items-center gap-2 mb-0.5">
                                         <GripVertical className="w-3 h-3 text-gray-300 opacity-0 group-hover:opacity-100" />
-                                        <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}{cat.isLocked && <Lock className="w-3 h-3 ml-1 inline text-red-500" />}</span>
+                                        <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}{cat.isLocked && <Lock className="w-3 h-3 ml-1 inline" />}</span>
+                                        {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
                                     </div>
                                     <div className="pl-5"><span className="text-xs font-medium truncate block">{cat.name}</span><span className="text-[10px] font-mono text-slate-400">{formatCurrency(categoryTotals[cat.code] || 0)}</span></div>
                                 </button>
                             </div>
-                            {/* RIPRISTINO DEI 4 TASTI DI MODIFICA WBS */}
-                            <div className="absolute right-1 top-1 flex bg-white/90 shadow-sm rounded border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5">
-                                <button onClick={(e) => handleToggleCategoryVisibility(cat.code, e)} className={`p-1 rounded ${!cat.isEnabled ? 'text-orange-500 bg-orange-50' : 'text-gray-400 hover:text-blue-500'}`} title={cat.isEnabled ? "Nascondi dai totali" : "Mostra nei totali"}>{cat.isEnabled ? <Lightbulb className="w-3 h-3" /> : <LightbulbOff className="w-3 h-3" />}</button>
-                                <button onClick={(e) => handleToggleCategoryLock(cat.code, e)} className={`p-1 rounded ${cat.isLocked ? 'text-red-500 bg-red-50' : 'text-gray-400 hover:text-orange-500'}`} title={cat.isLocked ? "Sblocca WBS" : "Blocca WBS"}>{cat.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}</button>
-                                <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-500 rounded" title="Rinomina"><Edit2 className="w-3 h-3" /></button>
-                                <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-500 rounded" title="Elimina"><Trash2 className="w-3 h-3" /></button>
+                            {/* Linea verde inferiore per l'inserimento dinamico */}
+                            {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'bottom' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-green-500 z-50 pointer-events-none shadow-[0_0_8px_rgba(34,197,94,0.8)]" />}
+                            <div className="absolute right-1 top-1 flex bg-white/90 shadow-sm rounded border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20">
+                                <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-500"><Edit2 className="w-3 h-3" /></button>
+                                <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
                             </div>
                         </li>
                         ))}
@@ -1102,6 +1096,7 @@ const App: React.FC = () => {
                  <div 
                     className="flex-1 overflow-y-auto p-2 space-y-2"
                     onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setIsAnalysisDragOver(true); }}
+                    onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                     onDragLeave={() => setIsAnalysisDragOver(false)}
                     onDrop={handleAnalysisDrop}
                  >

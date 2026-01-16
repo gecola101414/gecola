@@ -1,10 +1,10 @@
 
-
 export interface Category {
   code: string;
   name: string;
   isLocked?: boolean;
   isEnabled?: boolean;
+  isImported?: boolean; // Flag per evidenziare WBS provenienti da altri browser
 }
 
 export interface Measurement {
