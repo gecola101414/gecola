@@ -394,6 +394,32 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     disabled={true}
                  />
                )}
+               {/* Grounding Citations as required by guidelines */}
+               {article.groundingUrls && article.groundingUrls.length > 0 && (
+                 <div className="mt-3 px-1 border-t border-gray-100 pt-2 animate-in fade-in slide-in-from-bottom-1 duration-500">
+                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 uppercase tracking-tight mb-1">
+                     <Search className="w-3 h-3" /> Fonti consultate:
+                   </div>
+                   <div className="flex flex-wrap gap-2">
+                     {article.groundingUrls.map((chunk: any, i: number) => {
+                       const source = chunk.web || chunk.maps;
+                       if (!source) return null;
+                       return (
+                         <a 
+                           key={i} 
+                           href={source.uri} 
+                           target="_blank" 
+                           rel="noopener noreferrer"
+                           className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 hover:bg-blue-100 transition-colors text-[9px] font-medium max-w-[200px]"
+                         >
+                           <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
+                           <span className="truncate">{source.title || 'Link'}</span>
+                         </a>
+                       );
+                     })}
+                   </div>
+                 </div>
+               )}
             </td>
             <td colSpan={8} className="border-r border-gray-200 bg-white"></td>
             <td className="print:hidden text-center align-top pt-2 bg-gray-50/30">
@@ -1006,137 +1032,4 @@ const App: React.FC = () => {
         <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
           <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
              <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Computo</button>
-             <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Analisi</button>
-          </div>
-
-          {viewMode === 'COMPUTO' ? (
-              <>
-                <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
-                    <span>Indice Documento</span>
-                    <button onClick={handleAddCategory} className="text-blue-600 hover:bg-blue-100 rounded-full p-1"><PlusCircle className="w-4 h-4" /></button>
-                </div>
-                {/* MIRACOLO: Questo div gestisce l'accettazione del drop tra schede diverse e rimuove il divieto */}
-                <div 
-                    className="flex-1 overflow-y-auto"
-                    onDragOver={(e) => {
-                        e.preventDefault(); 
-                        e.stopPropagation(); 
-                        e.dataTransfer.dropEffect = 'copy'; // Forza cursore su copia (rimuove divieto)
-                    }}
-                    onDragEnter={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.dataTransfer.dropEffect = 'copy';
-                    }}
-                    onDrop={(e) => handleWbsDrop(e, null)}
-                >
-                    <ul className="py-2">
-                        {categories.map(cat => (
-                        <li 
-                            key={cat.code} 
-                            className="relative group/cat" 
-                            onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
-                            onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                            onDragLeave={handleWbsDragLeave}
-                            onDrop={(e) => handleWbsDrop(e, cat.code)}
-                        >
-                            {wbsDropTarget?.code === cat.code && wbsDropTarget.position === 'top' && <div className="absolute top-0 left-0 right-0 h-1 bg-green-500 z-50 pointer-events-none shadow-[0_0_8px_rgba(34,197,94,0.8)]" />}
-                            <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)}>
-                                <button onClick={() => setSelectedCategoryCode(cat.code)} className={`w-full text-left pl-3 pr-2 py-2 border-l-4 transition-all flex flex-col border-transparent hover:bg-slate-50 ${selectedCategoryCode === 'SUMMARY' ? '' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : '')}`}>
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                        <GripVertical className="w-3 h-3 text-gray-300 opacity-0 group-hover:opacity-100" />
-                                        <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}{cat.isLocked && <Lock className="w-3 h-3 ml-1 inline" />}</span>
-                                    </div>
-                                    <div className="pl-5"><span className="text-xs font-medium truncate block">{cat.name}</span><span className="text-[10px] font-mono text-slate-400">{formatCurrency(categoryTotals[cat.code] || 0)}</span></div>
-                                </button>
-                            </div>
-                            <div className="absolute right-1 top-1 flex bg-white/90 shadow-sm rounded border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20">
-                                <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-500"><Edit2 className="w-3 h-3" /></button>
-                                <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-                            </div>
-                        </li>
-                        ))}
-                    </ul>
-                    
-                    <div className="mt-auto p-2 border-t border-gray-300 bg-slate-50">
-                        <button 
-                            onClick={() => setSelectedCategoryCode('SUMMARY')}
-                            className={`w-full flex items-center p-2 rounded text-xs font-bold uppercase tracking-wider transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-500 hover:bg-white border border-transparent hover:border-gray-200'}`}
-                        >
-                            <Layers className="w-4 h-4 mr-2" />
-                            Riepilogo Generale
-                        </button>
-                        <div className="mt-2 text-right px-2 pb-1">
-                            <span className="text-[9px] text-slate-400 uppercase font-bold block">Totale Lavori</span>
-                            <span className="font-mono font-black text-sm text-slate-700">{formatCurrency(totals.totalWorks)}</span>
-                        </div>
-                    </div>
-                </div>
-              </>
-          ) : (
-              <>
-                 <div className="p-3 bg-white border-b border-gray-200">
-                    <input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full pl-3 pr-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm outline-none focus:ring-1 focus:ring-purple-400" />
-                 </div>
-                 <div 
-                    className="flex-1 overflow-y-auto p-2 space-y-2"
-                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setIsAnalysisDragOver(true); }}
-                    onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                    onDragLeave={() => setIsAnalysisDragOver(false)}
-                    onDrop={handleAnalysisDrop}
-                 >
-                     {filteredAnalyses.map(analysis => (
-                         <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className="bg-white p-3 rounded border border-gray-200 shadow-sm hover:border-purple-300 transition-all cursor-grab active:cursor-grabbing">
-                             <div className="flex justify-between mb-1"><span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded">{analysis.code}</span><span className="font-bold text-gray-800 text-sm">{formatCurrency(analysis.totalUnitPrice)}</span></div>
-                             <p className="text-xs text-gray-600 line-clamp-2 leading-snug">{analysis.description}</p>
-                             <div className="flex justify-between items-center mt-2 border-t pt-2"><span className="text-[10px] text-gray-400 font-bold">{analysis.unit}</span><button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded"><ArrowRightLeft className="w-3.5 h-3.5" /></button></div>
-                         </div>
-                     ))}
-                 </div>
-              </>
-          )}
-        </div>
-
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] p-4">
-           <div className="flex-1 overflow-y-auto rounded-xl bg-white shadow-lg border border-gray-300 flex flex-col" onKeyDown={handleInputKeyDown}>
-              {viewMode === 'COMPUTO' && (
-                  selectedCategoryCode === 'SUMMARY' ? (
-                      <div className="p-8"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
-                  ) : activeCategory ? (
-                      <div key={activeCategory.code} className="flex flex-col h-full">
-                          <div className="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-200">
-                              <div className="flex items-center gap-3">
-                                  <div className="bg-white border border-gray-300 rounded p-2"><span className="text-2xl font-black text-gray-800">{activeCategory.code}</span></div>
-                                  <div><h2 className="text-lg font-bold text-gray-900 uppercase truncate max-w-[300px]">{activeCategory.name}</h2><span className="text-xs font-bold text-blue-800 uppercase">Totale: {formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
-                              </div>
-                              <div className="flex-1 max-w-md mx-4"><CategoryDropGate onDropContent={handleDropContent} isLoading={isProcessingDrop} categoryCode={activeCategory.code} /></div>
-                              <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg hover:scale-110 transition-transform"><Plus className="w-6 h-6" /></button>
-                          </div>
-                          <div className="flex-1 overflow-y-auto">
-                              <table className="w-full text-left border-collapse">
-                                  <TableHeader activeColumn={activeColumn} />
-                                  {activeArticles.map((article, artIndex) => (
-                                      <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} />
-                                  ))}
-                              </table>
-                          </div>
-                      </div>
-                  ) : <div className="flex items-center justify-center h-full text-gray-400">Seleziona un capitolo</div>
-              )}
-              {viewMode === 'ANALISI' && <div className="flex flex-col items-center justify-center h-full p-10 bg-white"><div className="bg-white p-10 rounded-2xl shadow-xl border border-purple-100 max-w-2xl text-center"><TestTubes className="w-16 h-16 text-purple-600 mx-auto mb-6" /><h2 className="text-2xl font-bold text-gray-800 mb-2">Gestione Analisi Prezzi</h2><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-transform hover:scale-105 mt-6 flex items-center gap-2 mx-auto"><Plus className="w-5 h-5" /> Crea Nuova Analisi</button></div></div>}
-           </div>
-        </div>
-      </div>
-      
-      <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
-      {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
-      {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
-      <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} />
-      <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
-      <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
-      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
-    </div>
-  );
-};
-
-export default App;
+             <button onClick={()

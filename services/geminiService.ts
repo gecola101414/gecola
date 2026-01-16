@@ -129,10 +129,10 @@ export const parseVoiceMeasurement = async (transcript: string): Promise<Partial
                 type: Type.OBJECT,
                 properties: {
                   description: { type: Type.STRING },
-                  length: { type: Type.NUMBER, nullable: true },
-                  width: { type: Type.NUMBER, nullable: true },
-                  height: { type: Type.NUMBER, nullable: true },
-                  multiplier: { type: Type.NUMBER, nullable: true }
+                  length: { type: Type.NUMBER },
+                  width: { type: Type.NUMBER },
+                  height: { type: Type.NUMBER },
+                  multiplier: { type: Type.NUMBER }
                 }
               }
             }
