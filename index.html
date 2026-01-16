@@ -29,6 +29,19 @@
         -moz-appearance: textfield;
       }
       
+      /* Animazione per riconoscimento vocale */
+      @keyframes flashing-border {
+        0% { border-color: rgba(147, 51, 234, 0.5); box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.5); }
+        50% { border-color: rgba(147, 51, 234, 1); box-shadow: 0 0 0 4px rgba(147, 51, 234, 0.3); }
+        100% { border-color: rgba(147, 51, 234, 0.5); box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.5); }
+      }
+      .recording-feedback {
+        animation: flashing-border 1s infinite;
+        border: 2px solid purple !important;
+        border-radius: 4px;
+        z-index: 50;
+      }
+
       @media print {
         .no-print { display: none; }
         .page-break { page-break-before: always; }
