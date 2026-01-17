@@ -165,7 +165,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const addBtnRef = useRef<HTMLButtonElement>(null);
    const recognitionRef = useRef<any>(null);
    const tbodyRef = useRef<HTMLTableSectionElement>(null);
-   const longPressTimer = useRef<any>(null);
 
    const isArticleLocked = article.isLocked || false;
    const areControlsDisabled = isCategoryLocked || isArticleLocked;
@@ -318,24 +317,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       setArticleDropPosition(null);
    };
 
-   const handleLongPressStart = (mId: string) => {
+   const startListening = (e: React.SyntheticEvent, mId: string) => {
       if (areControlsDisabled) return;
-      longPressTimer.current = setTimeout(() => {
-        startListeningOnMeas(mId);
-      }, 2000);
-   };
-
-   const handleLongPressEnd = () => {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-      }
-      if (isListening) {
-        stopListening();
-      }
-   };
-
-   const startListeningOnMeas = (mId: string) => {
+      if (e.type === 'mousedown' || e.type === 'touchstart') e.preventDefault();
       if (!('webkitSpeechRecognition' in window)) {
           alert("Il tuo browser non supporta il riconoscimento vocale. Usa Chrome.");
           return;
@@ -362,7 +346,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           if (finalTranscript.trim()) {
              const parsed = await parseVoiceMeasurement(finalTranscript);
              if (parsed) {
-                // If the parsed description is valid, we update the existing row
                 onUpdateMeasurement(article.id, mId, 'description', parsed.description || finalTranscript);
                 if (parsed.length !== undefined) onUpdateMeasurement(article.id, mId, 'length', parsed.length);
                 if (parsed.width !== undefined) onUpdateMeasurement(article.id, mId, 'width', parsed.width);
@@ -528,11 +511,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                           className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id ? 'recording-feedback bg-purple-50' : ''}`} 
                                           placeholder={m.type === 'deduction' ? "A dedurre..." : "Descrizione misura..."} 
                                           disabled={areControlsDisabled}
-                                          onMouseDown={() => handleLongPressStart(m.id)}
-                                          onMouseUp={handleLongPressEnd}
-                                          onMouseLeave={handleLongPressEnd}
-                                          onTouchStart={() => handleLongPressStart(m.id)}
-                                          onTouchEnd={handleLongPressEnd}
                                         />
                                     )
                                 )}
@@ -1250,7 +1228,6 @@ const App: React.FC = () => {
             const inputs = Array.from(document.querySelectorAll('input:not([disabled]), textarea:not([disabled])')); 
             const index = inputs.indexOf(target as HTMLInputElement | HTMLTextAreaElement); 
             
-            // Check if we are in the last editable field of a measurement row
             const isLastMeasField = target.getAttribute('data-last-meas-field') === 'true';
             
             if (isLastMeasField) {
@@ -1271,10 +1248,6 @@ const App: React.FC = () => {
     } 
   };
 
-  /* 
-   * Fix: Defining missing variables activeCategory, activeArticles, and filteredAnalyses
-   * which are required for the component's render logic.
-   */
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
   const filteredAnalyses = useMemo(() => analyses.filter(a => 
@@ -1366,7 +1339,7 @@ const App: React.FC = () => {
                     </div>
                 )}
              </div>
-             <button onClick={() => { if (user === 'visitor') setUser(null); else signOut(auth); }} className="p-2 text-red-400 hover:text-white ml-2 transition-colors" title="Esci"><LogOut className="w-5 h-5" /></button>
+             <button onClick={() => { if (user === 'visitor') setUser(null); else if (auth) signOut(auth); }} className="p-2 text-red-400 hover:text-white ml-2 transition-colors" title="Esci"><LogOut className="w-5 h-5" /></button>
           </div>
       </div>
       

@@ -49,16 +49,16 @@ export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Categ
    <Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1"/>
   </Style>
   <Style ss:ID="ArticleDesc">
-   <Alignment ss:Vertical="Top" ss:WrapText="1" ss:Horizontal="Justify"/>
+   <Alignment ss:Vertical="Justify" ss:Horizontal="Justify" ss:WrapText="1"/>
    <Font ss:FontName="Times New Roman" ss:Size="10"/>
   </Style>
   <Style ss:ID="MeasHeader">
    <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
-   <Font ss:FontName="Calibri" ss:Size="8" ss:Bold="1" ss:Color="#666666"/>
+   <Font ss:FontName="Calibri" ss:Size="8" ss:Bold="1" ss:Color="#333333"/>
   </Style>
   <Style ss:ID="MeasRow">
    <Alignment ss:Vertical="Top" ss:WrapText="1" ss:Horizontal="Justify"/>
-   <Font ss:FontName="Calibri" ss:Size="9" ss:Italic="1" ss:Color="#444444"/>
+   <Font ss:FontName="Calibri" ss:Size="9" ss:Color="#000000" ss:Bold="0"/>
   </Style>
   <Style ss:ID="MeasValue">
    <Alignment ss:Horizontal="Right" ss:Vertical="Top"/>
@@ -137,7 +137,7 @@ export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Categ
     <Cell ss:StyleID="ArticleDesc"><Data ss:Type="String">${art.description}</Data></Cell>
     <Cell/><Cell/><Cell/><Cell/><Cell/><Cell/><Cell/>
    </Row>
-   <Row ss:Height="12">
+   <Row ss:Height="14">
     <Cell/><Cell/>
     <Cell ss:StyleID="MeasHeader"><Data ss:Type="String">ELENCO DELLE MISURE:</Data></Cell>
     <Cell/><Cell/><Cell/><Cell/><Cell/><Cell/><Cell/>
@@ -172,7 +172,7 @@ export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Categ
         }
       });
 
-      const sumFormula = `=SUM(R[-${measCount}]C:R[-1]C)`;
+      const sumFormula = measCount > 0 ? `=SUM(R[-${measCount}]C:R[-1]C)` : `=0`;
       
       xml += `
    <Row ss:Height="18">
