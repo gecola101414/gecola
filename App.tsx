@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -16,8 +16,9 @@ import SaveProjectModal from './components/SaveProjectModal';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
 import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOptionsModal';
+import HelpManualModal from './components/HelpManualModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
-import { generateComputoMetricPdf } from './services/pdfGenerator';
+import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 
 // --- Helper Functions ---
 const formatCurrency = (val: number) => {
@@ -109,7 +110,7 @@ interface TableHeaderProps {
 const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
   <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-30 shadow-sm">
     <tr>
-      <th className="py-2 px-1 text-center w-[35px] border-r border-gray-300">N.</th>
+      <th className="py-2 px-1 text-center w-[35px] border-r border-gray-300">N..</th>
       <th className="py-2 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
       <th className={`py-2 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
@@ -607,21 +608,27 @@ interface Snapshot {
 type ViewMode = 'COMPUTO' | 'ANALISI';
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionError, setSessionError] = useState(false);
-  // States for drag-and-drop feedback
   const [isAnalysisDragOver, setIsAnalysisDragOver] = useState(false);
   const [isWorkspaceDragOver, setIsWorkspaceDragOver] = useState(false);
+  const [isManualOpen, setIsManualOpen] = useState(false);
+  const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setAuthLoading(false); });
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { 
+        if (!user || user !== 'visitor') {
+            setUser(currentUser); 
+        }
+        setAuthLoading(false); 
+    });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    if (!user || !db) return;
+    if (!user || user === 'visitor' || !db) return;
     const currentSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const userSessionRef = ref(db, `sessions/${user.uid}`);
     let isMounted = true;
@@ -636,6 +643,12 @@ const App: React.FC = () => {
     });
     return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
+
+  const handleVisitorLogin = () => {
+    setUser('visitor');
+  };
+
+  const isVisitor = user === 'visitor';
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(CATEGORIES);
@@ -670,7 +683,6 @@ const App: React.FC = () => {
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
   
-  // NEW: State for WBS Import/Duplicate options modal
   const [wbsOptionsContext, setWbsOptionsContext] = useState<{ 
     type: 'import' | 'duplicate', 
     sourceCode?: string, 
@@ -681,6 +693,16 @@ const App: React.FC = () => {
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
+    if (!isVisitor) return true;
+    const currentTotal = articles.length;
+    if (currentTotal + newCountToAdd > 5) {
+      alert(`VERSIONE LITE: Limite di 5 voci raggiunto.\nStai tentando di inserire ${newCountToAdd} voci ma ne mancano ${5 - currentTotal} al limite.`);
+      return false;
+    }
+    return true;
+  }, [isVisitor, articles.length]);
 
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => { e.preventDefault(); return false; };
@@ -701,7 +723,7 @@ const App: React.FC = () => {
   const updateState = (newArticles: Article[], newCategories: Category[] = categories, newAnalyses: PriceAnalysis[] = analyses, saveHistory: boolean = true) => {
       const recomputed = recalculateAllArticles(newArticles);
       if (saveHistory) {
-          setHistory(prev => { const newHist = [...prev, { articles: articles, categories: categories, analyses: analyses }]; return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist; });
+          setHistory(prev => { const newHist = [...prev, { articles, categories, analyses }]; return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist; });
           setFuture([]); 
       }
       setArticles(recomputed);
@@ -782,7 +804,23 @@ const App: React.FC = () => {
       updateState(newArticles, categories, newAnalyses);
   };
 
+  const handleToggleAnalysisLock = (id: string) => {
+      const newAnalyses = analyses.map(a => a.id === id ? { ...a, isLocked: !a.isLocked } : a);
+      updateState(articles, categories, newAnalyses);
+  };
+
+  const handleDeleteAnalysis = (id: string) => {
+      const analysis = analyses.find(a => a.id === id);
+      if (analysis?.isLocked) { alert("Analisi bloccata. Sblocca per eliminare."); return; }
+      if (window.confirm("Eliminare definitivamente questa analisi? Le voci di computo collegate rimarranno ma diventeranno indipendenti.")) {
+          const newAnalyses = analyses.filter(a => a.id !== id);
+          const newArticles = articles.map(art => art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: undefined } : art);
+          updateState(newArticles, categories, newAnalyses);
+      }
+  };
+
   const handleImportAnalysisToArticle = (analysis: PriceAnalysis) => {
+      if (!canAddArticle()) return;
       const targetCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
       const newArticle: Article = {
@@ -825,6 +863,7 @@ const App: React.FC = () => {
   };
 
   const handleInsertExternalArticle = (insertIndex: number, rawText: string) => {
+      if (!canAddArticle()) return;
       const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
       const parsed = parseDroppedContent(rawText);
       if (parsed) {
@@ -868,7 +907,7 @@ const App: React.FC = () => {
           try {
               const jsonStr = textData.replace('GECOLA_DATA::ANALYSIS::', '');
               const analysis = JSON.parse(jsonStr);
-              const newAnalysis: PriceAnalysis = { ...analysis, id: Math.random().toString(36).substr(2, 9), code: `AP.${(analyses.length + 1).toString().padStart(2, '0')}`, description: `${analysis.description} (Copia)` };
+              const newAnalysis: PriceAnalysis = { ...analysis, id: Math.random().toString(36).substr(2, 9), code: `AP.${(analyses.length + 1).toString().padStart(2, '0')}`, description: `${analysis.description} (Copia)`, isLocked: false };
               setAnalyses(prev => [...prev, newAnalysis]);
           } catch (err) { console.error("Analysis Drop Error", err); }
       }
@@ -944,10 +983,10 @@ const App: React.FC = () => {
           if (!article) return;
           if (article.categoryCode === targetCode) return;
           if (e.ctrlKey) {
+              if (!canAddArticle()) return;
               const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
               updateState([...articles, newArticle]);
           } else {
-              /* Fixed reference to undefined variable 'i' by using the map iterator 'a' */
               const updatedArticles = articles.map(a => a.id === droppedArticleId ? { ...a, categoryCode: targetCode } : a);
               updateState(updatedArticles);
           }
@@ -960,7 +999,6 @@ const App: React.FC = () => {
               const payload = JSON.parse(textData);
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
                   const initialName = payload.category?.name || 'Capitolo Importato';
-                  // NEW: Capture target code and position for cross-browser import
                   setWbsOptionsContext({ 
                     type: 'import', 
                     payload, 
@@ -988,12 +1026,19 @@ const App: React.FC = () => {
       }
   };
 
-  // NEW: Updated Duplicate/Import logic that handles the 3 user choice modes and insertion position
   const handleWbsActionChoice = (mode: WbsActionMode, newName: string) => {
     if (!wbsOptionsContext) return;
     const { type, sourceCode, payload, targetCode, position } = wbsOptionsContext;
     
-    // Helper to process measurements based on choice
+    const articlesToImportCount = (type === 'duplicate' && sourceCode) 
+      ? articles.filter(a => a.categoryCode === sourceCode).length 
+      : (payload?.articles?.length || 0);
+    
+    if (!canAddArticle(articlesToImportCount)) {
+      setWbsOptionsContext(null);
+      return;
+    }
+
     const processMeasurements = (meases: Measurement[]) => {
       if (mode === 'full') {
         return meases.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }));
@@ -1009,7 +1054,6 @@ const App: React.FC = () => {
           multiplier: undefined
         }));
       }
-      // mode === 'none'
       return [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }];
     };
 
@@ -1038,7 +1082,9 @@ const App: React.FC = () => {
     else if (type === 'import' && payload) {
       const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
       if (importedCat && Array.isArray(importedArticles)) {
-          const newCategory: Category = { ...importedCat, name: newName, isImported: true };
+          const uniqueTempId = `IMPORT_TEMP_${Date.now()}`;
+          const newCategory: Category = { ...importedCat, name: newName, code: uniqueTempId, isImported: true };
+          
           const newAnalysesList = [...analyses];
           const analysisIdMap = new Map<string, string>();
           if (Array.isArray(importedAnalyses)) {
@@ -1052,7 +1098,6 @@ const App: React.FC = () => {
               });
           }
           
-          // Determine correct insertion index based on drop target
           let insertionIdx = categories.length;
           if (targetCode) {
             insertionIdx = categories.findIndex(c => c.code === targetCode);
@@ -1062,9 +1107,6 @@ const App: React.FC = () => {
           const newCatsList = [...categories];
           newCatsList.splice(insertionIdx, 0, newCategory);
           
-          const result = renumberCategories(newCatsList, articles); 
-          const newCatCode = result.codeMap[newCategory.code] || newCategory.code;
-
           const processedArticles = importedArticles.map((art: Article) => {
               const newArticleId = Math.random().toString(36).substr(2, 9);
               let newLinkedAnalysisId = art.linkedAnalysisId;
@@ -1072,12 +1114,14 @@ const App: React.FC = () => {
               return { 
                 ...art, 
                 id: newArticleId, 
-                categoryCode: newCatCode, 
+                categoryCode: uniqueTempId, 
                 linkedAnalysisId: newLinkedAnalysisId, 
                 measurements: processMeasurements(art.measurements)
               };
           });
-          updateState([...result.newArticles, ...processedArticles], result.newCategories, newAnalysesList);
+
+          const result = renumberCategories(newCatsList, [...articles, ...processedArticles]); 
+          updateState(result.newArticles, result.newCategories, newAnalysesList);
       }
     }
     setWbsOptionsContext(null);
@@ -1110,6 +1154,7 @@ const App: React.FC = () => {
   const handleScrollToArticle = (id: string) => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'center' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } };
   
   const handleAddEmptyArticle = (categoryCode: string) => { 
+      if (!canAddArticle()) return;
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] };
       const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
@@ -1123,6 +1168,7 @@ const App: React.FC = () => {
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
 
   const handleDropContent = (rawText: string) => { 
+      if (!canAddArticle()) return;
       const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       const currentCat = categories.find(c => c.code === targetCatCode);
       if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; }
@@ -1208,13 +1254,10 @@ const App: React.FC = () => {
             const isLastMeasField = target.getAttribute('data-last-meas-field') === 'true';
             
             if (isLastMeasField) {
-                // Find the parent article ID
                 const articleRow = target.closest('tbody');
                 if (articleRow) {
                     const articleId = articleRow.id.replace('article-', '');
-                    // Add a new row
                     handleAddMeasurement(articleId);
-                    // Focusing is handled by autoFocus in the render method of the new input
                     e.preventDefault();
                     return;
                 }
@@ -1228,8 +1271,12 @@ const App: React.FC = () => {
     } 
   };
 
+  const handleGeneratePdf = async () => {
+    await generateComputoMetricPdf(projectInfo, categories, articles, isVisitor);
+  };
+
   if (authLoading) return <div className="h-screen flex items-center justify-center bg-[#2c3e50] text-white font-black text-2xl animate-pulse tracking-widest uppercase">GECOLA PRO CARICAMENTO...</div>;
-  if (!user && auth) return <Login />;
+  if (!user && auth) return <Login onVisitorLogin={handleVisitorLogin} />;
 
   const activeCategory = categories.find(c => c.code === selectedCategoryCode);
   const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
@@ -1244,16 +1291,38 @@ const App: React.FC = () => {
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
       
       <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
-          <div className="flex items-center space-x-3 w-64">
+          <div className="flex items-center space-x-3 w-72">
             <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
             <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.1</span></span>
+            
+            <button 
+                onClick={() => setIsManualOpen(true)}
+                className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative"
+                title="Apri Manuale d'Uso"
+            >
+                <HelpCircle className="w-5 h-5" />
+                <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">Manuale</span>
+            </button>
           </div>
+
           <div className="flex-1 px-6 flex justify-center items-center gap-6">
-              <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
-                  {isAutoSaving && <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)] mr-2"></span>}
-                  <span className="truncate max-w-[250px]">{projectInfo.title}</span>
-                  <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
-              </div>
+              {isVisitor && (
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest animate-pulse">
+                        <Sparkles className="w-3 h-3" /> Account Versione Lite
+                    </div>
+                    <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 5 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                        Voci Utilizzate: {articles.length} / 5
+                    </div>
+                  </div>
+              )}
+              {!isVisitor && (
+                <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
+                    {isAutoSaving && <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)] mr-2"></span>}
+                    <span className="truncate max-w-[250px]">{projectInfo.title}</span>
+                    <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
+                </div>
+              )}
               <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
                 <button onClick={handleUndo} disabled={history.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Annulla"><Undo2 className="w-4 h-4" /></button>
                 <div className="w-px h-4 bg-slate-600"></div>
@@ -1262,19 +1331,41 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center space-x-2">
              <div className="relative">
-                <button onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} className="p-2 text-slate-300 hover:text-blue-400 transition-colors flex items-center gap-1" title="Salva Progetto">
-                    <Save className="w-5 h-5" />
+                <button 
+                    onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
+                    className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" 
+                    title="Esporta Progetto"
+                >
+                    <Download className="w-5 h-5" />
                     <ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {isSaveMenuOpen && (
                     <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                         <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Computo Metrico (.json)</b></button>
-                        <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta Altri Formati</b></button>
+                        <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta per Altri Soft.</b></button>
                     </div>
                 )}
              </div>
-             <button onClick={() => generateComputoMetricPdf(projectInfo, categories, articles)} className="p-2 text-slate-300 hover:text-white transition-colors"><FileText className="w-5 h-5" /></button>
-             <button onClick={() => signOut(auth)} className="p-2 text-red-400 hover:text-white ml-2 transition-colors"><LogOut className="w-5 h-5" /></button>
+             <div className="relative">
+                <button 
+                    onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} 
+                    className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1"
+                    title="Stampe Professionali"
+                >
+                    <FileText className="w-5 h-5" />
+                    <ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isPrintMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                        <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
+                    </div>
+                )}
+             </div>
+             <button onClick={() => { if (user === 'visitor') setUser(null); else signOut(auth); }} className="p-2 text-red-400 hover:text-white ml-2 transition-colors" title="Esci"><LogOut className="w-5 h-5" /></button>
           </div>
       </div>
       
@@ -1322,7 +1413,6 @@ const App: React.FC = () => {
                           <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
                               <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
                               <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                              {/* NEW: DUPLICATE BUTTON passes initialName */}
                               <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
                               <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
                               <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
@@ -1351,10 +1441,31 @@ const App: React.FC = () => {
                       <input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
                     </div>
                     {filteredAnalyses.map(analysis => (
-                         <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className="bg-white p-3 rounded border border-gray-200 shadow-sm hover:border-purple-300 transition-all cursor-grab active:cursor-grabbing">
-                             <div className="flex justify-between mb-1"><span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded">{analysis.code}</span><span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span></div>
+                         <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 bg-gray-50/50' : 'border-gray-200 hover:border-purple-300'}`}>
+                             <div className="flex justify-between mb-1">
+                                 <span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    {analysis.isLocked && <Lock className="w-2.5 h-2.5" />}
+                                    {analysis.code}
+                                 </span>
+                                 <span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span>
+                             </div>
                              <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
-                             <div className="flex justify-between items-center mt-2 border-t pt-2"><span className="text-[10px] text-gray-400 font-bold">{analysis.unit}</span><button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded"><ArrowRightLeft className="w-3.5 h-3.5" /></button></div>
+                             <div className="flex justify-between items-center mt-2 border-t pt-2">
+                                <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
+                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 hover:bg-red-50' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'}`}>
+                                        {analysis.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                    </button>
+                                    <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
+                                        <Edit2 className="w-3 h-3" />
+                                    </button>
+                                    <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                                        <Trash2 className="w-3 h-3" />
+                                    </button>
+                                </div>
+                                <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded border border-purple-100 shadow-sm" title="Usa nel computo">
+                                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                                </button>
+                             </div>
                          </div>
                     ))}
                 </div>
@@ -1363,7 +1474,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] p-5 gap-4">
-           {activeCategory && selectedCategoryCode !== 'SUMMARY' && (
+           {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && (
                <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300">
                     <div className="flex items-center gap-3">
                          <div className="bg-[#2c3e50] text-white p-2.5 rounded-lg shadow-lg font-black text-xl">{activeCategory.code}</div>
@@ -1391,6 +1502,18 @@ const App: React.FC = () => {
                </div>
            )}
 
+           {viewMode === 'ANALISI' && (
+                <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm mb-0">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-[#8e44ad] text-white p-2.5 rounded-lg shadow-lg font-black text-xl"><TestTubes className="w-6 h-6" /></div>
+                        <div><h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Gestione Analisi Prezzi</h2><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-purple-100">{analyses.length} Analisi in archivio</span></div>
+                    </div>
+                    <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-all flex items-center gap-2 text-sm">
+                        <Plus className="w-5 h-5" /> Nuova Analisi
+                    </button>
+                </div>
+           )}
+
            <div 
              className="flex-1 overflow-y-auto rounded-xl bg-white shadow-2xl border border-gray-300 flex flex-col relative" 
              onKeyDown={handleInputKeyDown}
@@ -1398,8 +1521,7 @@ const App: React.FC = () => {
              onDragLeave={() => setIsWorkspaceDragOver(false)}
              onDrop={handleWorkspaceDrop}
            >
-              {/* SMART GATE OVERLAY */}
-              {isWorkspaceDragOver && (
+              {isWorkspaceDragOver && viewMode === 'COMPUTO' && (
                 <div className="absolute inset-0 z-[100] bg-blue-600/10 backdrop-blur-[2px] border-4 border-dashed border-blue-500 rounded-xl flex items-center justify-center p-12 pointer-events-none animate-in fade-in duration-200">
                    <div className="bg-white p-10 rounded-3xl shadow-2xl border border-blue-200 flex flex-col items-center text-center max-w-md animate-in zoom-in-95">
                       <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mb-6">
@@ -1423,7 +1545,10 @@ const App: React.FC = () => {
                               <table className="w-full text-left border-collapse">
                                   <TableHeader activeColumn={activeColumn} />
                                   {activeArticles.length === 0 ? (
-                                      <tbody><tr><td colSpan={12} className="p-20 text-center text-slate-300 italic font-medium uppercase tracking-widest">Nessun articolo inserito. Trascina voci da GeCoLa.it o usa il tasto "+"</td></tr></tbody>
+                                      <tbody><tr><td colSpan={12} className="p-20 text-center text-slate-300 italic font-medium uppercase tracking-widest leading-relaxed">
+                                          Nessun articolo inserito. <br/>
+                                          Trascina voci da <a href="https://www.gecola.it" target="_blank" rel="noopener" className="text-blue-500 hover:text-blue-700 hover:underline font-black">Gecola.it</a> o usa il tasto "+"
+                                      </td></tr></tbody>
                                   ) : (
                                       activeArticles.map((article, artIndex) => (
                                           <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} />
@@ -1434,7 +1559,64 @@ const App: React.FC = () => {
                       </div>
                   ) : <div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona un capitolo</div>
               )}
-              {viewMode === 'ANALISI' && <div className="flex flex-col items-center justify-center h-full p-10 bg-white"><div className="bg-white p-10 rounded-2xl shadow-xl border border-purple-100 max-w-2xl text-center"><TestTubes className="w-16 h-16 text-purple-600 mx-auto mb-6" /><h2 className="text-2xl font-bold text-gray-800 mb-2">Gestione Analisi Prezzi</h2><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-transform hover:scale-105 mt-6 flex items-center gap-2 mx-auto"><Plus className="w-5 h-5" /> Crea Nuova Analisi</button></div></div>}
+              
+              {viewMode === 'ANALISI' && (
+                  <div className="p-8 bg-slate-50 min-h-full">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {analyses.map(analysis => (
+                            <div key={analysis.id} className={`bg-white rounded-xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-xl'}`}>
+                                <div className="p-5 flex-1">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex flex-col">
+                                            <span className="bg-purple-600 text-white font-black font-mono text-[10px] px-2 py-1 rounded-full w-fit flex items-center gap-1.5 shadow-sm">
+                                                {analysis.isLocked && <Lock className="w-3 h-3" />}
+                                                {analysis.code}
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 font-bold mt-1 uppercase tracking-tighter">{analysis.unit}</span>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div>
+                                            <span className="text-[9px] text-gray-400 uppercase font-bold">Prezzo Unitario</span>
+                                        </div>
+                                    </div>
+                                    <h4 className="font-bold text-gray-800 text-sm leading-snug line-clamp-3 mb-4">{analysis.description}</h4>
+                                    
+                                    <div className="space-y-1.5 border-t pt-4">
+                                        <div className="flex justify-between text-[10px]">
+                                            <span className="text-gray-500 font-bold uppercase">Materiali</span>
+                                            <span className="font-mono text-gray-700">{formatCurrency(analysis.totalMaterials)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px]">
+                                            <span className="text-gray-500 font-bold uppercase">Manodopera</span>
+                                            <span className="font-mono text-gray-700">{formatCurrency(analysis.totalLabor)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px]">
+                                            <span className="text-gray-500 font-bold uppercase">Noli/Attr.</span>
+                                            <span className="font-mono text-gray-700">{formatCurrency(analysis.totalEquipment)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-gray-50 border-t flex justify-between items-center rounded-b-xl">
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1.5 rounded-lg transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>
+                                            {analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                                        </button>
+                                        <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-white rounded-lg transition-all" title="Modifica">
+                                            <PenLine className="w-4 h-4" />
+                                        </button>
+                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-white rounded-lg transition-all" title="Elimina">
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-1.5 bg-white text-purple-700 font-black text-[10px] px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase" title="Usa questa analisi nel computo corrente">
+                                        Usa <ArrowRightLeft className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                  </div>
+              )}
            </div>
         </div>
       </div>
@@ -1446,14 +1628,8 @@ const App: React.FC = () => {
       <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
       <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
-      {/* NEW: WBS IMPORT/DUPLICATE OPTIONS MODAL handles mode and positional insertion */}
-      <WbsImportOptionsModal 
-        isOpen={!!wbsOptionsContext} 
-        onClose={() => setWbsOptionsContext(null)} 
-        onChoice={handleWbsActionChoice} 
-        isImport={wbsOptionsContext?.type === 'import'} 
-        initialName={wbsOptionsContext?.initialName || ''}
-      />
+      <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
+      <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
     </div>
   );
 };

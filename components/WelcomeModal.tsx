@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { REGIONS, YEARS } from '../constants';
 import { Map, ArrowRight, Check, Sparkles, Loader2, BookOpen } from 'lucide-react';
@@ -14,6 +15,8 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onComplete, isLoadi
   const [region, setRegion] = useState('');
   const [year, setYear] = useState('');
   const [client, setClient] = useState('');
+  // Added designer state to satisfy ProjectInfo interface requirement
+  const [designer, setDesigner] = useState('Ing. Nome Designer');
   const [title, setTitle] = useState('Ristrutturazione Appartamento');
   const [description, setDescription] = useState('');
 
@@ -27,9 +30,11 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onComplete, isLoadi
   };
 
   const handleFinalSubmit = (skipGeneration: boolean = false) => {
+    // FIX: Included missing 'designer' property in the ProjectInfo object to resolve TS error
     const info: ProjectInfo = {
       title,
       client,
+      designer,
       location: region, // Default to region as location initially
       date: new Date().toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }),
       priceList: '',
@@ -110,6 +115,18 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onComplete, isLoadi
                         placeholder="Es. Mario Rossi"
                         />
                     </div>
+                </div>
+
+                {/* Added designer input to the welcome wizard UI */}
+                <div>
+                    <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Progettista</label>
+                    <input 
+                    type="text" 
+                    value={designer}
+                    onChange={(e) => setDesigner(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Es. Ing. Mario Rossi"
+                    />
                 </div>
 
                 <div className="pt-4 flex justify-end">

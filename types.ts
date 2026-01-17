@@ -12,7 +12,7 @@ export interface Measurement {
   description: string;
   type: 'positive' | 'deduction' | 'subtotal';
   length?: number; // Lunghezza
-  width?: number;  // Larghezza
+  width?: number;  // Larghhezza
   height?: number; // Altezza / Peso
   multiplier?: number; // Parti uguali - Optional/Undefined means 1 visually but blank
   // Dynamic Linking fields
@@ -55,6 +55,7 @@ export interface PriceAnalysis {
   components: AnalysisComponent[];
   generalExpensesRate: number; // % Spese Generali (default 15%)
   profitRate: number; // % Utile d'Impresa (default 10%)
+  isLocked?: boolean; // NEW: Lock for security
   
   // Calculated values (cached for display)
   totalMaterials: number;
@@ -70,6 +71,7 @@ export interface PriceAnalysis {
 export interface ProjectInfo {
   title: string;
   client: string;
+  designer: string; // NEW: Designer name
   location: string;
   date: string;
   priceList: string; 

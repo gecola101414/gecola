@@ -49,28 +49,37 @@ export const generateBulkItems = async (
     ${categoriesList}
 
     Return ONLY a JSON object with an array "items".
-    {
-      "items": [
-        {
-          "categoryCode": "WBS.01",
-          "code": "Codice Prezzario o NP.xxx",
-          "description": "Descrizione tecnica completa e professionale",
-          "unit": "m2/cad/etc",
-          "quantity": 10,
-          "unitPrice": 100.00,
-          "laborRate": 25,
-          "priceListSource": "Fonte consultata"
-        }
-      ]
-    }
     `;
 
+    // Added responseSchema for more structured and reliable JSON responses from the model
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  categoryCode: { type: Type.STRING },
+                  code: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  unit: { type: Type.STRING },
+                  quantity: { type: Type.NUMBER },
+                  unitPrice: { type: Type.NUMBER },
+                  laborRate: { type: Type.NUMBER },
+                  priceListSource: { type: Type.STRING }
+                },
+                required: ["categoryCode", "code", "description", "unit", "quantity", "unitPrice"]
+              }
+            }
+          }
+        }
       },
     });
 

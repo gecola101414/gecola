@@ -83,6 +83,7 @@ export const SOA_CATEGORIES = [
 export const PROJECT_INFO: ProjectInfo = {
   title: 'Nuovo Progetto',
   client: 'Committente Predefinito',
+  designer: 'Ing. Nome Designer',
   location: 'Cantiere',
   date: new Date().toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }),
   priceList: 'Prezzario Regionale', 

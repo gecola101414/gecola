@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Map } from 'lucide-react';
+import { X, Save, Map, UserCheck } from 'lucide-react';
 import { ProjectInfo } from '../types';
 import { REGIONS, YEARS } from '../constants';
 
@@ -66,6 +66,19 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
                 value={formData.client}
                 onChange={(e) => handleChange('client', e.target.value)}
                 className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold uppercase text-gray-500 mb-1 flex items-center gap-1">
+                <UserCheck className="w-3 h-3 text-blue-500" /> Progettista
+              </label>
+              <input 
+                type="text" 
+                value={formData.designer || ''}
+                onChange={(e) => handleChange('designer', e.target.value)}
+                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
+                placeholder="Ing. / Arch. ..."
               />
             </div>
 
