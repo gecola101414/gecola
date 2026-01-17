@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -1271,8 +1272,9 @@ const App: React.FC = () => {
     } 
   };
 
+  /* FIXED: Removed unused isVisitor argument to match generateComputoMetricPdf signature */
   const handleGeneratePdf = async () => {
-    await generateComputoMetricPdf(projectInfo, categories, articles, isVisitor);
+    await generateComputoMetricPdf(projectInfo, categories, articles);
   };
 
   if (authLoading) return <div className="h-screen flex items-center justify-center bg-[#2c3e50] text-white font-black text-2xl animate-pulse tracking-widest uppercase">GECOLA PRO CARICAMENTO...</div>;
@@ -1358,10 +1360,11 @@ const App: React.FC = () => {
                 {isPrintMenuOpen && (
                     <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses, isVisitor); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
+                        {/* FIXED: Removed isVisitor argument from all PDF generation calls */}
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
+                        <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
                     </div>
                 )}
              </div>
@@ -1396,7 +1399,7 @@ const App: React.FC = () => {
                           {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
                           
                           <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
-                              <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50')}`}>
+                              <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
                                   <div className="flex items-center gap-2 mb-0.5">
                                       <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
                                       <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
@@ -1452,7 +1455,7 @@ const App: React.FC = () => {
                              <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
                              <div className="flex justify-between items-center mt-2 border-t pt-2">
                                 <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
-                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 hover:bg-red-50' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'}`}>
+                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'}`}>
                                         {analysis.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                                     </button>
                                     <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
