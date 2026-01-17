@@ -15,6 +15,7 @@ import CategoryEditModal from './components/CategoryEditModal';
 import SaveProjectModal from './components/SaveProjectModal';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
+import WbsImportOptionsModal from './components/WbsImportOptionsModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
 import { generateComputoMetricPdf } from './services/pdfGenerator';
 
@@ -112,7 +113,6 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
       <th className="py-2 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
       <th className={`py-2 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
       <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
       <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
       <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
@@ -669,6 +669,9 @@ const App: React.FC = () => {
   const [analysisSearchTerm, setAnalysisSearchTerm] = useState('');
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
+  
+  // NEW: State for WBS Import/Duplicate options modal
+  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'duplicate', sourceCode?: string, payload?: any, initialName?: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -948,38 +951,9 @@ const App: React.FC = () => {
           try {
               const payload = JSON.parse(textData);
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
-                  const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
-                  if (importedCat && Array.isArray(importedArticles)) {
-                      const newCategory: Category = { ...importedCat, name: importedCat.name + " (Import)", isImported: true };
-                      const newAnalysesList = [...analyses];
-                      const analysisIdMap = new Map<string, string>();
-                      if (Array.isArray(importedAnalyses)) {
-                          importedAnalyses.forEach((an: PriceAnalysis) => {
-                              const newId = Math.random().toString(36).substr(2, 9);
-                              let newCode = an.code;
-                              if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; }
-                              analysisIdMap.set(an.id, newId);
-                              const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
-                              newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
-                          });
-                      }
-                      
-                      let insertionIdx = targetCode ? categories.findIndex(c => c.code === targetCode) : categories.length;
-                      if (targetCode && pos === 'bottom') insertionIdx++;
-                      
-                      const newCatsList = [...categories];
-                      newCatsList.splice(insertionIdx, 0, newCategory);
-                      const result = renumberCategories(newCatsList, articles); 
-                      const newCatCode = result.codeMap[newCategory.code] || newCategory.code;
-
-                      const processedArticles = importedArticles.map((art: Article) => {
-                          const newArticleId = Math.random().toString(36).substr(2, 9);
-                          let newLinkedAnalysisId = art.linkedAnalysisId;
-                          if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId); }
-                          return { ...art, id: newArticleId, categoryCode: newCatCode, linkedAnalysisId: newLinkedAnalysisId, measurements: art.measurements.map((m: Measurement) => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })) };
-                      });
-                      updateState([...result.newArticles, ...processedArticles], result.newCategories, newAnalysesList);
-                  }
+                  const initialName = payload.category?.name || 'Capitolo Importato';
+                  setWbsOptionsContext({ type: 'import', payload, initialName });
+                  return;
               }
           } catch (e) { console.error("Import Error", e); }
           return;
@@ -997,6 +971,79 @@ const App: React.FC = () => {
           updateState(result.newArticles, result.newCategories); 
           setDraggedCategoryCode(null);
       }
+  };
+
+  // NEW: Refined Duplicate/Import logic that handles the user's choice and name
+  const handleWbsActionChoice = (keepMeasurements: boolean, newName: string) => {
+    if (!wbsOptionsContext) return;
+    const { type, sourceCode, payload } = wbsOptionsContext;
+    
+    if (type === 'duplicate' && sourceCode) {
+      const sourceCat = categories.find(c => c.code === sourceCode); 
+      if (!sourceCat) return; 
+      const sourceArticles = articles.filter(a => a.categoryCode === sourceCode); 
+      const newCategory = { ...sourceCat, name: newName }; 
+      const tempCode = `TEMP_CLONE_${Date.now()}`; 
+      newCategory.code = tempCode; 
+      
+      const newArticlesRaw = sourceArticles.map(art => {
+        const newArtId = Math.random().toString(36).substr(2, 9);
+        return { 
+          ...art, 
+          id: newArtId, 
+          categoryCode: tempCode, 
+          measurements: keepMeasurements 
+            ? art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }))
+            : [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }]
+        };
+      }); 
+      
+      const sourceIndex = categories.findIndex(c => c.code === sourceCode); 
+      const newCatsList = [...categories]; 
+      newCatsList.splice(sourceIndex + 1, 0, newCategory); 
+      const allArticles = [...articles, ...newArticlesRaw]; 
+      const result = renumberCategories(newCatsList, allArticles); 
+      updateState(result.newArticles, result.newCategories);
+    } 
+    else if (type === 'import' && payload) {
+      const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
+      if (importedCat && Array.isArray(importedArticles)) {
+          const newCategory: Category = { ...importedCat, name: newName, isImported: true };
+          const newAnalysesList = [...analyses];
+          const analysisIdMap = new Map<string, string>();
+          if (Array.isArray(importedAnalyses)) {
+              importedAnalyses.forEach((an: PriceAnalysis) => {
+                  const newId = Math.random().toString(36).substr(2, 9);
+                  let newCode = an.code;
+                  if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; }
+                  analysisIdMap.set(an.id, newId);
+                  const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
+                  newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
+              });
+          }
+          
+          const newCatsList = [...categories, newCategory];
+          const result = renumberCategories(newCatsList, articles); 
+          const newCatCode = result.codeMap[newCategory.code] || newCategory.code;
+
+          const processedArticles = importedArticles.map((art: Article) => {
+              const newArticleId = Math.random().toString(36).substr(2, 9);
+              let newLinkedAnalysisId = art.linkedAnalysisId;
+              if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId); }
+              return { 
+                ...art, 
+                id: newArticleId, 
+                categoryCode: newCatCode, 
+                linkedAnalysisId: newLinkedAnalysisId, 
+                measurements: keepMeasurements 
+                  ? art.measurements.map((m: Measurement) => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }))
+                  : [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }]
+              };
+          });
+          updateState([...result.newArticles, ...processedArticles], result.newCategories, newAnalysesList);
+      }
+    }
+    setWbsOptionsContext(null);
   };
 
   const handleUpdateArticle = (id: string, field: keyof Article, value: string | number) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
@@ -1238,6 +1285,8 @@ const App: React.FC = () => {
                           <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
                               <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
                               <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                              {/* NEW: DUPLICATE BUTTON passes initialName */}
+                              <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
                               <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
                               <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                           </div>
@@ -1360,6 +1409,14 @@ const App: React.FC = () => {
       <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
       <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
+      {/* NEW: WBS IMPORT/DUPLICATE OPTIONS MODAL handles newName callback */}
+      <WbsImportOptionsModal 
+        isOpen={!!wbsOptionsContext} 
+        onClose={() => setWbsOptionsContext(null)} 
+        onChoice={handleWbsActionChoice} 
+        isImport={wbsOptionsContext?.type === 'import'} 
+        initialName={wbsOptionsContext?.initialName || ''}
+      />
     </div>
   );
 };
