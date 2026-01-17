@@ -1,7 +1,5 @@
-
-
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -20,6 +18,7 @@ import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOpti
 import HelpManualModal from './components/HelpManualModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
 import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import { generateComputoExcel } from './services/excelGenerator';
 
 // --- Helper Functions ---
 const formatCurrency = (val: number) => {
@@ -184,7 +183,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    };
 
    const getLinkedArticleNumber = (linkedArt: Article) => {
-       const catArticles = allArticles.filter(a => a.categoryCode === linkedArt.categoryCode);
+       const catArticles = allArticles.filter(a => a.id && a.categoryCode === linkedArt.categoryCode);
        const localIndex = catArticles.findIndex(a => a.id === linkedArt.id) + 1;
        const wbsNum = getWbsNumber(linkedArt.categoryCode);
        return `${wbsNum}.${localIndex}`;
@@ -1272,17 +1271,16 @@ const App: React.FC = () => {
     } 
   };
 
-  /* FIXED: Removed unused isVisitor argument to match generateComputoMetricPdf signature */
-  const handleGeneratePdf = async () => {
-    await generateComputoMetricPdf(projectInfo, categories, articles);
-  };
-
-  if (authLoading) return <div className="h-screen flex items-center justify-center bg-[#2c3e50] text-white font-black text-2xl animate-pulse tracking-widest uppercase">GECOLA PRO CARICAMENTO...</div>;
-  if (!user && auth) return <Login onVisitorLogin={handleVisitorLogin} />;
-
-  const activeCategory = categories.find(c => c.code === selectedCategoryCode);
-  const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
-  const filteredAnalyses = analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase()));
+  /* 
+   * Fix: Defining missing variables activeCategory, activeArticles, and filteredAnalyses
+   * which are required for the component's render logic.
+   */
+  const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
+  const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
+  const filteredAnalyses = useMemo(() => analyses.filter(a => 
+    a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || 
+    a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase())
+  ), [analyses, analysisSearchTerm]);
 
   return (
     <div 
@@ -1344,6 +1342,7 @@ const App: React.FC = () => {
                 {isSaveMenuOpen && (
                     <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                         <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Computo Metrico (.json)</b></button>
+                        <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Esporta in Excel (.xls)</b></button>
                         <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta per Altri Soft.</b></button>
                     </div>
                 )}
@@ -1360,7 +1359,6 @@ const App: React.FC = () => {
                 {isPrintMenuOpen && (
                     <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                         <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
-                        {/* FIXED: Removed isVisitor argument from all PDF generation calls */}
                         <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
                         <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
                         <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
@@ -1455,7 +1453,7 @@ const App: React.FC = () => {
                              <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
                              <div className="flex justify-between items-center mt-2 border-t pt-2">
                                 <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
-                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'}`}>
+                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500'}`}>
                                         {analysis.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                                     </button>
                                     <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">

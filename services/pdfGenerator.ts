@@ -1,4 +1,3 @@
-
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
@@ -230,7 +229,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
             ]);
 
             // Label for measurements
-            tableBody.push([ '', '', { content: 'MISURAZIONI E DETTAGLI:', styles: { fontStyle: 'bold', fontSize: 6.5, textColor: [100, 100, 100], cellPadding: { top: 2, bottom: 1, left: 4 } } }, '', '', '', '', '', '', '' ]);
+            tableBody.push([ '', '', { content: 'ELENCO MISURE:', styles: { fontStyle: 'bold', fontSize: 6.5, textColor: [100, 100, 100], cellPadding: { top: 2, bottom: 1, left: 4 } } }, '', '', '', '', '', '', '' ]);
 
             let runningPartial = 0;
             art.measurements.forEach(m => {
@@ -299,7 +298,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
           8: { cellWidth: 18, halign: 'right', cellPadding: { right: 1.5 } }, 
           9: { cellWidth: 16, halign: 'right', cellPadding: { right: 1.5 } }  
       },
-      headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.2 }, lineColor: [0,0,0] },
+      headStyles: { fillColor: [245, 245, 245], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.2 }, lineColor: [0,0,0] },
       didDrawCell: (data: any) => {
           if (data.section === 'body' && data.cell.styles.isTotalRow) {
               if (data.column.index >= 7 && data.column.index <= 9) {
