@@ -15,7 +15,7 @@ import CategoryEditModal from './components/CategoryEditModal';
 import SaveProjectModal from './components/SaveProjectModal';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
-import WbsImportOptionsModal from './components/WbsImportOptionsModal';
+import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOptionsModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
 import { generateComputoMetricPdf } from './services/pdfGenerator';
 
@@ -671,7 +671,14 @@ const App: React.FC = () => {
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
   
   // NEW: State for WBS Import/Duplicate options modal
-  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'duplicate', sourceCode?: string, payload?: any, initialName?: string } | null>(null);
+  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ 
+    type: 'import' | 'duplicate', 
+    sourceCode?: string, 
+    payload?: any, 
+    initialName?: string,
+    targetCode?: string,
+    position?: 'top' | 'bottom'
+  } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -940,6 +947,7 @@ const App: React.FC = () => {
               const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
               updateState([...articles, newArticle]);
           } else {
+              /* Fixed reference to undefined variable 'i' by using the map iterator 'a' */
               const updatedArticles = articles.map(a => a.id === droppedArticleId ? { ...a, categoryCode: targetCode } : a);
               updateState(updatedArticles);
           }
@@ -952,7 +960,14 @@ const App: React.FC = () => {
               const payload = JSON.parse(textData);
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
                   const initialName = payload.category?.name || 'Capitolo Importato';
-                  setWbsOptionsContext({ type: 'import', payload, initialName });
+                  // NEW: Capture target code and position for cross-browser import
+                  setWbsOptionsContext({ 
+                    type: 'import', 
+                    payload, 
+                    initialName,
+                    targetCode: targetCode || undefined,
+                    position: pos as 'top' | 'bottom'
+                  });
                   return;
               }
           } catch (e) { console.error("Import Error", e); }
@@ -973,11 +988,31 @@ const App: React.FC = () => {
       }
   };
 
-  // NEW: Refined Duplicate/Import logic that handles the user's choice and name
-  const handleWbsActionChoice = (keepMeasurements: boolean, newName: string) => {
+  // NEW: Updated Duplicate/Import logic that handles the 3 user choice modes and insertion position
+  const handleWbsActionChoice = (mode: WbsActionMode, newName: string) => {
     if (!wbsOptionsContext) return;
-    const { type, sourceCode, payload } = wbsOptionsContext;
+    const { type, sourceCode, payload, targetCode, position } = wbsOptionsContext;
     
+    // Helper to process measurements based on choice
+    const processMeasurements = (meases: Measurement[]) => {
+      if (mode === 'full') {
+        return meases.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }));
+      }
+      if (mode === 'descriptions') {
+        return meases.map(m => ({ 
+          ...m, 
+          id: Math.random().toString(36).substr(2, 9), 
+          linkedArticleId: undefined,
+          length: undefined,
+          width: undefined,
+          height: undefined,
+          multiplier: undefined
+        }));
+      }
+      // mode === 'none'
+      return [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }];
+    };
+
     if (type === 'duplicate' && sourceCode) {
       const sourceCat = categories.find(c => c.code === sourceCode); 
       if (!sourceCat) return; 
@@ -986,17 +1021,12 @@ const App: React.FC = () => {
       const tempCode = `TEMP_CLONE_${Date.now()}`; 
       newCategory.code = tempCode; 
       
-      const newArticlesRaw = sourceArticles.map(art => {
-        const newArtId = Math.random().toString(36).substr(2, 9);
-        return { 
+      const newArticlesRaw = sourceArticles.map(art => ({ 
           ...art, 
-          id: newArtId, 
+          id: Math.random().toString(36).substr(2, 9), 
           categoryCode: tempCode, 
-          measurements: keepMeasurements 
-            ? art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }))
-            : [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }]
-        };
-      }); 
+          measurements: processMeasurements(art.measurements)
+      })); 
       
       const sourceIndex = categories.findIndex(c => c.code === sourceCode); 
       const newCatsList = [...categories]; 
@@ -1022,7 +1052,16 @@ const App: React.FC = () => {
               });
           }
           
-          const newCatsList = [...categories, newCategory];
+          // Determine correct insertion index based on drop target
+          let insertionIdx = categories.length;
+          if (targetCode) {
+            insertionIdx = categories.findIndex(c => c.code === targetCode);
+            if (position === 'bottom') insertionIdx++;
+          }
+          
+          const newCatsList = [...categories];
+          newCatsList.splice(insertionIdx, 0, newCategory);
+          
           const result = renumberCategories(newCatsList, articles); 
           const newCatCode = result.codeMap[newCategory.code] || newCategory.code;
 
@@ -1035,9 +1074,7 @@ const App: React.FC = () => {
                 id: newArticleId, 
                 categoryCode: newCatCode, 
                 linkedAnalysisId: newLinkedAnalysisId, 
-                measurements: keepMeasurements 
-                  ? art.measurements.map((m: Measurement) => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }))
-                  : [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }]
+                measurements: processMeasurements(art.measurements)
               };
           });
           updateState([...result.newArticles, ...processedArticles], result.newCategories, newAnalysesList);
@@ -1409,7 +1446,7 @@ const App: React.FC = () => {
       <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
       <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
-      {/* NEW: WBS IMPORT/DUPLICATE OPTIONS MODAL handles newName callback */}
+      {/* NEW: WBS IMPORT/DUPLICATE OPTIONS MODAL handles mode and positional insertion */}
       <WbsImportOptionsModal 
         isOpen={!!wbsOptionsContext} 
         onClose={() => setWbsOptionsContext(null)} 

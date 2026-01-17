@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Copy, LayoutList, Ruler, Sparkles, Edit3 } from 'lucide-react';
+import { X, Copy, LayoutList, Ruler, Sparkles, Edit3, AlignLeft } from 'lucide-react';
+
+export type WbsActionMode = 'full' | 'descriptions' | 'none';
 
 interface WbsImportOptionsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onChoice: (keepMeasurements: boolean, newName: string) => void;
+  onChoice: (mode: WbsActionMode, newName: string) => void;
   initialName: string;
   isImport?: boolean;
 }
@@ -67,7 +69,7 @@ const WbsImportOptionsModal: React.FC<WbsImportOptionsModalProps> = ({
           <div className="grid grid-cols-1 gap-4">
             {/* Option 1: Full Copy */}
             <button 
-              onClick={() => onChoice(true, newName)}
+              onClick={() => onChoice('full', newName)}
               disabled={!newName.trim()}
               className="group flex items-start p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -82,9 +84,26 @@ const WbsImportOptionsModal: React.FC<WbsImportOptionsModalProps> = ({
               </div>
             </button>
 
-            {/* Option 2: Only Items */}
+            {/* Option 2: Descriptions Only */}
             <button 
-              onClick={() => onChoice(false, newName)}
+              onClick={() => onChoice('descriptions', newName)}
+              disabled={!newName.trim()}
+              className="group flex items-start p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="p-3 bg-indigo-100 rounded-lg text-indigo-600 mr-4 group-hover:bg-indigo-200 transition-colors">
+                <AlignLeft className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="block font-black text-indigo-900 uppercase text-xs tracking-widest mb-1">Copia solo Descrizioni Misure</span>
+                <span className="text-sm text-gray-500 leading-tight block">
+                  Mantieni l'elenco delle descrizioni delle misure, ma azzera tutti i valori numerici (quantità, dimensioni).
+                </span>
+              </div>
+            </button>
+
+            {/* Option 3: Only Items */}
+            <button 
+              onClick={() => onChoice('none', newName)}
               disabled={!newName.trim()}
               className="group flex items-start p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-orange-500 hover:bg-orange-50 transition-all text-left shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -94,7 +113,7 @@ const WbsImportOptionsModal: React.FC<WbsImportOptionsModalProps> = ({
               <div>
                 <span className="block font-black text-orange-900 uppercase text-xs tracking-widest mb-1">Copia solo Voci</span>
                 <span className="text-sm text-gray-500 leading-tight block">
-                  Copia solo l'elenco dei lavori. Le misure verranno eliminate, lasciando i righi vuoti.
+                  Copia solo l'elenco dei lavori. Tutte le righe di misura verranno rimosse.
                 </span>
               </div>
             </button>
