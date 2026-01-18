@@ -50,7 +50,10 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div 
+        className="fixed inset-0 z-[200] flex items-center justify-center p-2 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200"
+        onClick={(e) => e.stopPropagation()} // Impedisce al click interno di fermare l'automatismo
+    >
       <div className="bg-[#f8fafc] rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-300 flex flex-col max-h-[98vh] animate-in zoom-in-95 duration-150">
         
         <div className="bg-slate-900 px-5 py-3 flex justify-between items-center text-white border-b border-slate-700">

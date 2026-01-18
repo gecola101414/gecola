@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
@@ -104,7 +103,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                   className="w-full bg-white border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 text-slate-600 font-black py-3 px-4 rounded-xl shadow-sm transform transition-all active:scale-95 flex items-center justify-center gap-2 uppercase text-[10px] tracking-widest group"
                   >
                   <UserCircle className="w-4 h-4 text-slate-400 group-hover:text-orange-500" /> 
-                  Lite
+                  Visitatore Versione Demo
                   </button>
               </div>
             </form>
@@ -153,7 +152,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
         <div className="w-full md:w-96 bg-slate-50 p-6 md:p-8 border-l border-slate-100 flex flex-col gap-4 overflow-y-auto">
             <div className="space-y-4">
                 <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-widest">
-                    <Sparkles className="w-4 h-4" /> Versione Lite (Demo)
+                    <Sparkles className="w-4 h-4" /> Visitatore Versione Demo
                 </div>
                 
                 <ul className="space-y-3">

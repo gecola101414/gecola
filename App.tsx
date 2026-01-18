@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -157,10 +156,12 @@ interface ArticleGroupProps {
   onToggleArticleLock: (id: string) => void;
   onOpenRebarCalculator: (articleId: string) => void;
   onOpenPaintingCalculator: (articleId: string) => void;
+  isPaintingAutomationActive: boolean;
+  isRebarAutomationActive: boolean;
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator } = props;
+   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, isPaintingAutomationActive, isRebarAutomationActive } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -502,18 +503,18 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     <div className="flex items-center gap-1.5">
                         <button 
                             onClick={() => onOpenPaintingCalculator(article.id)}
-                            className="bg-blue-100 hover:bg-blue-800 text-blue-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/paint"
+                            className={`bg-blue-100 hover:bg-blue-800 text-blue-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/paint ${isPaintingAutomationActive ? 'animate-pulse ring-2 ring-blue-500' : ''}`}
                             title="Calcolo Automatico Pitturazioni (Soffitto + Pareti)"
                         >
-                            <Paintbrush className="w-2.5 h-2.5" />
+                            <Paintbrush className={`w-2.5 h-2.5 ${isPaintingAutomationActive ? 'animate-bounce' : ''}`} />
                             <span className="text-[7px] font-black group-hover/paint:block hidden uppercase">Pitture</span>
                         </button>
                         <button 
                             onClick={() => onOpenRebarCalculator(article.id)}
-                            className="bg-slate-200 hover:bg-slate-800 text-slate-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/rebar"
+                            className={`bg-slate-200 hover:bg-slate-800 text-slate-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/rebar ${isRebarAutomationActive ? 'animate-pulse ring-2 ring-orange-500' : ''}`}
                             title="Calcolo Ferri d'Armatura"
                         >
-                            <CircleDot className="w-2.5 h-2.5" />
+                            <CircleDot className={`w-2.5 h-2.5 ${isRebarAutomationActive ? 'animate-bounce' : ''}`} />
                             <span className="text-[7px] font-black group-hover/rebar:block hidden uppercase">Ferri</span>
                         </button>
                     </div>
@@ -648,6 +649,11 @@ const App: React.FC = () => {
 
   const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
+  const [shouldAutoReopenPainting, setShouldAutoReopenPainting] = useState(false);
+
+  // Timer references for automations
+  const rebarTimerRef = useRef<any>(null);
+  const paintingTimerRef = useRef<any>(null);
 
   // LOGICA AUTH CORRETTA
   useEffect(() => {
@@ -681,6 +687,14 @@ const App: React.FC = () => {
     });
     return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
+
+  // Interrompi ogni automatismo se l'utente interagisce con il layout principale
+  const stopAllAutomations = useCallback(() => {
+    if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
+    if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
+    setShouldAutoReopenRebar(false);
+    setShouldAutoReopenPainting(false);
+  }, []);
 
   const handleVisitorLogin = () => {
     setUser('visitor');
@@ -751,7 +765,7 @@ const App: React.FC = () => {
     if (!isVisitor) return true;
     const currentTotal = articles.length;
     if (currentTotal + newCountToAdd > 5) {
-      alert(`VERSIONE LITE: Limite di 5 voci raggiunto.\nStai tentando di inserire ${newCountToAdd} voci ma ne mancano ${5 - currentTotal} al limite.`);
+      alert(`VERSIONE DEMO: Limite di 5 voci raggiunto.\nStai tentando di inserire ${newCountToAdd} voci ma ne mancano ${5 - currentTotal} al limite.`);
       return false;
     }
     return true;
@@ -1235,6 +1249,7 @@ const App: React.FC = () => {
 
   const handleOpenPaintingCalculator = (articleId: string) => {
     setPaintingTargetArticleId(articleId);
+    setShouldAutoReopenPainting(true);
     setIsPaintingModalOpen(true);
   };
 
@@ -1260,9 +1275,10 @@ const App: React.FC = () => {
     // Logica di loop: chiudi modale, aspetta 5 sec, riapri se non interrotto
     setIsRebarModalOpen(false);
     if (shouldAutoReopenRebar) {
-        setTimeout(() => {
-            if (shouldAutoReopenRebar) setIsRebarModalOpen(true);
-        }, 5000); // Portato a 5 secondi come richiesto
+        if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
+        rebarTimerRef.current = setTimeout(() => {
+            setIsRebarModalOpen(true);
+        }, 5000); 
     }
   };
 
@@ -1277,7 +1293,15 @@ const App: React.FC = () => {
         return { ...art, measurements: [...art.measurements, ...newMeasures] };
     });
     updateState(updated);
-    setPaintingTargetArticleId(null);
+    
+    // Logica di loop: chiudi modale, aspetta 5 sec, riapri se non interrotto
+    setIsPaintingModalOpen(false);
+    if (shouldAutoReopenPainting) {
+        if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
+        paintingTimerRef.current = setTimeout(() => {
+            setIsPaintingModalOpen(true);
+        }, 5000);
+    }
   };
 
   const handleDropContent = (rawText: string) => { 
@@ -1400,6 +1424,7 @@ const App: React.FC = () => {
         className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} 
         onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+        onClick={stopAllAutomations} // Interrompi ogni automatismo se l'utente interagisce con il layout
     >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
       
@@ -1460,7 +1485,7 @@ const App: React.FC = () => {
                   {isVisitor && (
                       <div className="flex items-center gap-4">
                         <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest animate-pulse">
-                            <Sparkles className="w-3 h-3" /> Account Versione Lite
+                            <Sparkles className="w-3 h-3" /> Visitatore Versione Demo
                         </div>
                         <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 5 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
                             Voci Utilizzate: {articles.length} / 5
@@ -1655,7 +1680,7 @@ const App: React.FC = () => {
                     <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm mb-0">
                         <div className="flex items-center gap-3">
                             <div className="bg-[#8e44ad] text-white p-2.5 rounded-lg shadow-lg font-black text-xl"><TestTubes className="w-6 h-6" /></div>
-                            <div><h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Gestione Analisi Prezzi</h2><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-purple-100">{analyses.length} Analisi in archivio</span></div>
+                            <div><h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Gestione Analisi Prezzi</h2><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-blue-100">{analyses.length} Analisi in archivio</span></div>
                     </div>
                     <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-all flex items-center gap-2 text-sm">
                         <Plus className="w-5 h-5" /> Nuova Analisi
@@ -1707,7 +1732,7 @@ const App: React.FC = () => {
                                       </td></tr></tbody>
                                   ) : (
                                       activeArticles.map((article, artIndex) => (
-                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} />
+                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
                                       ))
                                   )}
                               </table>
@@ -1760,7 +1785,7 @@ const App: React.FC = () => {
                                         <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-white rounded-lg transition-all" title="Modifica">
                                             <PenLine className="w-4 h-4" />
                                         </button>
-                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-white rounded-lg transition-all" title="Elimina">
+                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -1786,8 +1811,8 @@ const App: React.FC = () => {
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
       <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
       <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
-      <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => { setIsRebarModalOpen(false); setShouldAutoReopenRebar(false); }} onAdd={handleAddRebarMeasurement} />
-      <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
+      <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => { setIsRebarModalOpen(false); setShouldAutoReopenRebar(false); if(rebarTimerRef.current) clearTimeout(rebarTimerRef.current); }} onAdd={handleAddRebarMeasurement} />
+      <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => { setIsPaintingModalOpen(false); setShouldAutoReopenPainting(false); if(paintingTimerRef.current) clearTimeout(paintingTimerRef.current); }} onAdd={handleAddPaintingMeasurements} />
     </>
       )}
     </div>
