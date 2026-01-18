@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -17,6 +17,8 @@ import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
 import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOptionsModal';
 import HelpManualModal from './components/HelpManualModal';
+import RebarCalculatorModal from './components/RebarCalculatorModal';
+import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
 import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
@@ -153,10 +155,12 @@ interface ArticleGroupProps {
   onViewAnalysis: (analysisId: string) => void; 
   onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
+  onOpenRebarCalculator: (articleId: string) => void;
+  onOpenPaintingCalculator: (articleId: string) => void;
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock } = props;
+   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -493,7 +497,27 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            <>
             <tr className="bg-gray-50/50 border-b border-gray-100">
                 <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50">MISURE</td>
+                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center justify-between">
+                    <span>MISURE</span>
+                    <div className="flex items-center gap-1.5">
+                        <button 
+                            onClick={() => onOpenPaintingCalculator(article.id)}
+                            className="bg-blue-100 hover:bg-blue-800 text-blue-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/paint"
+                            title="Calcolo Automatico Pitturazioni (Soffitto + Pareti)"
+                        >
+                            <Paintbrush className="w-2.5 h-2.5" />
+                            <span className="text-[7px] font-black group-hover/paint:block hidden uppercase">Pitture</span>
+                        </button>
+                        <button 
+                            onClick={() => onOpenRebarCalculator(article.id)}
+                            className="bg-slate-200 hover:bg-slate-800 text-slate-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/rebar"
+                            title="Calcolo Ferri d'Armatura"
+                        >
+                            <CircleDot className="w-2.5 h-2.5" />
+                            <span className="text-[7px] font-black group-hover/rebar:block hidden uppercase">Ferri</span>
+                        </button>
+                    </div>
+                </td>
                 <td colSpan={9} className="border-r border-gray-200"></td>
             </tr>
             <tr className="h-1"><td colSpan={12} className="border-r border-gray-200 bg-white"></td></tr>
@@ -599,13 +623,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    );
 };
 
+// Fix: Added missing types ViewMode and Snapshot to resolve line 696, 703, 704 errors
+type ViewMode = 'COMPUTO' | 'ANALISI';
+
 interface Snapshot {
   articles: Article[];
   categories: Category[];
   analyses: PriceAnalysis[];
 }
-
-type ViewMode = 'COMPUTO' | 'ANALISI';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(null);
@@ -616,6 +641,12 @@ const App: React.FC = () => {
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
   const [showAutoLoginAd, setShowAutoLoginAd] = useState(false); 
+
+  const [isRebarModalOpen, setIsRebarModalOpen] = useState(false);
+  const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
+
+  const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
+  const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
 
   // LOGICA AUTH CORRETTA
   useEffect(() => {
@@ -652,7 +683,7 @@ const App: React.FC = () => {
 
   const handleVisitorLogin = () => {
     setUser('visitor');
-    setShowAutoLoginAd(true); // MOSTRA BANNER ANCHE PER VISITATORI
+    setShowAutoLoginAd(true); 
   };
 
   const handleLogout = async () => {
@@ -859,7 +890,7 @@ const App: React.FC = () => {
           measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }],
           quantity: 0
       };
-      setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
+      setLastAddedMeasurementId(newMeasId); 
       updateState([...articles, newArticle], categories, analyses);
       setViewMode('COMPUTO');
       setIsImportAnalysisModalOpen(false); 
@@ -905,7 +936,7 @@ const App: React.FC = () => {
               quantity: 0
           };
           
-          setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
+          setLastAddedMeasurementId(newMeasId); 
           const updatedArticles = [...articles];
           const categoryArticles = updatedArticles.filter(a => a.categoryCode === targetCode);
           const otherArticles = updatedArticles.filter(a => a.categoryCode !== targetCode);
@@ -1155,7 +1186,7 @@ const App: React.FC = () => {
   const handleUpdateArticle = (id: string, field: keyof Article, value: string | number) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
   const handleArticleEditSave = (id: string, updates: Partial<Article>) => { let finalUpdates = { ...updates }; const original = articles.find(a => a.id === id); if (original && original.priceListSource && !original.priceListSource.includes('NP')) { if (updates.unitPrice !== undefined && updates.unitPrice !== original.unitPrice) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; if (updates.description !== undefined && updates.description !== original.description) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; } const updated = articles.map(art => art.id === id ? { ...art, ...finalUpdates } : art); updateState(updated); };
   const handleEditArticleDetails = (article: Article) => { setEditingArticle(article); setIsEditArticleModalOpen(true); };
-  const handleDeleteArticle = (id: string) => { if (window.confirm("Sei sicuro di voler eliminare questo articolo?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
+  const handleDeleteArticle = (id: string) => { if (window.confirm("Seleziona Conferma per eliminare questo articolo dal computo?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
   const handleAddMeasurement = (articleId: string) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
@@ -1185,7 +1216,7 @@ const App: React.FC = () => {
       const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] };
       const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
       
-      setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
+      setLastAddedMeasurementId(newMeasId); 
       setAnalyses(prev => [...prev, newAnalysis]);
       updateState([...articles, newArticle], categories, [...analyses, newAnalysis]);
       setEditingAnalysis(newAnalysis);
@@ -1194,6 +1225,51 @@ const App: React.FC = () => {
   };
 
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
+
+  const handleOpenRebarCalculator = (articleId: string) => {
+    setRebarTargetArticleId(articleId);
+    setIsRebarModalOpen(true);
+  };
+
+  const handleOpenPaintingCalculator = (articleId: string) => {
+    setPaintingTargetArticleId(articleId);
+    setIsPaintingModalOpen(true);
+  };
+
+  const handleAddRebarMeasurement = (rebarData: { diameter: number; weight: number; multiplier: number; length: number; description: string }) => {
+    if (!rebarTargetArticleId) return;
+    const newId = Math.random().toString(36).substr(2, 9);
+    setLastAddedMeasurementId(newId);
+    const updated = articles.map(art => {
+      if (art.id !== rebarTargetArticleId) return art;
+      const newM: Measurement = {
+        id: newId,
+        description: rebarData.description,
+        type: 'positive',
+        multiplier: rebarData.multiplier,
+        length: rebarData.length,
+        width: undefined,
+        height: rebarData.weight, 
+      };
+      return { ...art, measurements: [...art.measurements, newM] };
+    });
+    updateState(updated);
+    setRebarTargetArticleId(null);
+  };
+
+  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => {
+    if (!paintingTargetArticleId) return;
+    const updated = articles.map(art => {
+        if (art.id !== paintingTargetArticleId) return art;
+        const newMeasures = paintRows.map(row => ({
+            ...row,
+            id: Math.random().toString(36).substr(2, 9)
+        }));
+        return { ...art, measurements: [...art.measurements, ...newMeasures] };
+    });
+    updateState(updated);
+    setPaintingTargetArticleId(null);
+  };
 
   const handleDropContent = (rawText: string) => { 
       if (!canAddArticle()) return;
@@ -1205,7 +1281,7 @@ const App: React.FC = () => {
       setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) {
         const newMeasId = Math.random().toString(36).substr(2, 9);
         const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; 
-        setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
+        setLastAddedMeasurementId(newMeasId); 
         updateState([...articles, newArticle]); 
       } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
   };
@@ -1283,7 +1359,6 @@ const App: React.FC = () => {
             const inputs = Array.from(document.querySelectorAll('input:not([disabled]), textarea:not([disabled])')); 
             const index = inputs.indexOf(target as HTMLInputElement | HTMLTextAreaElement); 
             
-            // Check if we are in the last editable field of a measurement row
             const isLastMeasField = target.getAttribute('data-last-meas-field') === 'true';
             
             if (isLastMeasField) {
@@ -1319,7 +1394,6 @@ const App: React.FC = () => {
     >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
       
-      {/* SEZIONE LOADING/LOGIN */}
       {authLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 text-white">
            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
@@ -1329,7 +1403,6 @@ const App: React.FC = () => {
         <Login onVisitorLogin={handleVisitorLogin} />
       ) : (
         <>
-          {/* MODALE AD AUTO-LOGIN (INTERSTIZIALE) */}
           {showAutoLoginAd && (
             <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-500">
                <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col h-[80vh]">
@@ -1625,7 +1698,7 @@ const App: React.FC = () => {
                                       </td></tr></tbody>
                                   ) : (
                                       activeArticles.map((article, artIndex) => (
-                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} />
+                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} />
                                       ))
                                   )}
                               </table>
@@ -1704,6 +1777,8 @@ const App: React.FC = () => {
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
       <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
       <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
+      <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => setIsRebarModalOpen(false)} onAdd={handleAddRebarMeasurement} />
+      <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
     </>
       )}
     </div>

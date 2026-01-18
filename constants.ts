@@ -14,6 +14,23 @@ export const COMMON_UNITS = [
     'cad', 'm', 'm²', 'm³', 'kg', 'q', 't', 'h', 'cm', 'mm', 'l', 'a corpo'
 ];
 
+export const REBAR_WEIGHTS = [
+  { diameter: 6, weight: 0.222 },
+  { diameter: 8, weight: 0.395 },
+  { diameter: 10, weight: 0.617 },
+  { diameter: 12, weight: 0.888 },
+  { diameter: 14, weight: 1.208 },
+  { diameter: 16, weight: 1.578 },
+  { diameter: 18, weight: 1.998 },
+  { diameter: 20, weight: 2.466 },
+  { diameter: 22, weight: 2.984 },
+  { diameter: 24, weight: 3.551 },
+  { diameter: 26, weight: 4.168 },
+  { diameter: 28, weight: 4.834 },
+  { diameter: 30, weight: 5.549 },
+  { diameter: 32, weight: 6.313 }
+];
+
 export const SOA_CATEGORIES = [
     { code: 'OG1', desc: 'Edifici civili e industriali' },
     { code: 'OG2', desc: 'Restauro e manutenzione beni immobili' },
