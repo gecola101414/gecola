@@ -150,62 +150,62 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
         </div>
 
         {/* LATO DESTRO: OPPORTUNITÀ COMMERCIALI E LIMITI */}
-        <div className="w-full md:w-96 bg-slate-50 p-8 md:p-10 border-l border-slate-100 flex flex-col justify-between">
-            <div className="space-y-6">
-                <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-widest mb-2">
+        <div className="w-full md:w-96 bg-slate-50 p-6 md:p-8 border-l border-slate-100 flex flex-col gap-4 overflow-y-auto">
+            <div className="space-y-4">
+                <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-widest">
                     <Sparkles className="w-4 h-4" /> Versione Lite (Demo)
                 </div>
                 
-                <ul className="space-y-5">
+                <ul className="space-y-3">
                     <li className="flex items-start gap-3">
                         <div className="bg-blue-100 p-2 rounded-xl mt-0.5 shadow-sm"><CheckCircle2 className="w-4 h-4 text-blue-600" /></div>
                         <div>
-                            <span className="block text-xs font-black text-slate-700 uppercase leading-none mb-1">Funzioni Complete</span>
-                            <span className="text-[11px] text-slate-500 font-medium leading-tight block">Tutto abilitato: IA Gemini e stampe PDF professionali.</span>
+                            <span className="block text-[10px] font-black text-slate-700 uppercase leading-none mb-1">Funzioni Complete</span>
+                            <span className="text-[10px] text-slate-500 font-medium leading-tight block">Tutto abilitato: IA Gemini e stampe PDF professionali.</span>
                         </div>
                     </li>
                     <li className="flex items-start gap-3">
                         <div className="bg-orange-100 p-2 rounded-xl mt-0.5 shadow-sm"><ShieldAlert className="w-4 h-4 text-orange-600" /></div>
                         <div>
-                            <span className="block text-xs font-black text-slate-700 uppercase leading-none mb-1">Limite 5 Voci</span>
-                            <span className="text-[11px] text-slate-500 font-medium leading-tight block">Il limite di 5 articoli totali serve solo a testare la qualità.</span>
+                            <span className="block text-[10px] font-black text-slate-700 uppercase leading-none mb-1">Limite 5 Voci</span>
+                            <span className="text-[10px] text-slate-500 font-medium leading-tight block">Il limite serve solo a testare la qualità del software.</span>
                         </div>
                     </li>
                 </ul>
 
-                <div className="pt-6 border-t border-slate-200">
-                    <div className="flex items-center gap-2 text-orange-600 font-black text-xs uppercase tracking-widest mb-4">
-                        <Handshake className="w-5 h-5" /> Diventa Partner
+                <div className="pt-4 border-t border-slate-200">
+                    <div className="flex items-center gap-2 text-orange-600 font-black text-[10px] uppercase tracking-widest mb-2">
+                        <Handshake className="w-4 h-4" /> Diventa Partner
                     </div>
-                    <p className="text-[11px] text-slate-600 font-medium leading-relaxed mb-4">
+                    <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
                         Offriamo provvigioni ai vertici del settore e supporto tecnico diretto per agenti qualificati.
                     </p>
                 </div>
             </div>
 
-            <div className="mt-10 bg-[#2c3e50] p-6 rounded-[2rem] text-white shadow-2xl relative overflow-hidden group">
+            <div className="bg-[#2c3e50] p-5 rounded-[1.5rem] text-white shadow-xl relative overflow-hidden group">
                 <div className="absolute -top-4 -right-4 p-4 opacity-10 group-hover:scale-110 transition-transform duration-500">
-                    <Users className="w-24 h-24" />
+                    <Users className="w-16 h-16" />
                 </div>
                 
-                <h4 className="font-black text-xs uppercase tracking-widest text-orange-400 mb-4 flex items-center gap-2">
-                    <Mail className="w-4 h-4" /> Contatto Commerciale
+                <h4 className="font-black text-[9px] uppercase tracking-widest text-orange-400 mb-3 flex items-center gap-2">
+                    <Mail className="w-3 h-3" /> Contatto Commerciale
                 </h4>
                 
-                <div className="space-y-4">
-                    <div className="space-y-1">
-                        <span className="block text-[9px] font-black text-slate-400 uppercase tracking-tighter leading-none">Proprietà e Sviluppo</span>
-                        <span className="block text-sm font-black text-white uppercase tracking-tight">AETERNA s.r.l. Milano</span>
+                <div className="space-y-3">
+                    <div className="space-y-0.5">
+                        <span className="block text-[8px] font-black text-slate-400 uppercase tracking-tighter leading-none">Proprietà e Sviluppo</span>
+                        <span className="block text-xs font-black text-white uppercase tracking-tight">AETERNA s.r.l. Milano</span>
                     </div>
 
-                    <div className="space-y-2 pt-3 border-t border-white/10">
+                    <div className="space-y-2 pt-2 border-t border-white/10">
                         <div className="flex items-center gap-3">
-                            <div className="bg-white/10 p-1.5 rounded-lg"><Phone className="w-3.5 h-3.5 text-orange-400" /></div>
-                            <span className="text-xs font-mono font-bold">351 9822401</span>
+                            <div className="bg-white/10 p-1 rounded-lg"><Phone className="w-3 h-3 text-orange-400" /></div>
+                            <span className="text-[10px] font-mono font-bold">351 9822401</span>
                         </div>
                         <div className="flex items-center gap-3">
-                            <div className="bg-white/10 p-1.5 rounded-lg"><Mail className="w-3.5 h-3.5 text-orange-400" /></div>
-                            <span className="text-xs font-mono font-bold break-all text-xs">gecolakey@gmail.com</span>
+                            <div className="bg-white/10 p-1 rounded-lg"><Mail className="w-3 h-3 text-orange-400" /></div>
+                            <span className="text-[10px] font-mono font-bold break-all">gecolakey@gmail.com</span>
                         </div>
                     </div>
                 </div>

@@ -652,6 +652,7 @@ const App: React.FC = () => {
 
   const handleVisitorLogin = () => {
     setUser('visitor');
+    setShowAutoLoginAd(true); // MOSTRA BANNER ANCHE PER VISITATORI
   };
 
   const handleLogout = async () => {
@@ -843,6 +844,7 @@ const App: React.FC = () => {
       if (!canAddArticle()) return;
       const targetCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
+      const newMeasId = Math.random().toString(36).substr(2, 9);
       const newArticle: Article = {
           id: Math.random().toString(36).substr(2, 9),
           categoryCode: targetCode,
@@ -854,9 +856,10 @@ const App: React.FC = () => {
           linkedAnalysisId: analysis.id,
           priceListSource: `Da Analisi ${analysis.code}`,
           soaCategory: activeSoaCategory,
-          measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }],
+          measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }],
           quantity: 0
       };
+      setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
       updateState([...articles, newArticle], categories, analyses);
       setViewMode('COMPUTO');
       setIsImportAnalysisModalOpen(false); 
@@ -887,6 +890,7 @@ const App: React.FC = () => {
       const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
       const parsed = parseDroppedContent(rawText);
       if (parsed) {
+          const newMeasId = Math.random().toString(36).substr(2, 9);
           const newArticle: Article = {
               id: Math.random().toString(36).substr(2, 9),
               categoryCode: targetCode,
@@ -897,10 +901,11 @@ const App: React.FC = () => {
               unitPrice: parsed.unitPrice || 0,
               laborRate: parsed.laborRate || 0,
               soaCategory: activeSoaCategory,
-              measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }],
+              measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }],
               quantity: 0
           };
           
+          setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
           const updatedArticles = [...articles];
           const categoryArticles = updatedArticles.filter(a => a.categoryCode === targetCode);
           const otherArticles = updatedArticles.filter(a => a.categoryCode !== targetCode);
@@ -1176,8 +1181,11 @@ const App: React.FC = () => {
   const handleAddEmptyArticle = (categoryCode: string) => { 
       if (!canAddArticle()) return;
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
+      const newMeasId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] };
-      const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
+      const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
+      
+      setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
       setAnalyses(prev => [...prev, newAnalysis]);
       updateState([...articles, newArticle], categories, [...analyses, newAnalysis]);
       setEditingAnalysis(newAnalysis);
@@ -1194,7 +1202,12 @@ const App: React.FC = () => {
       if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; }
       if (!rawText) return; 
       setIsProcessingDrop(true); 
-      setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; updateState([...articles, newArticle]); } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
+      setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) {
+        const newMeasId = Math.random().toString(36).substr(2, 9);
+        const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; 
+        setLastAddedMeasurementId(newMeasId); // FOCUS AUTOMATICO SULLA MISURA
+        updateState([...articles, newArticle]); 
+      } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
   };
 
   const handleWorkspaceDragOver = (e: React.DragEvent) => {
