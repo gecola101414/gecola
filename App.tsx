@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -108,20 +109,20 @@ interface TableHeaderProps {
 }
 
 const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
-  <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-30 shadow-sm">
+  <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-20 shadow-sm">
     <tr>
-      <th className="py-2 px-1 text-center w-[35px] border-r border-gray-300">N..</th>
-      <th className="py-2 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
-      <th className={`py-2 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
-      <th className={`py-2 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
-      <th className="py-2 px-1 text-center w-[70px] border-r border-gray-300 bg-gray-100">Quantità</th>
-      <th className="py-2 px-1 text-right w-[80px] border-r border-gray-300">Prezzo €</th>
-      <th className="py-2 px-1 text-right w-[90px] border-r border-gray-300">Importo €</th>
-      <th className="py-2 px-1 text-right w-[80px] border-r border-gray-300">M.O. €</th>
-      <th className="py-2 px-1 text-center w-[50px] print:hidden text-gray-400 font-black">Cmd</th>
+      <th className="py-1 px-1 text-center w-[35px] border-r border-gray-300">N.</th>
+      <th className="py-1 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
+      <th className={`py-1 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
+      <th className={`py-1 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
+      <th className="py-1 px-1 text-center w-[70px] border-r border-gray-300 bg-gray-100">Quantità</th>
+      <th className="py-1 px-1 text-right w-[80px] border-r border-gray-300">Prezzo €</th>
+      <th className="py-1 px-1 text-right w-[90px] border-r border-gray-300">Importo €</th>
+      <th className="py-1 px-1 text-right w-[80px] border-r border-gray-300">M.O. €</th>
+      <th className="py-1 px-1 text-center w-[50px] print:hidden text-gray-400">Cmd</th>
     </tr>
   </thead>
 );
@@ -362,7 +363,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           if (finalTranscript.trim()) {
              const parsed = await parseVoiceMeasurement(finalTranscript);
              if (parsed) {
-                // If the parsed description is valid, we update the existing row
                 onUpdateMeasurement(article.id, mId, 'description', parsed.description || finalTranscript);
                 if (parsed.length !== undefined) onUpdateMeasurement(article.id, mId, 'length', parsed.length);
                 if (parsed.width !== undefined) onUpdateMeasurement(article.id, mId, 'width', parsed.width);
@@ -615,17 +615,23 @@ const App: React.FC = () => {
   const [isWorkspaceDragOver, setIsWorkspaceDragOver] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
+  const [showAutoLoginAd, setShowAutoLoginAd] = useState(false); 
 
+  // LOGICA AUTH CORRETTA
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { 
-        if (!user || user !== 'visitor') {
-            setUser(currentUser); 
-        }
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => { 
+        setUser(prev => {
+            if (prev === 'visitor' && firebaseUser === null) return prev;
+            if (prev === null && firebaseUser !== null) {
+                setShowAutoLoginAd(true);
+            }
+            return firebaseUser;
+        });
         setAuthLoading(false); 
     });
     return () => unsubscribe();
-  }, [user]);
+  }, []);
 
   useEffect(() => {
     if (!user || user === 'visitor' || !db) return;
@@ -646,6 +652,20 @@ const App: React.FC = () => {
 
   const handleVisitorLogin = () => {
     setUser('visitor');
+  };
+
+  const handleLogout = async () => {
+    setAuthLoading(true);
+    try {
+      if (user !== 'visitor' && auth) {
+        await signOut(auth);
+      }
+    } catch (err) {
+      console.error("Logout error:", err);
+    } finally {
+      setUser(null);
+      setAuthLoading(false);
+    }
   };
 
   const isVisitor = user === 'visitor';
@@ -1271,10 +1291,6 @@ const App: React.FC = () => {
     } 
   };
 
-  /* 
-   * Fix: Defining missing variables activeCategory, activeArticles, and filteredAnalyses
-   * which are required for the component's render logic.
-   */
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
   const filteredAnalyses = useMemo(() => analyses.filter(a => 
@@ -1290,224 +1306,261 @@ const App: React.FC = () => {
     >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
       
-      <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
-          <div className="flex items-center space-x-3 w-72">
-            <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
-            <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.1</span></span>
-            
-            <button 
-                onClick={() => setIsManualOpen(true)}
-                className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative"
-                title="Apri Manuale d'Uso"
-            >
-                <HelpCircle className="w-5 h-5" />
-                <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">Manuale</span>
-            </button>
-          </div>
-
-          <div className="flex-1 px-6 flex justify-center items-center gap-6">
-              {isVisitor && (
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest animate-pulse">
-                        <Sparkles className="w-3 h-3" /> Account Versione Lite
-                    </div>
-                    <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 5 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
-                        Voci Utilizzate: {articles.length} / 5
-                    </div>
+      {/* SEZIONE LOADING/LOGIN */}
+      {authLoading ? (
+        <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 text-white">
+           <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+           <p className="font-black uppercase tracking-widest text-xs">Caricamento Sistema...</p>
+        </div>
+      ) : !user ? (
+        <Login onVisitorLogin={handleVisitorLogin} />
+      ) : (
+        <>
+          {/* MODALE AD AUTO-LOGIN (INTERSTIZIALE) */}
+          {showAutoLoginAd && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-500">
+               <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col h-[80vh]">
+                  <div className="bg-[#2c3e50] p-6 flex justify-between items-center text-white border-b border-slate-600">
+                      <div className="flex items-center gap-3">
+                          <Award className="w-6 h-6 text-orange-400" />
+                          <h3 className="font-black uppercase tracking-tighter text-xl">Partner Tecnico del Giorno</h3>
+                      </div>
+                      <button 
+                        onClick={() => setShowAutoLoginAd(false)}
+                        className="bg-white/10 hover:bg-orange-600 text-white px-6 py-2 rounded-full font-black uppercase text-xs transition-all shadow-lg active:scale-90"
+                      >
+                        Prosegui al Progetto
+                      </button>
                   </div>
-              )}
-              {!isVisitor && (
-                <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
-                    {isAutoSaving && <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)] mr-2"></span>}
-                    <span className="truncate max-w-[250px]">{projectInfo.title}</span>
-                    <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
-                </div>
-              )}
-              <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
-                <button onClick={handleUndo} disabled={history.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Annulla"><Undo2 className="w-4 h-4" /></button>
-                <div className="w-px h-4 bg-slate-600"></div>
-                <button onClick={handleRedo} disabled={future.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Ripristina"><Redo2 className="w-4 h-4" /></button>
+                  <div className="flex-1 relative bg-slate-50">
+                      <iframe 
+                        src="https://www.mapei.com/it/it/home-page" 
+                        className="w-full h-full border-none"
+                        title="Banner Mapei Interstiziale"
+                      />
+                  </div>
+                  <div className="p-4 bg-slate-100 border-t border-slate-200 text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Questo spazio pubblicitario sostiene lo sviluppo gratuito di GeCoLa Cloud</p>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
+              <div className="flex items-center space-x-3 w-72">
+                <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
+                <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.1</span></span>
+                
+                <button 
+                    onClick={() => setIsManualOpen(true)}
+                    className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative"
+                    title="Apri Manuale d'Uso"
+                >
+                    <HelpCircle className="w-5 h-5" />
+                    <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">Manuale</span>
+                </button>
+              </div>
+
+              <div className="flex-1 px-6 flex justify-center items-center gap-6">
+                  {isVisitor && (
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest animate-pulse">
+                            <Sparkles className="w-3 h-3" /> Account Versione Lite
+                        </div>
+                        <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 5 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                            Voci Utilizzate: {articles.length} / 5
+                        </div>
+                      </div>
+                  )}
+                  {!isVisitor && (
+                    <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
+                        {isAutoSaving && <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)] mr-2"></span>}
+                        <span className="truncate max-w-[250px]">{projectInfo.title}</span>
+                        <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
+                    </div>
+                  )}
+                  <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
+                    <button onClick={handleUndo} disabled={history.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Annulla"><Undo2 className="w-4 h-4" /></button>
+                    <div className="w-px h-4 bg-slate-600"></div>
+                    <button onClick={handleRedo} disabled={future.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Ripristina"><Redo2 className="w-4 h-4" /></button>
+                  </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                 <div className="relative">
+                    <button 
+                        onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
+                        className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" 
+                        title="Esporta Progetto"
+                    >
+                        <Download className="w-5 h-5" />
+                        <ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isSaveMenuOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                            <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Computo Metrico (.json)</b></button>
+                            <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Esporta in Excel (.xls)</b></button>
+                            <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta per Altri Soft.</b></button>
+                        </div>
+                    )}
+                 </div>
+                 <div className="relative">
+                    <button 
+                        onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} 
+                        className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1"
+                        title="Stampe Professionali"
+                    >
+                        <FileText className="w-5 h-5" />
+                        <ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {isPrintMenuOpen && (
+                        <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                            <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
+                            <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
+                            <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
+                            <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
+                            <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
+                        </div>
+                    )}
+                 </div>
+                 <button onClick={handleLogout} className="p-2 text-red-400 hover:text-white ml-2 transition-colors" title="Esci"><LogOut className="w-5 h-5" /></button>
               </div>
           </div>
-          <div className="flex items-center space-x-2">
-             <div className="relative">
-                <button 
-                    onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
-                    className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" 
-                    title="Esporta Progetto"
-                >
-                    <Download className="w-5 h-5" />
-                    <ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isSaveMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                        <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Computo Metrico (.json)</b></button>
-                        <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Esporta in Excel (.xls)</b></button>
-                        <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta per Altri Soft.</b></button>
-                    </div>
-                )}
-             </div>
-             <div className="relative">
-                <button 
-                    onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} 
-                    className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1"
-                    title="Stampe Professionali"
-                >
-                    <FileText className="w-5 h-5" />
-                    <ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isPrintMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                        <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
-                    </div>
-                )}
-             </div>
-             <button onClick={() => { if (user === 'visitor') setUser(null); else signOut(auth); }} className="p-2 text-red-400 hover:text-white ml-2 transition-colors" title="Esci"><LogOut className="w-5 h-5" /></button>
-          </div>
-      </div>
-      
-      <div className="flex flex-1 overflow-hidden print:hidden">
-        <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
-          <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
-             <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Computo</button>
-             <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Analisi</button>
-          </div>
+          
+          <div className="flex flex-1 overflow-hidden print:hidden">
+            <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
+              <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
+                 <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Computo</button>
+                 <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Analisi</button>
+              </div>
 
-          <div className="flex-1 overflow-y-auto" onDrop={(e) => handleWbsDrop(e, null)}>
-              {viewMode === 'COMPUTO' ? (
-                <>
-                  <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center tracking-widest">
-                    <span>Indice WBS</span>
-                    <PlusCircle className="w-4 h-4 text-blue-600 cursor-pointer hover:scale-110 transition-transform" onClick={handleAddCategory}/>
-                  </div>
-                  <ul className="py-0">
-                      {categories.map(cat => (
-                      <li 
-                          key={cat.code} 
-                          className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
-                          onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
-                          onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                          onDragLeave={handleWbsDragLeave}
-                          onDrop={(e) => handleWbsDrop(e, cat.code)}
-                      >
-                          {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
-                          
-                          <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
-                              <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
-                                  <div className="flex items-center gap-2 mb-0.5">
-                                      <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
-                                      <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
-                                      {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
-                                      {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
-                                  </div>
-                                  <div className="pl-5">
-                                      <span className="text-xs font-semibold block truncate pr-8">{cat.name}</span>
-                                      <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+              <div className="flex-1 overflow-y-auto" onDrop={(e) => handleWbsDrop(e, null)}>
+                  {viewMode === 'COMPUTO' ? (
+                    <>
+                      <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center tracking-widest">
+                        <span>Indice WBS</span>
+                        <PlusCircle className="w-4 h-4 text-blue-600 cursor-pointer hover:scale-110 transition-transform" onClick={handleAddCategory}/>
+                      </div>
+                      <ul className="py-0">
+                          {categories.map(cat => (
+                          <li 
+                              key={cat.code} 
+                              className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
+                              onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
+                              onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+                              onDragLeave={handleWbsDragLeave}
+                              onDrop={(e) => handleWbsDrop(e, cat.code)}
+                          >
+                              {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
+                              
+                              <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
+                                  <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
+                                      <div className="flex items-center gap-2 mb-0.5">
+                                          <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
+                                          <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === 'SUMMARY' ? (selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600') : (selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600')}`}>{cat.code}</span>
+                                          {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
+                                          {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                      </div>
+                                      <div className="pl-5">
+                                          <span className="text-xs font-semibold block truncate pr-8">{cat.name}</span>
+                                          <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+                                      </div>
                                   </div>
                               </div>
-                          </div>
 
-                          <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
-                              <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
-                              <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                              <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
-                              <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
-                              <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
-                          </div>
-                      </li>
-                      ))}
-                  </ul>
-                  
-                  <div className="mt-auto p-3 border-t border-gray-300 bg-slate-50 sticky bottom-0 z-20">
-                      <button 
-                          onClick={() => setSelectedCategoryCode('SUMMARY')}
-                          className={`w-full flex items-center p-2.5 rounded text-xs font-black uppercase transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-white border border-transparent hover:border-slate-200'}`}
-                      >
-                          <Layers className="w-4 h-4 mr-2" />
-                          Riepilogo Generale
-                      </button>
-                      <div className="mt-2 text-right px-2 pb-1">
-                          <span className="text-[9px] text-slate-400 uppercase font-bold block">Totale Lavori</span>
-                          <span className="font-mono font-black text-sm text-slate-700">{formatCurrency(totals.totalWorks)}</span>
+                              <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
+                                  <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
+                                  <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
+                                  <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
+                              </div>
+                          </li>
+                          ))}
+                      </ul>
+
+                      <div className="mt-auto p-3 border-t border-gray-300 bg-slate-50 sticky bottom-0 z-20">
+                          <button 
+                              onClick={() => setSelectedCategoryCode('SUMMARY')}
+                              className={`w-full flex items-center p-2.5 rounded text-xs font-black uppercase transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-white border border-transparent hover:border-slate-200'}`}
+                          >
+                              <Layers className="w-4 h-4 mr-2" />
+                              Riepilogo Generale
+                          </button>
                       </div>
-                  </div>
-                </>
-              ) : (
-                <div className="p-2 space-y-2">
-                    <div className="p-1 bg-white border-b border-gray-200">
-                      <input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
-                    </div>
-                    {filteredAnalyses.map(analysis => (
-                         <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 bg-gray-50/50' : 'border-gray-200 hover:border-purple-300'}`}>
-                             <div className="flex justify-between mb-1">
-                                 <span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
-                                    {analysis.isLocked && <Lock className="w-2.5 h-2.5" />}
-                                    {analysis.code}
-                                 </span>
-                                 <span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span>
+                    </>
+                  ) : (
+                    <div className="p-2 space-y-2">
+                        <div className="p-1 bg-white border-b border-gray-200">
+                          <input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
+                        </div>
+                        {filteredAnalyses.map(analysis => (
+                             <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 bg-gray-50/50' : 'border-gray-200 hover:border-purple-300'}`}>
+                                 <div className="flex justify-between mb-1">
+                                     <span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
+                                        {analysis.isLocked && <Lock className="w-2.5 h-2.5" />}
+                                        {analysis.code}
+                                     </span>
+                                     <span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span>
+                                 </div>
+                                 <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
+                                 <div className="flex justify-between items-center mt-2 border-t pt-2">
+                                    <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
+                                        <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500'}`}>
+                                            {analysis.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                                        </button>
+                                        <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
+                                            <Edit2 className="w-3 h-3" />
+                                        </button>
+                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                    <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded border border-purple-100 shadow-sm" title="Usa nel computo">
+                                        <ArrowRightLeft className="w-3.5 h-3.5" />
+                                    </button>
+                                 </div>
                              </div>
-                             <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
-                             <div className="flex justify-between items-center mt-2 border-t pt-2">
-                                <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
-                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500'}`}>
-                                        {analysis.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                                    </button>
-                                    <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
-                                        <Edit2 className="w-3 h-3" />
-                                    </button>
-                                    <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
-                                        <Trash2 className="w-3 h-3" />
-                                    </button>
-                                </div>
-                                <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded border border-purple-100 shadow-sm" title="Usa nel computo">
-                                    <ArrowRightLeft className="w-3.5 h-3.5" />
-                                </button>
-                             </div>
-                         </div>
-                    ))}
-                </div>
-              )}
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] p-5 gap-4">
-           {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && (
-               <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300">
-                    <div className="flex items-center gap-3">
-                         <div className="bg-[#2c3e50] text-white p-2.5 rounded-lg shadow-lg font-black text-xl">{activeCategory.code}</div>
-                         <div><h2 className="text-lg font-black text-slate-800 uppercase max-w-[400px] truncate tracking-tight">{activeCategory.name}</h2><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
+                        ))}
                     </div>
-                    <div className="flex items-center gap-3">
-                       <div className="flex flex-col">
-                            <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1">
-                                <Award className="w-2.5 h-2.5" /> Preimposta Categoria SOA
-                            </span>
-                            <select 
-                                value={activeSoaCategory}
-                                onChange={(e) => setActiveSoaCategory(e.target.value)}
-                                className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-purple-500 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors"
-                            >
-                                {SOA_CATEGORIES.map(soa => (
-                                    <option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>
-                                ))}
-                            </select>
-                       </div>
-                       <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-xs h-[38px] mt-3">
-                           <Plus className="w-4 h-4" /> Aggiungi Voce
-                       </button>
-                    </div>
-               </div>
-           )}
+                  )}
+              </div>
+            </div>
 
-           {viewMode === 'ANALISI' && (
-                <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm mb-0">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-[#8e44ad] text-white p-2.5 rounded-lg shadow-lg font-black text-xl"><TestTubes className="w-6 h-6" /></div>
-                        <div><h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Gestione Analisi Prezzi</h2><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-purple-100">{analyses.length} Analisi in archivio</span></div>
+            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] p-5 gap-4">
+               {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && (
+                   <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300">
+                        <div className="flex items-center gap-3">
+                             <div className="bg-[#2c3e50] text-white p-2.5 rounded-lg shadow-lg font-black text-xl">{activeCategory.code}</div>
+                             <div><h2 className="text-lg font-black text-slate-800 uppercase max-w-[400px] truncate tracking-tight">{activeCategory.name}</h2><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                           <div className="flex flex-col">
+                                <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1">
+                                    <Award className="w-2.5 h-2.5" /> Preimposta Categoria SOA
+                                </span>
+                                <select 
+                                    value={activeSoaCategory}
+                                    onChange={(e) => setActiveSoaCategory(e.target.value)}
+                                    className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-purple-500 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors"
+                                >
+                                    {SOA_CATEGORIES.map(soa => (
+                                        <option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>
+                                    ))}
+                                </select>
+                           </div>
+                           <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-xs h-[38px] mt-3">
+                               <Plus className="w-4 h-4" /> Aggiungi Voce
+                           </button>
+                        </div>
+                   </div>
+               )}
+
+               {viewMode === 'ANALISI' && (
+                    <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm mb-0">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-[#8e44ad] text-white p-2.5 rounded-lg shadow-lg font-black text-xl"><TestTubes className="w-6 h-6" /></div>
+                            <div><h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Gestione Analisi Prezzi</h2><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-purple-100">{analyses.length} Analisi in archivio</span></div>
                     </div>
                     <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-all flex items-center gap-2 text-sm">
                         <Plus className="w-5 h-5" /> Nuova Analisi
@@ -1546,9 +1599,16 @@ const App: React.FC = () => {
                               <table className="w-full text-left border-collapse">
                                   <TableHeader activeColumn={activeColumn} />
                                   {activeArticles.length === 0 ? (
-                                      <tbody><tr><td colSpan={12} className="p-20 text-center text-slate-300 italic font-medium uppercase tracking-widest leading-relaxed">
-                                          Nessun articolo inserito. <br/>
-                                          Trascina voci da <a href="https://www.gecola.it" target="_blank" rel="noopener" className="text-blue-500 hover:text-blue-700 hover:underline font-black">Gecola.it</a> o usa il tasto "+"
+                                      <tbody><tr><td colSpan={12} className="p-20 text-center">
+                                          <div className="flex flex-col items-center gap-4 max-w-lg mx-auto">
+                                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-inner">
+                                                <MousePointerClick className="w-10 h-10 text-slate-300" />
+                                            </div>
+                                            <p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm">
+                                                Trascina la voce dal sito <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it/home/listini</a> e crea un link automatico <br/>
+                                                <span className="text-[10px] mt-2 block opacity-60">oppure crea una voce con un analisi cliccando "Aggiungi Voce" in alto</span>
+                                            </p>
+                                          </div>
                                       </td></tr></tbody>
                                   ) : (
                                       activeArticles.map((article, artIndex) => (
@@ -1602,10 +1662,10 @@ const App: React.FC = () => {
                                         <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1.5 rounded-lg transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>
                                             {analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                                         </button>
-                                        <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-white rounded-lg transition-all" title="Modifica">
+                                        <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-white rounded-lg transition-all" title="Modifica">
                                             <PenLine className="w-4 h-4" />
                                         </button>
-                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-white rounded-lg transition-all" title="Elimina">
+                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-white rounded-lg transition-all" title="Elimina">
                                             <Trash2 className="w-4 h-4" />
                                         </button>
                                     </div>
@@ -1631,6 +1691,8 @@ const App: React.FC = () => {
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
       <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
       <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
+    </>
+      )}
     </div>
   );
 };
