@@ -644,6 +644,7 @@ const App: React.FC = () => {
 
   const [isRebarModalOpen, setIsRebarModalOpen] = useState(false);
   const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
+  const [shouldAutoReopenRebar, setShouldAutoReopenRebar] = useState(false);
 
   const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
@@ -1228,6 +1229,7 @@ const App: React.FC = () => {
 
   const handleOpenRebarCalculator = (articleId: string) => {
     setRebarTargetArticleId(articleId);
+    setShouldAutoReopenRebar(true);
     setIsRebarModalOpen(true);
   };
 
@@ -1254,7 +1256,14 @@ const App: React.FC = () => {
       return { ...art, measurements: [...art.measurements, newM] };
     });
     updateState(updated);
-    setRebarTargetArticleId(null);
+    
+    // Logica di loop: chiudi modale, aspetta 5 sec, riapri se non interrotto
+    setIsRebarModalOpen(false);
+    if (shouldAutoReopenRebar) {
+        setTimeout(() => {
+            if (shouldAutoReopenRebar) setIsRebarModalOpen(true);
+        }, 5000); // Portato a 5 secondi come richiesto
+    }
   };
 
   const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => {
@@ -1777,7 +1786,7 @@ const App: React.FC = () => {
       <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
       <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
       <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
-      <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => setIsRebarModalOpen(false)} onAdd={handleAddRebarMeasurement} />
+      <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => { setIsRebarModalOpen(false); setShouldAutoReopenRebar(false); }} onAdd={handleAddRebarMeasurement} />
       <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
     </>
       )}

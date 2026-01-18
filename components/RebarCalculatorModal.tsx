@@ -11,15 +11,14 @@ interface RebarCalculatorModalProps {
 
 type RebarType = 'Staffe' | 'Barre' | 'Sagomati' | 'Ferro Armatura';
 
-// Persistenza della struttura durante la sessione
 let persistentStructure = '';
 
 const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onClose, onAdd }) => {
   const [structureName, setStructureName] = useState(persistentStructure);
   const [selectedDiameter, setSelectedDiameter] = useState<number | null>(12);
   const [rebarType, setRebarType] = useState<RebarType>('Ferro Armatura');
-  const [multiplier, setMultiplier] = useState<number>(1);
-  const [length, setLength] = useState<number>(1);
+  const [multiplier, setMultiplier] = useState<number>(0);
+  const [length, setLength] = useState<number>(0);
   const [customDesc, setCustomDesc] = useState<string>('');
 
   useEffect(() => {
@@ -28,8 +27,8 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
 
   if (!isOpen) return null;
 
-  const currentWeight = selectedDiameter ? REBAR_WEIGHTS.find(w => w.diameter === selectedDiameter)?.weight || 0 : 0;
-  const totalWeight = multiplier * length * currentWeight;
+  const currentWeightPerMeter = selectedDiameter ? REBAR_WEIGHTS.find(w => w.diameter === selectedDiameter)?.weight || 0 : 0;
+  const totalWeight = multiplier * length * currentWeightPerMeter;
 
   const handleAdd = () => {
     if (selectedDiameter) {
@@ -38,11 +37,14 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
       
       onAdd({
         diameter: selectedDiameter,
-        weight: currentWeight,
-        multiplier,
-        length,
+        weight: currentWeightPerMeter,
+        multiplier: multiplier || 1,
+        length: length || 1,
         description: formattedDesc
       });
+      // Reset locale ma mantiene struttura
+      setMultiplier(0);
+      setLength(0);
       setCustomDesc('');
     }
   };
@@ -51,7 +53,6 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-[#f8fafc] rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-300 flex flex-col max-h-[98vh] animate-in zoom-in-95 duration-150">
         
-        {/* Header super compatto */}
         <div className="bg-slate-900 px-5 py-3 flex justify-between items-center text-white border-b border-slate-700">
           <div className="flex items-center gap-3">
             <div className="bg-orange-500 p-1.5 rounded-lg">
@@ -68,8 +69,6 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
         </div>
 
         <div className="p-4 space-y-4 overflow-y-auto">
-          
-          {/* Riga 1: Struttura (Sottile) */}
           <div className="bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
              <div className="flex items-center gap-2 text-[9px] font-black uppercase text-orange-600 tracking-tighter whitespace-nowrap">
                 <Layers className="w-3 h-3" /> Struttura:
@@ -81,84 +80,67 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
                 placeholder="Es: FONDAZIONI / PILASTRI P1-P5"
                 className="flex-1 bg-transparent border-none p-0 font-bold text-slate-800 outline-none focus:ring-0 text-xs uppercase placeholder:normal-case italic"
              />
-             <div className="hidden md:flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 rounded text-[8px] font-bold text-slate-400">
-                <Info className="w-2.5 h-2.5" /> Memorizzata automaticamente
-             </div>
           </div>
 
-          {/* Griglia Principale Orizzontale */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            
-            {/* Sezione Diametri - Più piccola */}
             <div className="lg:col-span-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
               <label className="block text-[9px] font-black uppercase text-slate-400 mb-2 tracking-widest">Diametro (Ø mm)</label>
-              <div className="grid grid-cols-7 lg:grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-7 lg:grid-cols-4 gap-1.5 mb-4">
                 {REBAR_WEIGHTS.map((item) => (
                   <button
                     key={item.diameter}
                     onClick={() => setSelectedDiameter(item.diameter)}
-                    className={`
-                      py-1.5 rounded-lg border-2 text-[11px] font-black transition-all
-                      ${selectedDiameter === item.diameter 
-                        ? 'bg-orange-500 border-orange-600 text-white' 
-                        : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-orange-300'
-                      }
-                    `}
+                    className={`py-1.5 rounded-lg border-2 text-[11px] font-black transition-all ${selectedDiameter === item.diameter ? 'bg-orange-500 border-orange-600 text-white' : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-orange-300'}`}
                   >
                     {item.diameter}
                   </button>
                 ))}
               </div>
+
+              {selectedDiameter && (
+                <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center">
+                    <div className="text-[9px] font-black text-slate-400 uppercase mb-3">Sezione in Scala</div>
+                    <div 
+                        className="bg-slate-700 rounded-full shadow-lg border-4 border-slate-400 flex items-center justify-center overflow-hidden transition-all duration-300"
+                        style={{ width: `${selectedDiameter * 2}px`, height: `${selectedDiameter * 2}px` }}
+                    >
+                        <div className="w-full h-full bg-slate-500 opacity-20 rotate-45 scale-150"></div>
+                    </div>
+                    <div className="mt-4 text-center">
+                        <span className="block text-[10px] font-black text-slate-700 uppercase">Peso Teorico Lineare</span>
+                        <span className="text-xl font-mono font-black text-orange-600">{currentWeightPerMeter.toFixed(3)} <span className="text-[10px] text-slate-400 uppercase ml-1">kg/m</span></span>
+                    </div>
+                </div>
+              )}
             </div>
 
-            {/* Sezione Tipologia e Dettaglio */}
             <div className="lg:col-span-5 flex flex-col gap-3">
                 <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <label className="block text-[9px] font-black uppercase text-slate-400 mb-2 tracking-widest">Lavorazione & Dettagli</label>
                     <div className="flex gap-1.5 mb-3">
                         {(['Staffe', 'Barre', 'Sagomati'] as RebarType[]).map((t) => (
-                            <button
-                                key={t}
-                                onClick={() => setRebarType(t)}
-                                className={`flex-1 py-1.5 rounded-lg font-bold text-[9px] uppercase border-2 transition-all ${rebarType === t ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'}`}
-                            >
-                                {t}
-                            </button>
+                            <button key={t} onClick={() => setRebarType(t)} className={`flex-1 py-1.5 rounded-lg font-bold text-[9px] uppercase border-2 transition-all ${rebarType === t ? 'bg-slate-800 border-slate-800 text-white' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-200'}`}>{t}</button>
                         ))}
                     </div>
-                    <input 
-                        type="text"
-                        value={customDesc}
-                        onChange={(e) => setCustomDesc(e.target.value)}
-                        placeholder="Posizione specifica (es. Passo 15cm)"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-bold text-slate-700 outline-none focus:border-orange-500 text-[11px]"
-                    />
-                </div>
-
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
-                    <Info className="w-3.5 h-3.5 text-blue-600 mt-0.5" />
-                    <p className="text-[8px] text-blue-700 leading-tight">
-                        <strong>Fonte Dati:</strong> Pesi teorici calcolati secondo <strong>UNI EN 10080</strong> (Massa volumica 7.850 kg/m³). Acciaio tipo <strong>B450C</strong> ad aderenza migliorata.
-                    </p>
+                    <input type="text" value={customDesc} onChange={(e) => setCustomDesc(e.target.value)} placeholder="Posizione specifica (es. Passo 15cm)" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-bold text-slate-700 outline-none focus:border-orange-500 text-[11px]" />
                 </div>
             </div>
 
-            {/* Sezione Calcolo e Output - Compatta */}
             <div className="lg:col-span-3 space-y-3">
                 <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex gap-3">
                     <div className="flex-1">
                         <label className="block text-[8px] font-black text-slate-400 mb-1 uppercase">Pezzi</label>
-                        <input type="number" value={multiplier} onChange={(e) => setMultiplier(parseFloat(e.target.value) || 0)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-black text-slate-800 outline-none text-xs" />
+                        <input type="number" value={multiplier || ''} onChange={(e) => setMultiplier(parseFloat(e.target.value) || 0)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-black text-slate-800 outline-none text-xs" placeholder="es. 10" />
                     </div>
                     <div className="flex-1">
                         <label className="block text-[8px] font-black text-slate-400 mb-1 uppercase">Lung. m</label>
-                        <input type="number" step="0.01" value={length} onChange={(e) => setLength(parseFloat(e.target.value) || 0)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-black text-slate-800 outline-none text-xs" />
+                        <input type="number" step="0.01" value={length || ''} onChange={(e) => setLength(parseFloat(e.target.value) || 0)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-black text-slate-800 outline-none text-xs" placeholder="es. 1.50" />
                     </div>
                 </div>
 
                 <div className="bg-slate-900 rounded-2xl p-4 text-white shadow-lg border border-slate-700 flex flex-col justify-center min-h-[90px] relative overflow-hidden">
                     <Weight className="absolute -right-4 -bottom-4 w-16 h-16 opacity-5 text-white pointer-events-none" />
-                    <span className="text-orange-500 font-black text-[8px] uppercase tracking-widest mb-1">PESO TEORICO</span>
+                    <span className="text-orange-500 font-black text-[8px] uppercase tracking-widest mb-1">PESO TOTALE RIGO</span>
                     <div className="flex items-baseline gap-1.5">
                         <span className="text-3xl font-black font-mono tracking-tighter text-white">{(totalWeight || 0).toFixed(3)}</span>
                         <span className="text-sm font-bold text-slate-500 uppercase">kg</span>
@@ -168,10 +150,9 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
           </div>
         </div>
 
-        {/* Footer con pulsanti grandi ma bassi */}
         <div className="px-5 py-3 bg-white border-t border-slate-100 flex justify-between items-center">
-            <div className="hidden md:block overflow-hidden">
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Testo Misura:</span>
+            <div className="hidden md:block text-left">
+                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Anteprima Designazione:</span>
                 <p className="text-[10px] font-bold text-orange-600 truncate max-w-[400px] mt-0.5 italic">
                     {structureName ? `[${structureName.toUpperCase()}] ` : ''}{rebarType} Ø{selectedDiameter}{customDesc ? ' - ' + customDesc : ''}
                 </p>
