@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 // Added Coins to lucide-react imports
 import { X, Book, ChevronRight, ChevronLeft, Lightbulb, Calculator, Sparkles, FileText, Settings, Award, Layers, Search, Mic, Save, Users, MousePointer2, Zap, ShieldCheck, Share2, Globe, Coins } from 'lucide-react';
@@ -30,7 +29,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
     {
       title: "4. Assistente Gemini AI",
       icon: <Sparkles className="w-5 h-5 text-orange-500" />,
-      content: "L'Intelligenza Artificiale di Google Gemini è integrata per generare voci complesse. Digita 'Rifacimento tetto ventilato' e l'IA cercherà i prezzi medi, scriverà la descrizione tecnica corretta e assegnerà l'unità di misura appropriata."
+      content: "L'Intelligenza Artificiale di Google Gemini è integrata per generare voci complesse. Digita 'Rifacimento tetto ventilato' e l'IA cercherè i prezzi medi, scriverà la descrizione tecnica corretta e assegnerà l'unità di misura appropriata."
     },
     {
       title: "5. Smart Gate: Importazione Istantanea",
@@ -121,7 +120,8 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
                 className={`w-full text-left p-4 rounded-2xl transition-all flex items-center gap-4 group ${activeChapter === idx ? 'bg-blue-600 text-white shadow-xl translate-x-2' : 'hover:bg-white hover:shadow-md text-slate-600'}`}
               >
                 <div className={`flex-shrink-0 p-2 rounded-xl transition-colors ${activeChapter === idx ? 'bg-white/20' : 'bg-slate-100 group-hover:bg-blue-50'}`}>
-                  {React.cloneElement(ch.icon as React.ReactElement, { className: `w-5 h-5 ${activeChapter === idx ? 'text-white' : ''}` })}
+                  {/* Fix: Casting icon to React.ReactElement<any> to allow className prop */}
+                  {React.cloneElement(ch.icon as React.ReactElement<any>, { className: `w-5 h-5 ${activeChapter === idx ? 'text-white' : ''}` })}
                 </div>
                 <span className={`text-xs font-black uppercase tracking-tight truncate ${activeChapter === idx ? 'text-white' : 'text-slate-500'}`}>{ch.title.split('. ')[1]}</span>
               </button>
@@ -133,7 +133,8 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
             <div className="max-w-3xl">
               <div className="flex items-center gap-6 mb-10">
                 <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 shadow-inner">
-                   {React.cloneElement(chapters[activeChapter].icon as React.ReactElement, { className: 'w-10 h-10' })}
+                   {/* Fix: Casting icon to React.ReactElement<any> to allow className prop */}
+                   {React.cloneElement(chapters[activeChapter].icon as React.ReactElement<any>, { className: 'w-10 h-10' })}
                 </div>
                 <div>
                     <h3 className="text-4xl font-black text-slate-800 tracking-tighter leading-none mb-2">

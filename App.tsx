@@ -1,10 +1,10 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
 import Login from './components/Login';
-import ChangePasswordModal from './components/ChangePasswordModal';
 import { CATEGORIES, INITIAL_ARTICLES, PROJECT_INFO, INITIAL_ANALYSES, SOA_CATEGORIES } from './constants';
 import { Article, Totals, ProjectInfo, Measurement, Category, PriceAnalysis, AnalysisComponent } from './types';
 import Summary from './components/Summary';
@@ -17,8 +17,22 @@ import AnalysisEditorModal from './components/AnalysisEditorModal';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
 import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOptionsModal';
 import HelpManualModal from './components/HelpManualModal';
+import RebarCalculatorModal from './components/RebarCalculatorModal';
+import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
 import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import { generateComputoExcel } from './services/excelGenerator';
+
+// --- Types and Helpers ---
+interface Snapshot {
+  articles: Article[];
+  categories: Category[];
+  analyses: PriceAnalysis[];
+}
+
+type ViewMode = 'COMPUTO' | 'ANALISI';
+
+const generateNextWbsCode = (currentCats: Category[]) => `WBS.${(currentCats.length + 1).toString().padStart(2, '0')}`;
 
 // --- Helper Functions ---
 const formatCurrency = (val: number) => {
@@ -108,20 +122,20 @@ interface TableHeaderProps {
 }
 
 const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
-  <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-30 shadow-sm">
+  <thead className="bg-[#f8f9fa] border-b border-black text-[9px] uppercase font-bold text-gray-800 sticky top-0 z-20 shadow-sm">
     <tr>
-      <th className="py-2 px-1 text-center w-[35px] border-r border-gray-300">N..</th>
-      <th className="py-2 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
-      <th className={`py-2 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
-      <th className={`py-2 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
-      <th className={`py-2 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
-      <th className="py-2 px-1 text-center w-[70px] border-r border-gray-300 bg-gray-100">Quantità</th>
-      <th className="py-2 px-1 text-right w-[80px] border-r border-gray-300">Prezzo €</th>
-      <th className="py-2 px-1 text-right w-[90px] border-r border-gray-300">Importo €</th>
-      <th className="py-2 px-1 text-right w-[80px] border-r border-gray-300">M.O. €</th>
-      <th className="py-2 px-1 text-center w-[50px] print:hidden text-gray-400 font-black">Cmd</th>
+      <th className="py-1 px-1 text-center w-[35px] border-r border-gray-300">N.</th>
+      <th className="py-1 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
+      <th className={`py-1 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
+      <th className={`py-1 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
+      <th className={`py-1 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
+      <th className="py-1 px-1 text-center w-[70px] border-r border-gray-300 bg-gray-100">Quantità</th>
+      <th className="py-1 px-1 text-right w-[80px] border-r border-gray-300">Prezzo €</th>
+      <th className="py-1 px-1 text-right w-[90px] border-r border-gray-300">Importo €</th>
+      <th className="py-1 px-1 text-right w-[80px] border-r border-gray-300">M.O. €</th>
+      <th className="py-1 px-1 text-center w-[50px] print:hidden text-gray-400">Cmd</th>
     </tr>
   </thead>
 );
@@ -152,10 +166,21 @@ interface ArticleGroupProps {
   onViewAnalysis: (analysisId: string) => void; 
   onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
+  onOpenRebarCalculator: (articleId: string) => void;
+  onOpenPaintingCalculator: (articleId: string) => void;
+  isPaintingAutomationWaiting: boolean;
+  isRebarAutomationWaiting: boolean;
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock } = props;
+   const { 
+     article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, 
+     onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, 
+     onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, 
+     onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, 
+     onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator,
+     isPaintingAutomationWaiting, isRebarAutomationWaiting
+   } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -183,7 +208,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    };
 
    const getLinkedArticleNumber = (linkedArt: Article) => {
-       const catArticles = allArticles.filter(a => a.categoryCode === linkedArt.categoryCode);
+       const catArticles = allArticles.filter(a => a.id && a.categoryCode === linkedArt.categoryCode);
        const localIndex = catArticles.findIndex(a => a.id === linkedArt.id) + 1;
        const wbsNum = getWbsNumber(linkedArt.categoryCode);
        return `${wbsNum}.${localIndex}`;
@@ -318,23 +343,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       setArticleDropPosition(null);
    };
 
-   const handleLongPressStart = (mId: string) => {
-      if (areControlsDisabled) return;
-      longPressTimer.current = setTimeout(() => {
-        startListeningOnMeas(mId);
-      }, 2000);
-   };
-
-   const handleLongPressEnd = () => {
-      if (longPressTimer.current) {
-        clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-      }
-      if (isListening) {
-        stopListening();
-      }
-   };
-
    const startListeningOnMeas = (mId: string) => {
       if (!('webkitSpeechRecognition' in window)) {
           alert("Il tuo browser non supporta il riconoscimento vocale. Usa Chrome.");
@@ -362,7 +370,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           if (finalTranscript.trim()) {
              const parsed = await parseVoiceMeasurement(finalTranscript);
              if (parsed) {
-                // If the parsed description is valid, we update the existing row
                 onUpdateMeasurement(article.id, mId, 'description', parsed.description || finalTranscript);
                 if (parsed.length !== undefined) onUpdateMeasurement(article.id, mId, 'length', parsed.length);
                 if (parsed.width !== undefined) onUpdateMeasurement(article.id, mId, 'width', parsed.width);
@@ -444,31 +451,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     disabled={true}
                  />
                )}
-               {article.groundingUrls && article.groundingUrls.length > 0 && !isArticleLocked && (
-                 <div className="mt-3 px-1 border-t border-gray-100 pt-2 animate-in fade-in slide-in-from-bottom-1 duration-500">
-                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 uppercase tracking-tight mb-1">
-                     <Search className="w-3 h-3" /> Fonti consultate:
-                   </div>
-                   <div className="flex flex-wrap gap-2">
-                     {article.groundingUrls.map((chunk: any, i: number) => {
-                       const source = chunk.web || chunk.maps;
-                       if (!source) return null;
-                       return (
-                         <a 
-                           key={i} 
-                           href={source.uri} 
-                           target="_blank" 
-                           rel="noopener noreferrer"
-                           className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 hover:bg-blue-100 transition-colors text-[9px] font-medium max-w-[200px]"
-                         >
-                           <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
-                           <span className="truncate">{source.title || 'Link'}</span>
-                         </a>
-                       );
-                     })}
-                   </div>
-                 </div>
-               )}
             </td>
             <td colSpan={8} className="border-r border-gray-200 bg-white"></td>
             <td className="print:hidden text-center align-top pt-2 bg-gray-50/30 border-l border-gray-200">
@@ -493,7 +475,39 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            <>
             <tr className="bg-gray-50/50 border-b border-gray-100">
                 <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50">MISURE</td>
+                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center justify-between">
+                    <span>MISURE</span>
+                    <div className="flex items-center gap-1.5">
+                        <style>{`
+                          @keyframes pulse-automation {
+                            0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+                            50% { transform: scale(1.1); opacity: 0.8; box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
+                            100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+                          }
+                          .automation-active {
+                            animation: pulse-automation 1s infinite ease-in-out;
+                            background-color: #2563eb !important;
+                            color: white !important;
+                          }
+                        `}</style>
+                        <button 
+                            onClick={() => onOpenPaintingCalculator(article.id)}
+                            className={`bg-blue-100 hover:bg-blue-800 text-blue-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/paint ${isPaintingAutomationWaiting ? 'automation-active' : ''}`}
+                            title="Calcolo Automatico Pitturazioni (Soffitto + Pareti)"
+                        >
+                            <Paintbrush className="w-2.5 h-2.5" />
+                            <span className="text-[7px] font-black group-hover/paint:block hidden uppercase">Pitture</span>
+                        </button>
+                        <button 
+                            onClick={() => onOpenRebarCalculator(article.id)}
+                            className={`bg-slate-200 hover:bg-slate-800 text-slate-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/rebar ${isRebarAutomationWaiting ? 'automation-active' : ''}`}
+                            title="Calcolo Ferri d'Armatura"
+                        >
+                            <CircleDot className="w-2.5 h-2.5" />
+                            <span className="text-[7px] font-black group-hover/rebar:block hidden uppercase">Ferri</span>
+                        </button>
+                    </div>
+                </td>
                 <td colSpan={9} className="border-r border-gray-200"></td>
             </tr>
             <tr className="h-1"><td colSpan={12} className="border-r border-gray-200 bg-white"></td></tr>
@@ -525,14 +539,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                           onFocus={() => onColumnFocus('desc')} 
                                           onBlur={() => onColumnFocus(null)} 
                                           onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} 
-                                          className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id ? 'recording-feedback bg-purple-50' : ''}`} 
+                                          className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300' : 'placeholder-gray-300'} disabled:cursor-not-allowed`} 
                                           placeholder={m.type === 'deduction' ? "A dedurre..." : "Descrizione misura..."} 
                                           disabled={areControlsDisabled}
-                                          onMouseDown={() => handleLongPressStart(m.id)}
-                                          onMouseUp={handleLongPressEnd}
-                                          onMouseLeave={handleLongPressEnd}
-                                          onTouchStart={() => handleLongPressStart(m.id)}
-                                          onTouchEnd={handleLongPressEnd}
                                         />
                                     )
                                 )}
@@ -592,90 +601,49 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              </td>
          </tr>
          <tr className="h-6 bg-[#f0f2f5] border-none"><td colSpan={12} className="border-none"></td></tr>
-         {isArticleDragOver && articleDropPosition === 'bottom' && (
-             <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 top-0 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
-         )}
       </tbody>
    );
 };
-
-interface Snapshot {
-  articles: Article[];
-  categories: Category[];
-  analyses: PriceAnalysis[];
-}
-
-type ViewMode = 'COMPUTO' | 'ANALISI';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionError, setSessionError] = useState(false);
-  const [isAnalysisDragOver, setIsAnalysisDragOver] = useState(false);
-  const [isWorkspaceDragOver, setIsWorkspaceDragOver] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
 
+  const [isRebarModalOpen, setIsRebarModalOpen] = useState(false);
+  const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
+  const [shouldAutoReopenRebar, setShouldAutoReopenRebar] = useState(false);
+  const [isRebarAutomationWaiting, setIsRebarAutomationWaiting] = useState(false);
+
+  const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
+  const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
+  const [shouldAutoReopenPainting, setShouldAutoReopenPainting] = useState(false);
+  const [isPaintingAutomationWaiting, setIsPaintingAutomationWaiting] = useState(false);
+
+  // Timer references for automations
+  const rebarTimerRef = useRef<any>(null);
+  const paintingTimerRef = useRef<any>(null);
+
+  // LOGICA AUTH
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { 
-        if (currentUser) {
-            setUser(currentUser); 
-        } else {
-            // FIX: Don't set user to null if we are currently in 'visitor' mode
-            setUser(prev => prev === 'visitor' ? 'visitor' : null);
-        }
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => { 
+        setUser(firebaseUser);
         setAuthLoading(false); 
     });
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!user || user === 'visitor' || !db) {
-        setMustChangePassword(false);
-        return;
-    }
-    
-    // Check session
-    const currentSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const userSessionRef = ref(db, `sessions/${user.uid}`);
-    let isMounted = true;
-    set(userSessionRef, { sessionId: currentSessionId, lastLogin: new Date().toISOString(), device: navigator.userAgent, platform: navigator.platform }).catch(err => console.error("Session Write Failed:", err));
-    const unsubscribeDb = onValue(userSessionRef, (snapshot) => {
-        if (!isMounted) return;
-        const data = snapshot.val();
-        if (data && data.sessionId && data.sessionId !== currentSessionId) {
-            setSessionError(true);
-            if (auth.currentUser) { signOut(auth).catch(e => console.error("Logout error", e)); }
-        }
-    });
-
-    // Check mandatory password change flag
-    const securityRef = ref(db, `users/${user.uid}/security`);
-    const unsubscribeSecurity = onValue(securityRef, (snapshot) => {
-        if (!isMounted) return;
-        const data = snapshot.val();
-        if (data && data.mustChangePassword === true) {
-            setMustChangePassword(true);
-        } else {
-            setMustChangePassword(false);
-        }
-    });
-
-    return () => { 
-        isMounted = false; 
-        off(userSessionRef); 
-        off(securityRef);
-        unsubscribeDb(); 
-    };
-  }, [user]);
-
-  const handleVisitorLogin = () => {
-    setUser('visitor');
-  };
-
-  const isVisitor = user === 'visitor';
+  const stopAllAutomations = useCallback(() => {
+    if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
+    if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
+    setShouldAutoReopenRebar(false);
+    setShouldAutoReopenPainting(false);
+    setIsRebarAutomationWaiting(false);
+    setIsPaintingAutomationWaiting(false);
+  }, []);
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(CATEGORIES);
@@ -688,7 +656,6 @@ const App: React.FC = () => {
   const [future, setFuture] = useState<Snapshot[]>([]);
   const [currentFileHandle, setCurrentFileHandle] = useState<any>(null); 
   const [isAutoSaving, setIsAutoSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -709,43 +676,27 @@ const App: React.FC = () => {
   const [analysisSearchTerm, setAnalysisSearchTerm] = useState('');
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
-  
-  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ 
-    type: 'import' | 'duplicate', 
-    sourceCode?: string, 
-    payload?: any, 
-    initialName?: string,
-    targetCode?: string,
-    position?: 'top' | 'bottom'
-  } | null>(null);
+  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'duplicate', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom' } | null>(null);
+  const [showAutoLoginAd, setShowAutoLoginAd] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isVisitor = user === 'visitor';
 
   const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
     if (!isVisitor) return true;
     const currentTotal = articles.length;
-    if (currentTotal + newCountToAdd > 5) {
-      alert(`VERSIONE LITE: Limite di 5 voci raggiunto.\nStai tentando di inserire ${newCountToAdd} voci ma ne mancano ${5 - currentTotal} al limite.`);
+    if (currentTotal + newCountToAdd > 10) {
+      alert(`VERSIONE DEMO: Limite di 10 voci raggiunto.`);
       return false;
     }
     return true;
   }, [isVisitor, articles.length]);
 
-  useEffect(() => {
-    const handleContextMenu = (e: MouseEvent) => { e.preventDefault(); return false; };
-    document.addEventListener('contextmenu', handleContextMenu);
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I') || (e.ctrlKey && e.shiftKey && e.key === 'J') || (e.ctrlKey && e.key === 'u')) {
-        e.preventDefault(); return false;
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => { document.removeEventListener('contextmenu', handleContextMenu); document.removeEventListener('keydown', handleKeyDown); };
-  }, []); 
-
-  useEffect(() => {
-      document.title = projectInfo.title ? `${projectInfo.title} - GeCoLa` : 'GeCoLa - Computo Metrico';
-  }, [projectInfo.title]);
+  const handleVisitorLogin = () => {
+    setUser('visitor');
+    setShowAutoLoginAd(true);
+  };
 
   const updateState = (newArticles: Article[], newCategories: Category[] = categories, newAnalyses: PriceAnalysis[] = analyses, saveHistory: boolean = true) => {
       const recomputed = recalculateAllArticles(newArticles);
@@ -778,15 +729,6 @@ const App: React.FC = () => {
     setAnalyses(next.analyses);
   }, [future, articles, categories, analyses]);
 
-  const categoryTotals = useMemo(() => {
-    const lookup: Record<string, number> = {};
-    categories.forEach(cat => {
-      const catTotal = articles.filter(a => a.categoryCode === cat.code).reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
-      lookup[cat.code] = catTotal;
-    });
-    return lookup;
-  }, [articles, categories]);
-
   const totals: Totals = useMemo(() => {
     const totalWorks = articles.reduce((acc, art) => {
         const cat = categories.find(c => c.code === art.categoryCode);
@@ -800,864 +742,376 @@ const App: React.FC = () => {
     return { totalWorks, safetyCosts, totalTaxable, vatAmount, grandTotal };
   }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
 
-  const generateNextWbsCode = (currentCats: Category[]) => `WBS.${(currentCats.length + 1).toString().padStart(2, '0')}`;
-  
-  const renumberCategories = (cats: Category[], currentArts: Article[]) => {
-      const codeMap: Record<string, string> = {};
-      const newCategories = cats.map((cat, index) => {
-          const newCode = `WBS.${(index + 1).toString().padStart(2, '0')}`;
-          codeMap[cat.code] = newCode;
-          return { ...cat, code: newCode };
-      });
-      const newArticles = currentArts.map(art => {
-          if (codeMap[art.categoryCode]) return { ...art, categoryCode: codeMap[art.categoryCode] };
-          return art;
-      });
-      return { newCategories, newArticles, codeMap };
+  const categoryTotals = useMemo(() => {
+    const lookup: Record<string, number> = {};
+    categories.forEach(cat => {
+      const catTotal = articles.filter(a => a.categoryCode === cat.code).reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
+      lookup[cat.code] = catTotal;
+    });
+    return lookup;
+  }, [articles, categories]);
+
+  // MODALS HANDLERS
+  const handleOpenRebarCalculator = (articleId: string) => {
+    setRebarTargetArticleId(articleId);
+    setShouldAutoReopenRebar(true);
+    setIsRebarModalOpen(true);
   };
 
-  const handleSaveAnalysis = (updatedAnalysis: PriceAnalysis) => {
-      const roundedAnalysis = { ...updatedAnalysis, totalUnitPrice: roundTwoDecimals(updatedAnalysis.totalUnitPrice), totalBatchValue: roundTwoDecimals(updatedAnalysis.totalBatchValue) };
-      let newAnalyses = [...analyses];
-      const index = newAnalyses.findIndex(a => a.id === roundedAnalysis.id);
-      if (index !== -1) newAnalyses[index] = roundedAnalysis; else newAnalyses.push(roundedAnalysis);
-      const newArticles = articles.map(art => {
-          if (art.linkedAnalysisId === roundedAnalysis.id) {
-             const newLaborRate = roundedAnalysis.totalUnitPrice > 0 ? parseFloat(((roundedAnalysis.totalLabor / roundedAnalysis.totalBatchValue) * 100).toFixed(2)) : 0;
-             return { ...art, description: roundedAnalysis.description, unit: roundedAnalysis.unit, unitPrice: roundedAnalysis.totalUnitPrice, laborRate: newLaborRate, code: roundedAnalysis.code, priceListSource: `Da Analisi ${roundedAnalysis.code}` };
-          }
-          return art;
-      });
-      updateState(newArticles, categories, newAnalyses);
+  const handleOpenPaintingCalculator = (articleId: string) => {
+    setPaintingTargetArticleId(articleId);
+    setShouldAutoReopenPainting(true);
+    setIsPaintingModalOpen(true);
   };
 
-  const handleToggleAnalysisLock = (id: string) => {
-      const newAnalyses = analyses.map(a => a.id === id ? { ...a, isLocked: !a.isLocked } : a);
-      updateState(articles, categories, newAnalyses);
+  const handleAddRebarMeasurement = (rebarData: { diameter: number; weight: number; multiplier: number; length: number; description: string }) => {
+    if (!rebarTargetArticleId) return;
+    const newId = Math.random().toString(36).substr(2, 9);
+    setLastAddedMeasurementId(newId);
+    const updated = articles.map(art => {
+      if (art.id !== rebarTargetArticleId) return art;
+      const newM: Measurement = { id: newId, description: rebarData.description, type: 'positive', multiplier: rebarData.multiplier, length: rebarData.length, width: undefined, height: rebarData.weight };
+      return { ...art, measurements: [...art.measurements, newM] };
+    });
+    updateState(updated);
+    setIsRebarModalOpen(false);
+    if (shouldAutoReopenRebar) {
+        setIsRebarAutomationWaiting(true);
+        if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
+        rebarTimerRef.current = setTimeout(() => {
+            setIsRebarAutomationWaiting(prev => {
+                if (prev) setIsRebarModalOpen(true);
+                return false;
+            });
+        }, 5000); 
+    }
   };
 
-  const handleDeleteAnalysis = (id: string) => {
-      const analysis = analyses.find(a => a.id === id);
-      if (analysis?.isLocked) { alert("Analisi bloccata. Sblocca per eliminare."); return; }
-      if (window.confirm("Eliminare definitivamente questa analisi? Le voci di computo collegate rimarranno ma diventeranno indipendenti.")) {
-          const newAnalyses = analyses.filter(a => a.id !== id);
-          const newArticles = articles.map(art => art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: undefined } : art);
-          updateState(newArticles, categories, newAnalyses);
-      }
+  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => {
+    if (!paintingTargetArticleId) return;
+    const updated = articles.map(art => {
+        if (art.id !== paintingTargetArticleId) return art;
+        const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) }));
+        return { ...art, measurements: [...art.measurements, ...newMeasures] };
+    });
+    updateState(updated);
+    setIsPaintingModalOpen(false);
+    if (shouldAutoReopenPainting) {
+        setIsPaintingAutomationWaiting(true);
+        if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
+        paintingTimerRef.current = setTimeout(() => {
+            setIsPaintingAutomationWaiting(prev => {
+                if (prev) setIsPaintingModalOpen(true);
+                return false;
+            });
+        }, 5000);
+    }
   };
 
-  const handleImportAnalysisToArticle = (analysis: PriceAnalysis) => {
-      if (!canAddArticle()) return;
-      const targetCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
-      const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
-      const newArticle: Article = {
-          id: Math.random().toString(36).substr(2, 9),
-          categoryCode: targetCode,
-          code: analysis.code,
-          description: analysis.description,
-          unit: analysis.unit,
-          unitPrice: roundTwoDecimals(analysis.totalUnitPrice),
-          laborRate: laborRate,
-          linkedAnalysisId: analysis.id,
-          priceListSource: `Da Analisi ${analysis.code}`,
-          soaCategory: activeSoaCategory,
-          measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }],
-          quantity: 0
+  const handleAddVoiceMeasurement = async (articleId: string, data: Partial<Measurement>) => {
+    const newId = Math.random().toString(36).substr(2, 9);
+    setLastAddedMeasurementId(newId);
+    const updated = articles.map(art => {
+      if (art.id !== articleId) return art;
+      const newM: Measurement = { 
+        id: newId, 
+        description: data.description || '', 
+        type: 'positive', 
+        length: data.length, 
+        width: data.width, 
+        height: data.height, 
+        multiplier: data.multiplier 
       };
-      updateState([...articles, newArticle], categories, analyses);
-      setViewMode('COMPUTO');
-      setIsImportAnalysisModalOpen(false); 
+      return { ...art, measurements: [...art.measurements, newM] };
+    });
+    updateState(updated);
   };
 
   const handleViewLinkedAnalysis = (analysisId: string) => {
-      const analysis = analyses.find(a => a.id === analysisId);
-      if (analysis) { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); } else { alert("Attenzione: L'analisi originale non è stata trovata."); }
-  };
-
-  const handleConvertArticleToAnalysis = (article: Article) => {
-      const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
-      const newAnalysisId = Math.random().toString(36).substr(2, 9);
-      const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0,
-          components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
-      };
-      const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
-      setAnalyses(prev => [...prev, newAnalysis]);
-      updateState(updatedArticles, categories, [...analyses, newAnalysis]);
-      setEditingAnalysis(newAnalysis);
-      setViewMode('ANALISI');
-      setIsAnalysisEditorOpen(true);
-  };
-
-  const handleInsertExternalArticle = (insertIndex: number, rawText: string) => {
-      if (!canAddArticle()) return;
-      const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
-      const parsed = parseDroppedContent(rawText);
-      if (parsed) {
-          const newArticle: Article = {
-              id: Math.random().toString(36).substr(2, 9),
-              categoryCode: targetCode,
-              code: parsed.code || 'NP.001',
-              priceListSource: parsed.priceListSource,
-              description: parsed.description || 'Voce importata',
-              unit: parsed.unit || 'cad',
-              unitPrice: parsed.unitPrice || 0,
-              laborRate: parsed.laborRate || 0,
-              soaCategory: activeSoaCategory,
-              measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }],
-              quantity: 0
-          };
-          
-          const updatedArticles = [...articles];
-          const categoryArticles = updatedArticles.filter(a => a.categoryCode === targetCode);
-          const otherArticles = updatedArticles.filter(a => a.categoryCode !== targetCode);
-          
-          categoryArticles.splice(insertIndex, 0, newArticle);
-          updateState([...otherArticles, ...categoryArticles]);
-      }
-  };
-
-  const handleAnalysisDragStart = (e: React.DragEvent, analysis: PriceAnalysis) => { 
-      const dummyUrl = 'https://gecola.it/transfer/analysis/' + analysis.id;
-      e.dataTransfer.setData('text/uri-list', dummyUrl);
-      e.dataTransfer.setData('URL', dummyUrl);
-      e.dataTransfer.setData('text/plain', `GECOLA_DATA::ANALYSIS::${JSON.stringify(analysis)}`); 
-      e.dataTransfer.effectAllowed = 'all'; 
-  };
-
-  const handleAnalysisDrop = (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsAnalysisDragOver(false);
-      const textData = e.dataTransfer.getData('text/plain');
-      if (textData && textData.startsWith('GECOLA_DATA::ANALYSIS::')) {
-          try {
-              const jsonStr = textData.replace('GECOLA_DATA::ANALYSIS::', '');
-              const analysis = JSON.parse(jsonStr);
-              const newAnalysis: PriceAnalysis = { ...analysis, id: Math.random().toString(36).substr(2, 9), code: `AP.${(analyses.length + 1).toString().padStart(2, '0')}`, description: `${analysis.description} (Copia)`, isLocked: false };
-              setAnalyses(prev => [...prev, newAnalysis]);
-          } catch (err) { console.error("Analysis Drop Error", err); }
-      }
-  };
-  
-  const handleAddCategory = () => { setEditingCategory(null); setIsCategoryModalOpen(true); };
-  const handleEditCategory = (cat: Category) => { setEditingCategory(cat); setIsCategoryModalOpen(true); };
-  const handleSaveCategory = (name: string) => {
-    if (editingCategory) {
-        const newCats = categories.map(c => c.code === editingCategory.code ? { ...c, name } : c);
-        updateState(articles, newCats);
-    } else {
-        const newCode = generateNextWbsCode(categories);
-        const newCat: Category = { code: newCode, name, isEnabled: true, isLocked: false };
-        const newCats = [...categories, newCat];
-        updateState(articles, newCats);
+    const analysis = analyses.find(a => a.id === analysisId);
+    if (analysis) { 
+      setEditingAnalysis(analysis); 
+      setIsAnalysisEditorOpen(true); 
+    } else { 
+      alert("Attenzione: L'analisi originale non è stata trovata."); 
     }
   };
 
-  const handleDeleteCategory = (code: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm(`Sei sicuro di voler eliminare la WBS ${code} e tutte le sue voci?`)) {
-      let newCats = categories.filter(c => c.code !== code);
-      let newArts = articles.filter(a => a.categoryCode !== code);
-      const result = renumberCategories(newCats, newArts);
-      updateState(result.newArticles, result.newCategories);
-    }
-  };
-
-  const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
-      setDraggedCategoryCode(code); 
-      const dummyUrl = 'https://gecola.it/transfer/wbs/' + code;
-      e.dataTransfer.setData('text/uri-list', dummyUrl);
-      e.dataTransfer.setData('URL', dummyUrl);
-      const cat = categories.find(c => c.code === code);
-      if (cat) {
-          const catArticles = articles.filter(a => a.categoryCode === code);
-          const relatedAnalysesIds = new Set(catArticles.map(a => a.linkedAnalysisId).filter(Boolean));
-          const relatedAnalyses = analyses.filter(an => relatedAnalysesIds.has(an.id));
-          const payload = { type: 'CROSS_TAB_WBS_BUNDLE', category: cat, articles: catArticles, analyses: relatedAnalyses };
-          const jsonPayload = JSON.stringify(payload);
-          e.dataTransfer.setData('text/plain', jsonPayload);
-      }
-      e.dataTransfer.setData('wbsCode', code); 
-      e.dataTransfer.effectAllowed = 'all'; 
-  };
-
-  const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
-      e.preventDefault(); 
-      e.stopPropagation(); 
-      e.dataTransfer.dropEffect = 'copy'; 
-      if (isDraggingArticle) return;
-      if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain')) {
-          if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
-          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const isTop = e.clientY < (rect.top + rect.height / 2);
-          setWbsDropTarget({ code: targetCode, position: isTop ? 'top' : 'bottom' });
-      }
-  };
-
-  const handleWbsDragLeave = (e: React.DragEvent) => { e.preventDefault(); };
-
-  const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { 
-      e.preventDefault(); 
-      e.stopPropagation(); 
-      const pos = wbsDropTarget?.position || 'bottom';
-      setWbsDropTarget(null);
-      const droppedArticleId = e.dataTransfer.getData('articleId');
-      if (droppedArticleId && targetCode) {
-          const targetCategory = categories.find(c => c.code === targetCode);
-          if (targetCategory?.isLocked) { alert("WBS bloccata."); return; }
-          const article = articles.find(a => a.id === droppedArticleId);
-          if (!article) return;
-          if (article.categoryCode === targetCode) return;
-          if (e.ctrlKey) {
-              if (!canAddArticle()) return;
-              const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
-              updateState([...articles, newArticle]);
-          } else {
-              const updatedArticles = articles.map(a => a.id === droppedArticleId ? { ...a, categoryCode: targetCode } : a);
-              updateState(updatedArticles);
-          }
-          setDraggedCategoryCode(null); setIsDraggingArticle(false);
-          return;
-      }
-      const textData = e.dataTransfer.getData('text/plain');
-      if (textData && !draggedCategoryCode) {
-          try {
-              const payload = JSON.parse(textData);
-              if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
-                  const initialName = payload.category?.name || 'Capitolo Importato';
-                  setWbsOptionsContext({ 
-                    type: 'import', 
-                    payload, 
-                    initialName,
-                    targetCode: targetCode || undefined,
-                    position: pos as 'top' | 'bottom'
-                  });
-                  return;
-              }
-          } catch (e) { console.error("Import Error", e); }
-          return;
-      }
-      if (draggedCategoryCode) {
-          if (!targetCode || draggedCategoryCode === targetCode) { setDraggedCategoryCode(null); return; }
-          const sIdx = categories.findIndex(c => c.code === draggedCategoryCode); 
-          let tIdx = categories.findIndex(c => c.code === targetCode); 
-          const newCatsOrder = [...categories]; 
-          const [movedCat] = newCatsOrder.splice(sIdx, 1); 
-          if (sIdx < tIdx && pos === 'top') tIdx--;
-          else if (sIdx > tIdx && pos === 'bottom') tIdx++;
-          newCatsOrder.splice(tIdx, 0, movedCat); 
-          const result = renumberCategories(newCatsOrder, articles); 
-          updateState(result.newArticles, result.newCategories); 
-          setDraggedCategoryCode(null);
-      }
-  };
-
-  const handleWbsActionChoice = (mode: WbsActionMode, newName: string) => {
-    if (!wbsOptionsContext) return;
-    const { type, sourceCode, payload, targetCode, position } = wbsOptionsContext;
-    
-    const articlesToImportCount = (type === 'duplicate' && sourceCode) 
-      ? articles.filter(a => a.categoryCode === sourceCode).length 
-      : (payload?.articles?.length || 0);
-    
-    if (!canAddArticle(articlesToImportCount)) {
-      setWbsOptionsContext(null);
-      return;
-    }
-
-    const processMeasurements = (meases: Measurement[]) => {
-      if (mode === 'full') {
-        return meases.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }));
-      }
-      if (mode === 'descriptions') {
-        return meases.map(m => ({ 
-          ...m, 
-          id: Math.random().toString(36).substr(2, 9), 
-          linkedArticleId: undefined,
-          length: undefined,
-          width: undefined,
-          height: undefined,
-          multiplier: undefined
-        }));
-      }
-      return [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }];
+  const handleImportAnalysisToArticle = (analysis: PriceAnalysis) => {
+    if (!canAddArticle()) return;
+    const targetCode = activeCategoryForAi || selectedCategoryCode;
+    const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
+    const newArticle: Article = {
+      id: Math.random().toString(36).substr(2, 9),
+      categoryCode: targetCode,
+      code: analysis.code,
+      description: analysis.description,
+      unit: analysis.unit,
+      unitPrice: roundTwoDecimals(analysis.totalUnitPrice),
+      laborRate: laborRate,
+      linkedAnalysisId: analysis.id,
+      priceListSource: `Da Analisi ${analysis.code}`,
+      soaCategory: activeSoaCategory,
+      measurements: [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }],
+      quantity: 0
     };
+    updateState([...articles, newArticle]);
+    setIsImportAnalysisModalOpen(false);
+  };
 
-    if (type === 'duplicate' && sourceCode) {
-      const sourceCat = categories.find(c => c.code === sourceCode); 
-      if (!sourceCat) return; 
-      const sourceArticles = articles.filter(a => a.categoryCode === sourceCode); 
-      const newCategory = { ...sourceCat, name: newName }; 
-      const tempCode = `TEMP_CLONE_${Date.now()}`; 
-      newCategory.code = tempCode; 
-      
-      const newArticlesRaw = sourceArticles.map(art => ({ 
-          ...art, 
-          id: Math.random().toString(36).substr(2, 9), 
-          categoryCode: tempCode, 
-          measurements: processMeasurements(art.measurements)
-      })); 
-      
-      const sourceIndex = categories.findIndex(c => c.code === sourceCode); 
-      const newCatsList = [...categories]; 
-      newCatsList.splice(sourceIndex + 1, 0, newCategory); 
-      const allArticles = [...articles, ...newArticlesRaw]; 
-      const result = renumberCategories(newCatsList, allArticles); 
-      updateState(result.newArticles, result.newCategories);
-    } 
-    else if (type === 'import' && payload) {
-      const { category: importedCat, articles: importedArticles, analyses: importedAnalyses } = payload;
-      if (importedCat && Array.isArray(importedArticles)) {
-          const uniqueTempId = `IMPORT_TEMP_${Date.now()}`;
-          const newCategory: Category = { ...importedCat, name: newName, code: uniqueTempId, isImported: true };
-          
-          const newAnalysesList = [...analyses];
-          const analysisIdMap = new Map<string, string>();
-          if (Array.isArray(importedAnalyses)) {
-              importedAnalyses.forEach((an: PriceAnalysis) => {
-                  const newId = Math.random().toString(36).substr(2, 9);
-                  let newCode = an.code;
-                  if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; }
-                  analysisIdMap.set(an.id, newId);
-                  const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
-                  newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
-              });
-          }
-          
-          let insertionIdx = categories.length;
-          if (targetCode) {
-            insertionIdx = categories.findIndex(c => c.code === targetCode);
-            if (position === 'bottom') insertionIdx++;
-          }
-          
-          const newCatsList = [...categories];
-          newCatsList.splice(insertionIdx, 0, newCategory);
-          
-          const processedArticles = importedArticles.map((art: Article) => {
-              const newArticleId = Math.random().toString(36).substr(2, 9);
-              let newLinkedAnalysisId = art.linkedAnalysisId;
-              if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId); }
-              return { 
-                ...art, 
-                id: newArticleId, 
-                categoryCode: uniqueTempId, 
-                linkedAnalysisId: newLinkedAnalysisId, 
-                measurements: processMeasurements(art.measurements)
-              };
-          });
-
-          const result = renumberCategories(newCatsList, [...articles, ...processedArticles]); 
-          updateState(result.newArticles, result.newCategories, newAnalysesList);
-      }
-    }
-    setWbsOptionsContext(null);
+  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => { 
+    const file = e.target.files?.[0]; 
+    if (!file) return; 
+    const reader = new FileReader(); 
+    reader.onload = (event) => { 
+        try { 
+            const content = event.target?.result as string; 
+            const data = JSON.parse(content); 
+            if (data.gecolaData) { 
+                setProjectInfo(data.gecolaData.projectInfo); 
+                updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); 
+            } else { alert("Formato non valido."); } 
+            setCurrentFileHandle(null); 
+        } catch (error) { alert("Errore caricamento."); } 
+    }; 
+    reader.readAsText(file); 
+    e.target.value = ''; 
   };
 
   const handleUpdateArticle = (id: string, field: keyof Article, value: string | number) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
-  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { let finalUpdates = { ...updates }; const original = articles.find(a => a.id === id); if (original && original.priceListSource && !original.priceListSource.includes('NP')) { if (updates.unitPrice !== undefined && updates.unitPrice !== original.unitPrice) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; if (updates.description !== undefined && updates.description !== original.description) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; } const updated = articles.map(art => art.id === id ? { ...art, ...finalUpdates } : art); updateState(updated); };
   const handleEditArticleDetails = (article: Article) => { setEditingArticle(article); setIsEditArticleModalOpen(true); };
-  const handleDeleteArticle = (id: string) => { if (window.confirm("Sei sicuro di voler eliminare questo articolo?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
-  const handleAddMeasurement = (articleId: string) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
-  const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
-  const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
-  const handleToggleDeduction = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; if (m.type === 'subtotal') return m; const newType = m.type === 'positive' ? 'deduction' : 'positive'; let newDescription = m.description; if (newType === 'deduction') { if (!newDescription.toLowerCase().startsWith('a dedurre')) { newDescription = "A dedurre: " + newDescription; } } else { newDescription = newDescription.replace(/^a dedurre:\s*/i, ''); } return { ...m, type: newType, description: newDescription } as Measurement; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
-  const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: value }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
-  const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
-  const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
-  const handleArticleDragStart = (e: React.DragEvent, article: Article) => { 
-      setIsDraggingArticle(true); 
-      const dummyUrl = 'https://gecola.it/transfer/article/' + article.id;
-      e.dataTransfer.setData('text/uri-list', dummyUrl);
-      e.dataTransfer.setData('URL', dummyUrl);
-      e.dataTransfer.setData('type', 'ARTICLE'); 
-      e.dataTransfer.setData('articleId', article.id); 
-      e.dataTransfer.effectAllowed = 'all'; 
-  };
-  const handleArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
-  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === targetArticleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
-  const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
-  const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
-  const handleScrollToArticle = (id: string) => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'center' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } };
   
-  const handleAddEmptyArticle = (categoryCode: string) => { 
-      if (!canAddArticle()) return;
-      const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
-      const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] };
-      const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
-      setAnalyses(prev => [...prev, newAnalysis]);
-      updateState([...articles, newArticle], categories, [...analyses, newAnalysis]);
-      setEditingAnalysis(newAnalysis);
-      setViewMode('ANALISI');
-      setIsAnalysisEditorOpen(true);
+  // Added missing handleArticleEditSave handler
+  const handleArticleEditSave = (id: string, updates: Partial<Article>) => {
+    const updated = articles.map(art => art.id === id ? { ...art, ...updates } : art);
+    updateState(updated);
   };
 
-  const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
-
-  const handleDropContent = (rawText: string) => { 
-      if (!canAddArticle()) return;
-      const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
-      const currentCat = categories.find(c => c.code === targetCatCode);
-      if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; }
-      if (!rawText) return; 
-      setIsProcessingDrop(true); 
-      setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; updateState([...articles, newArticle]); } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
-  };
-
-  const handleWorkspaceDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const isExternalText = e.dataTransfer.types.includes('text/plain');
-    const isInternalMove = e.dataTransfer.types.includes('type') && (e.dataTransfer.getData('type') === 'ARTICLE' || e.dataTransfer.getData('type') === 'MEASUREMENT');
-    
-    if (isExternalText && !isInternalMove) {
-      if (selectedCategoryCode !== 'SUMMARY') {
-        setIsWorkspaceDragOver(true);
-      }
-    }
-  };
-
-  const handleWorkspaceDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsWorkspaceDragOver(false);
-    
-    const textData = e.dataTransfer.getData('text');
-    if (textData) {
-      handleDropContent(textData);
-    }
-  };
-
-  const getFullProjectExportData = () => { return JSON.stringify({ gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); };
+  const onDeleteArticle = (id: string) => { if (window.confirm("Seleziona Conferma per eliminare?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
+  const onAddMeasurement = (articleId: string) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: '', type: 'positive' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
+  const onAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
+  const onUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: any) => { const updated = articles.map(art => { if (art.id !== articleId) return art; return { ...art, measurements: art.measurements.map(m => m.id === mId ? { ...m, [field]: value } : m) }; }); updateState(updated); };
+  const onDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; return { ...art, measurements: art.measurements.filter(m => m.id !== mId) }; }); updateState(updated); };
+  const onToggleDeduction = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; return { ...art, measurements: art.measurements.map(m => m.id === mId ? { ...m, type: m.type === 'positive' ? 'deduction' : 'positive' } : m) }; }); updateState(updated); };
   
-  const handleSmartSave = async (silent: boolean = false) => { 
-    const jsonString = getFullProjectExportData(); 
-    if ('showSaveFilePicker' in window) { 
-        try { 
-            let handle = currentFileHandle; 
-            if (!handle) { 
-                if (silent) return; 
-                handle = await (window as any).showSaveFilePicker({ suggestedName: `${projectInfo.title || 'Progetto'}.json`, types: [{ description: 'JSON Project File', accept: { 'application/json': ['.json'] }, }], }); 
-                setCurrentFileHandle(handle); 
-            } 
-            setIsAutoSaving(true); 
-            const writable = await handle.createWritable(); 
-            await writable.write(jsonString); 
-            await writable.close(); 
-            setLastSaved(new Date()); 
-        } catch (err: any) { 
-            if (err.name !== 'AbortError' && !silent) { 
-                setIsSaveModalOpen(true); 
-            } 
-        } finally { 
-            setTimeout(() => setIsAutoSaving(false), 800); 
-        } 
-    } else { 
-        if (!silent) setIsSaveModalOpen(true); 
-    } 
-  };
-  
-  useEffect(() => { 
-    if (!currentFileHandle) return; 
-    const timeoutId = setTimeout(() => { 
-        handleSmartSave(true); 
-    }, 3000); 
-    return () => clearTimeout(timeoutId); 
-  }, [articles, categories, projectInfo, analyses, currentFileHandle]);
-
-  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (event) => { try { const content = event.target?.result as string; const data = JSON.parse(content); if (data.gecolaData) { setProjectInfo(data.gecolaData.projectInfo); updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); } else { alert("Formato non valido."); } setCurrentFileHandle(null); } catch (error) { alert("Errore caricamento."); } }; reader.readAsText(file); e.target.value = ''; };
-
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => { 
-    if (e.key === 'Enter') { 
-        const target = e.target as HTMLElement; 
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') { 
-            if (target.tagName === 'TEXTAREA' && e.shiftKey) return; 
-            
-            const inputs = Array.from(document.querySelectorAll('input:not([disabled]), textarea:not([disabled])')); 
-            const index = inputs.indexOf(target as HTMLInputElement | HTMLTextAreaElement); 
-            
-            // Check if we are in the last editable field of a measurement row
-            const isLastMeasField = target.getAttribute('data-last-meas-field') === 'true';
-            
-            if (isLastMeasField) {
-                const articleRow = target.closest('tbody');
-                if (articleRow) {
-                    const articleId = articleRow.id.replace('article-', '');
-                    handleAddMeasurement(articleId);
-                    e.preventDefault();
-                    return;
-                }
-            }
-
-            if (index > -1 && index < inputs.length - 1) {
-                e.preventDefault();
-                (inputs[index + 1] as HTMLElement).focus(); 
-            }
-        } 
-    } 
+  // Added missing handleLinkMeasurement handler
+  const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => {
+    if (!linkTarget) return;
+    const updated = articles.map(art => {
+      if (art.id !== linkTarget.articleId) return art;
+      return {
+        ...art,
+        measurements: art.measurements.map(m => {
+          if (m.id !== linkTarget.measurementId) return m;
+          return {
+            ...m,
+            linkedArticleId: sourceArticle.id,
+            linkedType: type,
+            description: '',
+            length: undefined,
+            width: undefined,
+            height: undefined,
+            multiplier: undefined,
+            type: 'positive'
+          };
+        })
+      };
+    });
+    updateState(updated);
+    setIsLinkModalOpen(false);
+    setLinkTarget(null);
   };
 
-  const handleGeneratePdf = async () => {
-    await generateComputoMetricPdf(projectInfo, categories, articles);
-  };
+  const onToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
+  const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { e.preventDefault(); setWbsDropTarget(null); };
+  const handleSaveCategory = (name: string) => { if (editingCategory) { setCategories(categories.map(c => c.code === editingCategory.code ? { ...c, name } : c)); } else { const newCat = { code: generateNextWbsCode(categories), name, isEnabled: true, isLocked: false }; setCategories([...categories, newCat]); } };
 
-  if (authLoading) return <div className="h-screen flex items-center justify-center bg-[#2c3e50] text-white font-black text-2xl animate-pulse tracking-widest uppercase">GECOLA PRO CARICAMENTO...</div>;
-  if (!user && auth) return <Login onVisitorLogin={handleVisitorLogin} />;
-
-  const activeCategory = categories.find(c => c.code === selectedCategoryCode);
-  const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
-  const filteredAnalyses = analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase()));
+  const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
+  const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
 
   return (
     <div 
         className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} 
-        onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+        onClick={stopAllAutomations}
     >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
-      
-      <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
-          <div className="flex items-center space-x-3 w-72">
-            <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
-            <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.1</span></span>
-            
-            <button 
-                onClick={() => setIsManualOpen(true)}
-                className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative"
-                title="Apri Manuale d'Uso"
-            >
-                <HelpCircle className="w-5 h-5" />
-                <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">Manuale</span>
-            </button>
-          </div>
-
-          <div className="flex-1 px-6 flex justify-center items-center gap-6">
-              {isVisitor && (
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest animate-pulse">
-                        <Sparkles className="w-3 h-3" /> Account Versione Lite
-                    </div>
-                    <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 5 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
-                        Voci Utilizzate: {articles.length} / 5
-                    </div>
+      {!user ? <Login onVisitorLogin={handleVisitorLogin} /> : (
+        <>
+          {showAutoLoginAd && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-500">
+               <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col h-[80vh]">
+                  <div className="bg-[#2c3e50] p-6 flex justify-between items-center text-white border-b border-slate-600">
+                      <div className="flex items-center gap-3">
+                          <Award className="w-6 h-6 text-orange-400" />
+                          <h3 className="font-black uppercase tracking-tighter text-xl">Partner Tecnico del Giorno</h3>
+                      </div>
+                      <button 
+                        onClick={() => setShowAutoLoginAd(false)}
+                        className="bg-white/10 hover:bg-orange-600 text-white px-6 py-2 rounded-full font-black uppercase text-xs transition-all shadow-lg active:scale-90 animate-pulse"
+                      >
+                        Prosegui al Progetto
+                      </button>
                   </div>
-              )}
-              {!isVisitor && (
-                <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
-                    {isAutoSaving && <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)] mr-2"></span>}
-                    <span className="truncate max-w-[250px]">{projectInfo.title}</span>
-                    <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
-                </div>
-              )}
-              <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
-                <button onClick={handleUndo} disabled={history.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Annulla"><Undo2 className="w-4 h-4" /></button>
-                <div className="w-px h-4 bg-slate-600"></div>
-                <button onClick={handleRedo} disabled={future.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110" title="Ripristina"><Redo2 className="w-4 h-4" /></button>
+                  <div className="flex-1 relative bg-slate-50">
+                      <iframe 
+                        src="https://www.mapei.com/it/it/home-page" 
+                        className="w-full h-full border-none"
+                        title="Banner Mapei Interstiziale"
+                      />
+                  </div>
+                  <div className="p-4 bg-slate-100 border-t border-slate-200 text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Questo spazio pubblicitario sostiene lo sviluppo gratuito di GeCoLa Cloud</p>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
+              <div className="flex items-center space-x-3 w-72">
+                <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
+                <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.1</span></span>
+                <button onClick={(e) => { e.stopPropagation(); setIsManualOpen(true); }} className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative">
+                    <HelpCircle className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 px-6 flex justify-center items-center gap-6">
+                  {isVisitor && (
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest">
+                            <Sparkles className="w-3 h-3" /> Account Versione Demo
+                        </div>
+                        <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 10 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                            Voci Utilizzate: {articles.length} / 10
+                        </div>
+                      </div>
+                  )}
+                  {!isVisitor && (
+                    <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
+                        <span className="truncate max-w-[250px]">{projectInfo.title}</span>
+                        <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
+                    </div>
+                  )}
+                  <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
+                    <button onClick={handleUndo} disabled={history.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all"><Undo2 className="w-4 h-4" /></button>
+                    <button onClick={handleRedo} disabled={future.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all"><Redo2 className="w-4 h-4" /></button>
+                  </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                 <button onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} className="p-2 text-slate-300 hover:text-blue-400"><Download className="w-5 h-5" /></button>
+                 <button onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} className="p-2 text-slate-300 hover:text-white"><FileText className="w-5 h-5" /></button>
+                 <button onClick={() => signOut(auth)} className="p-2 text-red-400 hover:text-white ml-2"><LogOut className="w-5 h-5" /></button>
               </div>
           </div>
-          <div className="flex items-center space-x-2">
-             <div className="relative">
-                <button 
-                    onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
-                    className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" 
-                    title="Esporta Progetto"
-                >
-                    <Download className="w-5 h-5" />
-                    <ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isSaveMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                        <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Computo Metrico (.json)</b></button>
-                        <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta per Altri Soft.</b></button>
-                    </div>
-                )}
-             </div>
-             <div className="relative">
-                <button 
-                    onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} 
-                    className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1"
-                    title="Stampe Professionali"
-                >
-                    <FileText className="w-5 h-5" />
-                    <ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isPrintMenuOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                        <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
-                        <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
-                    </div>
-                )}
-             </div>
-             <button onClick={() => { if (user === 'visitor') setUser(null); else signOut(auth); }} className="p-2 text-red-400 hover:text-white ml-2 transition-colors" title="Esci"><LogOut className="w-5 h-5" /></button>
-          </div>
-      </div>
-      
-      <div className="flex flex-1 overflow-hidden print:hidden">
-        <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
-          <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
-             <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Computo</button>
-             <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Analisi</button>
-          </div>
+          
+          <div className="flex flex-1 overflow-hidden print:hidden">
+            <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
+              <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
+                 <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Computo</button>
+                 <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Analisi</button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                  {viewMode === 'COMPUTO' ? (
+                    <>
+                      <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center tracking-widest">
+                        <span>Indice WBS</span>
+                        <PlusCircle className="w-4 h-4 text-blue-600 cursor-pointer" onClick={() => { setEditingCategory(null); setIsCategoryModalOpen(true); }}/>
+                      </div>
+                      <ul>
+                          {categories.map(cat => (
+                          <li key={cat.code} className="border-b border-gray-100 cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
+                              <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500' : 'border-transparent hover:bg-slate-50'}`}>
+                                  <span className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 w-fit">{cat.code}</span>
+                                  <span className="text-xs font-semibold block truncate pr-8 mt-1">{cat.name}</span>
+                              </div>
+                          </li>
+                          ))}
+                      </ul>
+                      <div className="mt-auto p-3 border-t border-gray-300 bg-slate-50 sticky bottom-0 z-20">
+                          <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-2.5 rounded text-xs font-black uppercase transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-white'}`}>
+                              <Layers className="w-4 h-4 mr-2" /> Riepilogo Generale
+                          </button>
+                      </div>
+                    </>
+                  ) : <div className="p-4 text-center text-xs text-gray-400">Archivio Analisi...</div>}
+              </div>
+            </div>
 
-          <div className="flex-1 overflow-y-auto" onDrop={(e) => handleWbsDrop(e, null)}>
-              {viewMode === 'COMPUTO' ? (
-                <>
-                  <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center tracking-widest">
-                    <span>Indice WBS</span>
-                    <PlusCircle className="w-4 h-4 text-blue-600 cursor-pointer hover:scale-110 transition-transform" onClick={handleAddCategory}/>
-                  </div>
-                  <ul className="py-0">
-                      {categories.map(cat => (
-                      <li 
-                          key={cat.code} 
-                          className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
-                          onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
-                          onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                          onDragLeave={handleWbsDragLeave}
-                          onDrop={(e) => handleWbsDrop(e, cat.code)}
-                      >
-                          {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
-                          
-                          <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
-                              <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
-                                  <div className="flex items-center gap-2 mb-0.5">
-                                      <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
-                                      <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
-                                      {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
-                                      {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
-                                  </div>
-                                  <div className="pl-5">
-                                      <span className="text-xs font-semibold block truncate pr-8">{cat.name}</span>
-                                      <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
-                                  </div>
+            <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] p-5 gap-4">
+               {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && (
+                   <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300">
+                        <div className="flex items-center gap-3">
+                             <div className="bg-[#2c3e50] text-white p-2.5 rounded-lg shadow-lg font-black text-xl">{activeCategory.code}</div>
+                             <div><h2 className="text-lg font-black text-slate-800 uppercase max-w-[400px] truncate tracking-tight">{activeCategory.name}</h2><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
+                        </div>
+                        <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-xs">
+                               <Plus className="w-4 h-4" /> Aggiungi Voce
+                        </button>
+                   </div>
+               )}
+
+               <div className="flex-1 overflow-y-auto rounded-xl bg-white shadow-2xl border border-gray-300 flex flex-col relative">
+                  {viewMode === 'COMPUTO' && (
+                      selectedCategoryCode === 'SUMMARY' ? (
+                          <div className="p-8"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
+                      ) : activeCategory ? (
+                          <div key={activeCategory.code} className="flex flex-col h-full">
+                              <div className="flex-1 overflow-x-auto">
+                                  <table className="w-full text-left border-collapse">
+                                      <TableHeader activeColumn={activeColumn} />
+                                      {activeArticles.map((article, artIndex) => (
+                                          <ArticleGroup 
+                                            key={article.id} 
+                                            article={article} 
+                                            index={artIndex} 
+                                            allArticles={articles} 
+                                            isPrintMode={false} 
+                                            isCategoryLocked={activeCategory.isLocked} 
+                                            onUpdateArticle={handleUpdateArticle} 
+                                            onEditArticleDetails={handleEditArticleDetails} 
+                                            onDeleteArticle={onDeleteArticle} 
+                                            onAddMeasurement={onAddMeasurement} 
+                                            onAddSubtotal={onAddSubtotal} 
+                                            onAddVoiceMeasurement={handleAddVoiceMeasurement} 
+                                            onUpdateMeasurement={onUpdateMeasurement} 
+                                            onDeleteMeasurement={onDeleteMeasurement} 
+                                            onToggleDeduction={onToggleDeduction} 
+                                            onOpenLinkModal={(artId, mId) => { setLinkTarget({ articleId: artId, measurementId: mId }); setIsLinkModalOpen(true); }} 
+                                            onScrollToArticle={(id) => { document.getElementById(`article-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} 
+                                            onReorderMeasurements={() => {}} 
+                                            onArticleDragStart={() => setIsDraggingArticle(true)} 
+                                            onArticleDrop={() => {}} 
+                                            onArticleDragEnd={() => setIsDraggingArticle(false)} 
+                                            lastAddedMeasurementId={lastAddedMeasurementId} 
+                                            onColumnFocus={setActiveColumn} 
+                                            onViewAnalysis={handleViewLinkedAnalysis} 
+                                            onInsertExternalArticle={() => {}} 
+                                            onToggleArticleLock={onToggleArticleLock} 
+                                            onOpenRebarCalculator={handleOpenRebarCalculator} 
+                                            onOpenPaintingCalculator={handleOpenPaintingCalculator} 
+                                            isPaintingAutomationWaiting={isPaintingAutomationWaiting && paintingTargetArticleId === article.id}
+                                            isRebarAutomationWaiting={isRebarAutomationWaiting && rebarTargetArticleId === article.id}
+                                          />
+                                      ))}
+                                  </table>
                               </div>
                           </div>
-
-                          <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
-                              <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
-                              <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                              <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
-                              <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
-                              <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
-                          </div>
-                      </li>
-                      ))}
-                  </ul>
-                  
-                  <div className="mt-auto p-3 border-t border-gray-300 bg-slate-50 sticky bottom-0 z-20">
-                      <button 
-                          onClick={() => setSelectedCategoryCode('SUMMARY')}
-                          className={`w-full flex items-center p-2.5 rounded text-xs font-black uppercase transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-white border border-transparent hover:border-slate-200'}`}
-                      >
-                          <Layers className="w-4 h-4 mr-2" />
-                          Riepilogo Generale
-                      </button>
-                      <div className="mt-2 text-right px-2 pb-1">
-                          <span className="text-[9px] text-slate-400 uppercase font-bold block">Totale Lavori</span>
-                          <span className="font-mono font-black text-sm text-slate-700">{formatCurrency(totals.totalWorks)}</span>
-                      </div>
-                  </div>
-                </>
-              ) : (
-                <div className="p-2 space-y-2">
-                    <div className="p-1 bg-white border-b border-gray-200">
-                      <input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" />
-                    </div>
-                    {filteredAnalyses.map(analysis => (
-                         <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 bg-gray-50/50' : 'border-gray-200 hover:border-purple-300'}`}>
-                             <div className="flex justify-between mb-1">
-                                 <span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
-                                    {analysis.isLocked && <Lock className="w-2.5 h-2.5" />}
-                                    {analysis.code}
-                                 </span>
-                                 <span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span>
-                             </div>
-                             <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
-                             <div className="flex justify-between items-center mt-2 border-t pt-2">
-                                <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
-                                    <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'}`}>
-                                        {analysis.isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                                    </button>
-                                    <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
-                                        <Edit2 className="w-3 h-3" />
-                                    </button>
-                                    <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
-                                        <Trash2 className="w-3 h-3" />
-                                    </button>
-                                </div>
-                                <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded border border-purple-100 shadow-sm" title="Usa nel computo">
-                                    <ArrowRightLeft className="w-3.5 h-3.5" />
-                                </button>
-                             </div>
-                         </div>
-                    ))}
-                </div>
-              )}
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#f0f2f5] p-5 gap-4">
-           {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && (
-               <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300">
-                    <div className="flex items-center gap-3">
-                         <div className="bg-[#2c3e50] text-white p-2.5 rounded-lg shadow-lg font-black text-xl">{activeCategory.code}</div>
-                         <div><h2 className="text-lg font-black text-slate-800 uppercase max-w-[400px] truncate tracking-tight">{activeCategory.name}</h2><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                       <div className="flex flex-col">
-                            <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1">
-                                <Award className="w-2.5 h-2.5" /> Preimposta Categoria SOA
-                            </span>
-                            <select 
-                                value={activeSoaCategory}
-                                onChange={(e) => setActiveSoaCategory(e.target.value)}
-                                className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 outline-none focus:ring-1 focus:ring-purple-500 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors"
-                            >
-                                {SOA_CATEGORIES.map(soa => (
-                                    <option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>
-                                ))}
-                            </select>
-                       </div>
-                       <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-xs h-[38px] mt-3">
-                           <Plus className="w-4 h-4" /> Aggiungi Voce
-                       </button>
-                    </div>
+                      ) : null
+                  )}
                </div>
-           )}
+            </div>
+          </div>
 
-           {viewMode === 'ANALISI' && (
-                <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm mb-0">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-[#8e44ad] text-white p-2.5 rounded-lg shadow-lg font-black text-xl"><TestTubes className="w-6 h-6" /></div>
-                        <div><h2 className="text-lg font-black text-slate-800 uppercase tracking-tight">Gestione Analisi Prezzi</h2><span className="text-[10px] font-black text-purple-600 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-purple-100">{analyses.length} Analisi in archivio</span></div>
-                    </div>
-                    <button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-lg hover:bg-purple-700 transition-all flex items-center gap-2 text-sm">
-                        <Plus className="w-5 h-5" /> Nuova Analisi
-                    </button>
-                </div>
-           )}
-
-           <div 
-             className="flex-1 overflow-y-auto rounded-xl bg-white shadow-2xl border border-gray-300 flex flex-col relative" 
-             onKeyDown={handleInputKeyDown}
-             onDragOver={handleWorkspaceDragOver}
-             onDragLeave={() => setIsWorkspaceDragOver(false)}
-             onDrop={handleWorkspaceDrop}
-           >
-              {isWorkspaceDragOver && viewMode === 'COMPUTO' && (
-                <div className="absolute inset-0 z-[100] bg-blue-600/10 backdrop-blur-[2px] border-4 border-dashed border-blue-500 rounded-xl flex items-center justify-center p-12 pointer-events-none animate-in fade-in duration-200">
-                   <div className="bg-white p-10 rounded-3xl shadow-2xl border border-blue-200 flex flex-col items-center text-center max-w-md animate-in zoom-in-95">
-                      <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mb-6">
-                        <Sparkles className="w-10 h-10 text-blue-600 animate-pulse" />
-                      </div>
-                      <h3 className="text-2xl font-black text-blue-900 mb-2 uppercase tracking-tight">GeCoLa Smart Gate</h3>
-                      <p className="text-gray-600 mb-6 leading-relaxed">Rilascia qui per aggiungere istantaneamente la voce al capitolo:<br/><span className="font-black text-blue-700">{activeCategory?.code} - {activeCategory?.name}</span></p>
-                      <div className="flex items-center gap-2 text-xs font-bold text-blue-500 uppercase tracking-widest bg-blue-50 px-4 py-2 rounded-full">
-                        <ArrowRightLeft className="w-4 h-4" /> Pronto per l'importazione
-                      </div>
-                   </div>
-                </div>
-              )}
-
-              {viewMode === 'COMPUTO' && (
-                  selectedCategoryCode === 'SUMMARY' ? (
-                      <div className="p-8"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
-                  ) : activeCategory ? (
-                      <div key={activeCategory.code} className="flex flex-col h-full">
-                          <div className="flex-1 overflow-x-auto">
-                              <table className="w-full text-left border-collapse">
-                                  <TableHeader activeColumn={activeColumn} />
-                                  {activeArticles.length === 0 ? (
-                                      <tbody><tr><td colSpan={12} className="p-20 text-center text-slate-300 italic font-medium uppercase tracking-widest leading-relaxed">
-                                          Nessun articolo inserito. <br/>
-                                          Trascina voci da <a href="https://www.gecola.it" target="_blank" rel="noopener" className="text-blue-500 hover:text-blue-700 hover:underline font-black">Gecola.it</a> o usa il tasto "+"
-                                      </td></tr></tbody>
-                                  ) : (
-                                      activeArticles.map((article, artIndex) => (
-                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} />
-                                      ))
-                                  )}
-                              </table>
-                          </div>
-                      </div>
-                  ) : <div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona un capitolo</div>
-              )}
-              
-              {viewMode === 'ANALISI' && (
-                  <div className="p-8 bg-slate-50 min-h-full">
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                        {analyses.map(analysis => (
-                            <div key={analysis.id} className={`bg-white rounded-xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-xl'}`}>
-                                <div className="p-5 flex-1">
-                                    <div className="flex justify-between items-start mb-3">
-                                        <div className="flex flex-col">
-                                            <span className="bg-purple-600 text-white font-black font-mono text-[10px] px-2 py-1 rounded-full w-fit flex items-center gap-1.5 shadow-sm">
-                                                {analysis.isLocked && <Lock className="w-3 h-3" />}
-                                                {analysis.code}
-                                            </span>
-                                            <span className="text-[10px] text-gray-400 font-bold mt-1 uppercase tracking-tighter">{analysis.unit}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div>
-                                            <span className="text-[9px] text-gray-400 uppercase font-bold">Prezzo Unitario</span>
-                                        </div>
-                                    </div>
-                                    <h4 className="font-bold text-gray-800 text-sm leading-snug line-clamp-3 mb-4">{analysis.description}</h4>
-                                    
-                                    <div className="space-y-1.5 border-t pt-4">
-                                        <div className="flex justify-between text-[10px]">
-                                            <span className="text-gray-500 font-bold uppercase">Materiali</span>
-                                            <span className="font-mono text-gray-700">{formatCurrency(analysis.totalMaterials)}</span>
-                                        </div>
-                                        <div className="flex justify-between text-[10px]">
-                                            <span className="text-gray-500 font-bold uppercase">Manodopera</span>
-                                            <span className="font-mono text-gray-700">{formatCurrency(analysis.totalLabor)}</span>
-                                        </div>
-                                        <div className="flex justify-between text-[10px]">
-                                            <span className="text-gray-500 font-bold uppercase">Noli/Attr.</span>
-                                            <span className="font-mono text-gray-700">{formatCurrency(analysis.totalEquipment)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="p-3 bg-gray-50 border-t flex justify-between items-center rounded-b-xl">
-                                    <div className="flex items-center gap-1">
-                                        <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1.5 rounded-lg transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>
-                                            {analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                                        </button>
-                                        <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-white rounded-lg transition-all" title="Modifica">
-                                            <PenLine className="w-4 h-4" />
-                                        </button>
-                                        <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-white rounded-lg transition-all" title="Elimina">
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                    <button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-1.5 bg-white text-purple-700 font-black text-[10px] px-3 py-1.5 rounded-lg border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase" title="Usa questa analisi nel computo corrente">
-                                        Usa <ArrowRightLeft className="w-3.5 h-3.5" />
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                  </div>
-              )}
-           </div>
-        </div>
-      </div>
-      
-      <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
-      {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
-      {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
-      <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} />
-      <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
-      <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
-      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
-      <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
-      <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
-      <ChangePasswordModal isOpen={mustChangePassword} onSuccess={() => setMustChangePassword(false)} />
+          {/* MODALS */}
+          <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
+          <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={setProjectInfo} />
+          <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} />
+          <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => { setIsRebarModalOpen(false); stopAllAutomations(); }} onAdd={handleAddRebarMeasurement} />
+          <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => { setIsPaintingModalOpen(false); stopAllAutomations(); }} onAdd={handleAddPaintingMeasurements} />
+          <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => {}} />
+          {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => setIsEditArticleModalOpen(false)} article={editingArticle} onSave={handleArticleEditSave} />}
+          {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
+        </>
+      )}
     </div>
   );
 };
