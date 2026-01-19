@@ -765,8 +765,8 @@ const App: React.FC = () => {
   const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
     if (!isVisitor) return true;
     const currentTotal = articles.length;
-    if (currentTotal + newCountToAdd > 5) {
-      alert(`VERSIONE LITE: Limite di 5 voci raggiunto.\nStai tentando di inserire ${newCountToAdd} voci ma ne mancano ${5 - currentTotal} al limite.`);
+    if (currentTotal + newCountToAdd > 15) {
+      alert(`VERSIONE LITE: Limite di 15 voci raggiunto.\nStai tentando di inserire ${newCountToAdd} voci ma ne mancano ${15 - currentTotal} al limite.`);
       return false;
     }
     return true;
@@ -1488,8 +1488,8 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-black uppercase tracking-widest animate-pulse">
                             <Sparkles className="w-3 h-3" /> Account Versione Lite
                         </div>
-                        <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 5 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
-                            Voci Utilizzate: {articles.length} / 5
+                        <div className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${articles.length >= 15 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                            Voci Utilizzate: {articles.length} / 15
                         </div>
                       </div>
                   )}
@@ -1508,13 +1508,23 @@ const App: React.FC = () => {
               </div>
 
               <div className="flex items-center space-x-2">
+                 {/* OBIETTIVO N.1: CARICA FILE (CARTELLA) */}
+                 <button 
+                    onClick={() => fileInputRef.current?.click()} 
+                    className="p-2 transition-colors text-slate-300 hover:text-orange-400" 
+                    title="Carica Progetto (.json)"
+                 >
+                    <FolderOpen className="w-5 h-5" />
+                 </button>
+
                  <div className="relative">
+                    {/* OBIETTIVO N.2: SALVA FILE (DISCHETTO) */}
                     <button 
                         onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
                         className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" 
                         title="Esporta Progetto"
                     >
-                        <Download className="w-5 h-5" />
+                        <Save className="w-5 h-5" />
                         <ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
                     {isSaveMenuOpen && (
@@ -1608,6 +1618,14 @@ const App: React.FC = () => {
                               <Layers className="w-4 h-4 mr-2" />
                               Riepilogo Generale
                           </button>
+                          
+                          {/* OBIETTIVO N.3: TOTALE DEL COMPUTO SOTTO RIEPILOGO GENERALE */}
+                          <div className="mt-2 px-2 py-1.5 bg-slate-100/50 rounded-lg border border-slate-200/50 text-center animate-in fade-in duration-500">
+                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Valore Totale Progetto</span>
+                             <span className="text-sm font-mono font-black text-blue-700">
+                                {formatCurrency(totals.totalWorks + totals.safetyCosts)}
+                             </span>
+                          </div>
                       </div>
                     </>
                   ) : (

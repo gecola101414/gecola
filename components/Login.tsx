@@ -213,7 +213,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     <li className="flex items-start gap-3">
                         <div className="bg-orange-100 p-2 rounded-xl mt-0.5 shadow-sm"><ShieldAlert className="w-4 h-4 text-orange-600" /></div>
                         <div>
-                            <span className="block text-[10px] font-black text-slate-700 uppercase leading-none mb-1">Limite 5 Voci</span>
+                            <span className="block text-[10px] font-black text-slate-700 uppercase leading-none mb-1">Limite 15 Voci</span>
                             <span className="text-[10px] text-slate-500 font-medium leading-tight block">Il limite serve solo a testare la qualità del software.</span>
                         </div>
                     </li>
