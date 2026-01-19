@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, Mail, Phone, Users, TrendingUp, Handshake, ExternalLink, CheckCircle2, KeyRound, Sparkles } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, Info, Mail, MessageSquare, CheckCircle2, Sparkles, Phone, Users, TrendingUp, Handshake, ExternalLink } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
@@ -11,8 +12,9 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [resetMessage, setResetMessage] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,7 +24,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
     }
     setLoading(true);
     setError('');
-    setResetMessage('');
+    setSuccess('');
     
     try {
       await signInWithEmailAndPassword(auth, email, password);
@@ -42,20 +44,27 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
 
   const handleForgotPassword = async () => {
     if (!email) {
-      setError("Inserisci la tua email aziendale per reimpostare la password.");
+      setError('Inserisci il tuo indirizzo email per ricevere il link di ripristino.');
       return;
     }
-    setLoading(true);
+    if (!auth) return;
+
+    setResetLoading(true);
     setError('');
-    setResetMessage('');
+    setSuccess('');
+
     try {
-      await sendPasswordResetEmail(auth!, email);
-      setResetMessage("Email di ripristino inviata! Controlla la tua casella di posta.");
+      await sendPasswordResetEmail(auth, email);
+      setSuccess('Email di ripristino inviata! Controlla la tua casella di posta.');
     } catch (err: any) {
       console.error(err);
-      setError("Impossibile inviare l'email di ripristino. Verifica l'indirizzo inserito.");
+      if (err.code === 'auth/user-not-found') {
+        setError('Nessun utente trovato con questa email.');
+      } else {
+        setError('Impossibile inviare l\'email di ripristino. Riprova.');
+      }
     } finally {
-      setLoading(false);
+      setResetLoading(false);
     }
   };
 
@@ -83,10 +92,10 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                 </div>
               )}
 
-              {resetMessage && (
+              {success && (
                 <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-2 rounded-xl text-xs flex items-center gap-3 animate-in fade-in slide-in-from-top-1">
                   <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                  {resetMessage}
+                  {success}
                 </div>
               )}
 
@@ -104,16 +113,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                 </div>
 
                 <div>
-                  <div className="flex justify-between items-center mb-1 ml-1">
-                    <label className="block text-[9px] font-black uppercase text-slate-400">Password</label>
-                    <button 
-                      type="button" 
-                      onClick={handleForgotPassword}
-                      className="text-[9px] font-black uppercase text-blue-600 hover:text-blue-800 transition-colors"
-                    >
-                      Password dimenticata?
-                    </button>
-                  </div>
+                  <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 ml-1">Password</label>
                   <input
                     type="password"
                     required
@@ -122,6 +122,16 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-sm bg-slate-50"
                     placeholder="••••••••"
                   />
+                  <div className="flex justify-end mt-1">
+                    <button 
+                      type="button" 
+                      onClick={handleForgotPassword}
+                      disabled={resetLoading}
+                      className="text-[9px] font-bold text-slate-400 hover:text-orange-500 uppercase tracking-tighter transition-colors disabled:opacity-50"
+                    >
+                      {resetLoading ? 'Invio in corso...' : 'Password dimenticata?'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -140,7 +150,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                   className="w-full bg-white border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 text-slate-600 font-black py-3 px-4 rounded-xl shadow-sm transform transition-all active:scale-95 flex items-center justify-center gap-2 uppercase text-[10px] tracking-widest group"
                   >
                   <UserCircle className="w-4 h-4 text-slate-400 group-hover:text-orange-500" /> 
-                  Visitatore Demo
+                  Visitatore-Demo
                   </button>
               </div>
             </form>
@@ -189,7 +199,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
         <div className="w-full md:w-96 bg-slate-50 p-6 md:p-8 border-l border-slate-100 flex flex-col gap-4 overflow-y-auto">
             <div className="space-y-4">
                 <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-widest">
-                    <Sparkles className="w-4 h-4" /> Versione Lite (Demo)
+                    <Sparkles className="w-4 h-4" /> Versione Visitatore
                 </div>
                 
                 <ul className="space-y-3">

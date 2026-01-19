@@ -40,12 +40,12 @@ export const SOA_CATEGORIES = [
 ];
 
 export const PROJECT_INFO: ProjectInfo = {
-  title: 'Nuovo Progetto Edile',
-  client: 'Committente da definire',
-  designer: 'Ing. Nome Progettista',
-  location: 'Località',
+  title: 'Ristrutturazione Edificio Residenziale "Palazzo del Sole"',
+  client: 'Condominio Via Roma 12',
+  designer: 'Arch. Marco Rossi',
+  location: 'Milano (MI)',
   date: new Date().toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }),
-  priceList: 'Prezzario Regionale', 
+  priceList: 'Prezzario Lombardia 2025', 
   region: 'Lombardia',
   year: '2025',
   vatRate: 10,
@@ -60,7 +60,56 @@ export const CATEGORIES: Category[] = [
   { code: 'WBS.05', name: 'Opere di Finitura e Rivestimenti', isEnabled: true, isLocked: false },
 ];
 
-export const INITIAL_ARTICLES: Article[] = [];
+export const INITIAL_ARTICLES: Article[] = [
+  {
+    id: 'demo-art-1',
+    categoryCode: 'WBS.02',
+    code: '1.A.01.10.a',
+    description: 'Demolizione di muratura di qualsiasi natura e spessore, compreso l\'onere per il carico, il trasporto e lo scarico alle discariche autorizzate del materiale di risulta.',
+    unit: 'm³',
+    unitPrice: 45.50,
+    laborRate: 85,
+    soaCategory: 'OG1',
+    priceListSource: 'Prezzario Lombardia 2025',
+    quantity: 0,
+    measurements: [
+      { id: 'm1', description: 'Parete divisoria corridoio', multiplier: 1, length: 4.50, width: 0.15, height: 2.70, type: 'positive' },
+      { id: 'm2', description: 'Sfondato porta cucina', multiplier: 1, length: 0.90, width: 0.15, height: 2.10, type: 'deduction' }
+    ]
+  },
+  {
+    id: 'demo-art-2',
+    categoryCode: 'WBS.03',
+    code: '2.B.20.05.b',
+    description: 'Fornitura e posa in opera di tramezzatura interna realizzata con blocchi in laterizio forato sp. 8 cm, compreso allettamento con malta bastarda e ogni altro onere.',
+    unit: 'm²',
+    unitPrice: 32.80,
+    laborRate: 45,
+    soaCategory: 'OG1',
+    priceListSource: 'Prezzario Lombardia 2025',
+    quantity: 0,
+    measurements: [
+      { id: 'm3', description: 'Nuovo divisorio camera/bagno', multiplier: 1, length: 3.20, height: 2.70, type: 'positive' },
+      { id: 'm4', description: 'Nuovo divisorio ingresso', multiplier: 2, length: 1.50, height: 2.70, type: 'positive' }
+    ]
+  },
+  {
+    id: 'demo-art-3',
+    categoryCode: 'WBS.05',
+    code: '5.F.15.10.c',
+    description: 'Posa in opera di pavimento in gres porcellanato di prima scelta, in piastrelle di qualsiasi formato, compresa la formazione del letto di posa con collante cementizio.',
+    unit: 'm²',
+    unitPrice: 28.00,
+    laborRate: 60,
+    soaCategory: 'OG1',
+    priceListSource: 'Prezzario Lombardia 2025',
+    quantity: 0,
+    measurements: [
+      { id: 'm5', description: 'Pavimentazione soggiorno', multiplier: 1, length: 6.00, width: 4.50, type: 'positive' },
+      { id: 'm6', description: 'Pavimentazione camera', multiplier: 1, length: 4.00, width: 4.00, type: 'positive' }
+    ]
+  }
+];
 
 export const INITIAL_ANALYSES: PriceAnalysis[] = [
   {
