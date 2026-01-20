@@ -4,7 +4,7 @@ import {
   X, Book, ChevronRight, ChevronLeft, Calculator, Sparkles, Award, 
   Layers, Search, Save, Users, User, Zap, ShieldCheck, Share2, 
   Maximize2, Paintbrush, CircleDot, Database, Terminal, Cpu, 
-  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History
+  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft
 } from 'lucide-react';
 
 interface HelpManualModalProps {
@@ -34,7 +34,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
     {
       title: "4. Focus Mode & Toolbar Dinamica",
       icon: <MousePointer2 className="w-5 h-5" />,
-      content: "Attiva il 'Tutto Schermo' per eliminare ogni distrazione. In questa modalità, una toolbar fluttuante comparirà al centro. \n\nPuoi TRASCINARLA: tieni premuto sulla maniglia (icona con i puntini) e spostala lateralmente o in alto per liberare la vista sui righi che stai compilando. La toolbar contiene solo i comandi vitali: Salva, Annulla, Ripristina e Aggiungi Voce."
+      content: "Attiva il 'Tutto Schermo' per eliminare ogni distrazione. In questa modalità, una toolbar fluttuante minimalista comparirà al centro. \n\nGestione Toolbar:\n- TRASCINAMENTO: Tieni premuto sulla maniglia e spostala. Il sistema impedisce alla toolbar di uscire dai bordi dello schermo (Boundary Lock), garantendo che sia sempre accessibile.\n- CONTENUTO: Mostra solo il nome della WBS attiva e il suo importo parziale, per un monitoraggio discreto del budget."
     },
     {
       title: "5. Gestione WBS (Capitoli)",
@@ -57,9 +57,9 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
       content: "Progettato per calcolare i KG di acciaio B450C. Seleziona il diametro (Ø) e il sistema applica il peso specifico corretto. \n\nIndica il numero di pezzi (staffe o barre) e la lunghezza. La designazione del rigo verrà formattata automaticamente includendo il diametro e la struttura di riferimento (es: [TRAVE T1] Staffe Ø8). Ideale per computare armature complesse in pochi secondi."
     },
     {
-      title: "9. Collegamento 'Vedi Voce'",
+      title: "9. Navigazione Circolare 'Vedi Voce'",
       icon: <Link className="w-5 h-5" />,
-      content: "Il tasto 'Catena' permette di collegare una misura alla quantità totale di un'altra voce. \n\nSe la voce 'Intonaco' dipende dalla superficie delle 'Murature', puoi collegarle. Se aggiorni le misure della muratura, anche l'intonaco si ricalcolerà istantaneamente. Puoi scegliere se importare la 'Quantità' (es. mq) o l''Importo' (es. €) per gestire oneri percentuali o lavori correlati."
+      content: "La funzione 'Vedi Voce' implementa una navigazione circolare assistita per la verifica istantanea dei dati.\n\n- ISPEZIONE: Cliccando su un link 'Vedi voce n. X.Y', il software ti proietta direttamente alla voce sorgente per verificarne le misure.\n- RITORNO SMART: Automaticamente apparirà sullo schermo un tasto fluttuante trasparente 'Torna alla voce di lavoro'. Cliccandolo, GeCoLa ti riporta istantaneamente al punto esatto dove stavi scrivendo, chiudendo il ciclo di verifica senza farti scorrere manualmente il foglio."
     },
     {
       title: "10. Assistente AI & Voice Control",
@@ -74,7 +74,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
     {
       title: "12. Qualifiche SOA & Normativa",
       icon: <Award className="w-5 h-5" />,
-      content: "Essenziale per le Opere Pubbliche. Assegna a ogni voce la sua categoria SOA (OG1, OS3, etc.). \n\nNel Riepilogo Generale, il sistema analizzerà la distribuzione degli importi determinando la Categoria Prevalente e le Scorporabili. Questo assicura che il tuo computo sia pronto per le procedure di gara o per la contabilità lavori ufficiale."
+      content: "Essenziale per le Opere Pubbliche. Assegna a ogni voce la sua categoria SOA (OG1, OS3, etc.). \n\nNel Riepilogo Generale, il sistema analizzerà la distribution degli importi determinando la Categoria Prevalente e le Scorporabili. Questo assicura che il tuo computo sia pronto per le procedure di gara o per la contabilità lavori ufficiale."
     },
     {
       title: "13. Stima Manodopera & Sicurezza",
@@ -116,7 +116,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
         </div>
 
         <div className="flex-1 flex overflow-hidden">
-          {/* Sidebar - Migliorata per 15 capitoli */}
+          {/* Sidebar */}
           <div className="w-72 bg-slate-50 border-r border-slate-200 overflow-y-auto p-3 space-y-1 custom-scrollbar flex-shrink-0">
             {chapters.map((ch, idx) => (
               <button

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -124,7 +124,7 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
       <th className="py-2.5 px-1 text-right w-[75px] border-r border-gray-300">Prezzo €</th>
       <th className="py-2.5 px-1 text-right w-[85px] border-r border-gray-300">Importo €</th>
       <th className="py-2.5 px-1 text-right w-[75px] border-r border-gray-300">M.O. €</th>
-      <th className="py-2.5 px-1 text-center w-[40px] print:hidden text-gray-400">Cmd</th>
+      <th className="py-2.5 px-1 text-center w-[80px] print:hidden text-gray-400">Cmd</th>
     </tr>
   </thead>
 );
@@ -145,7 +145,7 @@ interface ArticleGroupProps {
   onDeleteMeasurement: (articleId: string, mId: string) => void;
   onToggleDeduction: (articleId: string, mId: string) => void;
   onOpenLinkModal: (articleId: string, measurementId: string) => void;
-  onScrollToArticle: (id: string) => void;
+  onScrollToArticle: (id: string, fromId?: string) => void;
   onReorderMeasurements: (articleId: string, startIndex: number, endIndex: number) => void;
   onArticleDragStart: (e: React.DragEvent, article: Article) => void;
   onArticleDrop: (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom') => void;
@@ -535,7 +535,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 <div className="absolute left-0 top-1/2 w-4 h-[1px] bg-gray-300"></div>
                                 {m.linkedArticleId && linkedArt ? (
                                 <div className="flex items-center space-x-2">
-                                    <button onClick={() => onScrollToArticle(linkedArt.id)} className="flex items-center space-x-1 px-1 py-0.5 rounded hover:bg-blue-50 group/link transition-colors text-left">
+                                    <button onClick={() => onScrollToArticle(linkedArt.id, article.id)} className="flex items-center space-x-1 px-1 py-0.5 rounded hover:bg-blue-50 group/link transition-colors text-left">
                                         <span className="text-blue-600 font-bold hover:underline cursor-pointer text-[11px]">Vedi voce n. {getLinkedArticleNumber(linkedArt)}</span>
                                         <span className="text-gray-500 text-[10px]">
                                             ({m.linkedType === 'amount' ? formatCurrency(linkedArt.quantity * linkedArt.unitPrice) : `${formatNumber(linkedArt.quantity)} ${linkedArt.unit}`})
@@ -579,13 +579,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     </td>
                     <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white text-gray-600'} ${m.linkedArticleId ? 'font-bold text-blue-700' : ''}`}>{formatNumber(m.displayValue)}</td>
                     <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                    <td className="text-center print:hidden bg-white border-l border-gray-200">
+                    <td className="text-center print:hidden bg-white border-l border-gray-200 w-[80px]">
                         {!isPrintMode && !areControlsDisabled && (
-                            <div className="flex justify-center items-center space-x-1 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                            <div className="flex justify-center items-center space-x-1 opacity-0 group-hover/row:opacity-100 transition-opacity px-1">
                                 {!isSubtotal && (
                                     <>
                                         <button onClick={() => onOpenLinkModal(article.id, m.id)} className={`rounded p-0.5 transition-colors ${m.linkedArticleId ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`} title={m.linkedArticleId ? "Modifica Collegamento" : "Vedi Voce (Collega)"}><LinkIcon className="w-3.5 h-3.5" /></button>
-                                        <div className="w-px h-3 bg-gray-300 mx-1"></div>
+                                        <div className="w-px h-3 bg-gray-300 mx-0.5"></div>
                                         <button onClick={() => onToggleDeduction(article.id, m.id)} className={`transition-colors p-0.5 rounded ${m.type === 'positive' ? 'text-red-400 hover:text-red-600 hover:bg-red-50' : 'text-blue-400 hover:text-blue-600 hover:bg-blue-50'}`} title={m.type === 'positive' ? "Trasforma in Deduzione" : "Trasforma in Positivo"}>{m.type === 'positive' ? <MinusCircle className="w-3.5 h-3.5" /> : <PlusCircle className="w-3.5 h-3.5" />}</button>
                                     </>
                                 )}
@@ -608,9 +608,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              <td className="border-r border-gray-300 text-right pr-1 font-mono text-gray-500 font-normal">
                  <div className="flex flex-col items-end leading-none py-1"><span>{formatCurrency(laborValue)}</span><span className="text-[9px] text-gray-400">({article.laborRate}%)</span></div>
              </td>
-             <td className="text-center print:hidden bg-gray-50 border-l border-gray-200">
+             <td className="text-center print:hidden bg-gray-50 border-l border-gray-200 w-[80px]">
                 {!isPrintMode && !areControlsDisabled && (
-                   <div className="flex items-center justify-center space-x-1">
+                   <div className="flex items-center justify-center space-x-1 px-1">
                         <button onClick={() => onAddSubtotal(article.id)} className="w-5 h-5 rounded-full flex items-center justify-center text-orange-400 hover:text-white hover:bg-orange-500 transition-all border border-orange-200 hover:border-orange-500 shadow-sm" title="Inserisci Sommano Parziale"><Sigma className="w-3 h-3" /></button>
                         <button ref={addBtnRef} onClick={() => onAddMeasurement(article.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-blue-600 hover:text-white hover:bg-blue-600 transition-all border border-blue-200 hover:border-blue-600 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" title="Aggiungi rigo misura"><Plus className="w-4 h-4" /></button>
                    </div>
@@ -646,6 +646,7 @@ const App: React.FC = () => {
   const [isFocusMode, setIsFocusMode] = useState(false); 
   const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 50 }); // Floating Menu Draggable Pos
   const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
+  const [returnPath, setReturnPath] = useState<string | null>(null); // NEW: Per il tasto "Torna alla voce"
   const dragOffset = useRef({ x: 0, y: 0 });
 
   const [isRebarModalOpen, setIsRebarModalOpen] = useState(false);
@@ -693,7 +694,7 @@ const App: React.FC = () => {
 
   // Centra inizialmente il toolbar
   useEffect(() => {
-      setToolbarPos({ x: (window.innerWidth / 2) - 150, y: 30 });
+      setToolbarPos({ x: (window.innerWidth / 2) - 100, y: 30 });
   }, []);
 
   const stopAllAutomations = useCallback(() => {
@@ -1229,7 +1230,36 @@ const App: React.FC = () => {
   const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === targetArticleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
-  const handleScrollToArticle = (id: string) => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'center' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } };
+  
+  const handleScrollToArticle = (id: string, fromId?: string) => { 
+      const targetArt = articles.find(a => a.id === id);
+      if (!targetArt) return;
+
+      if (fromId) {
+          setReturnPath(fromId);
+      }
+
+      if (selectedCategoryCode !== targetArt.categoryCode) {
+          setSelectedCategoryCode(targetArt.categoryCode);
+      }
+
+      setTimeout(() => {
+          const element = document.getElementById(`article-${id}`);
+          if (element) {
+              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              element.classList.add('bg-yellow-50');
+              setTimeout(() => element.classList.remove('bg-yellow-50'), 2000);
+          }
+      }, 300);
+  };
+
+  const handleReturnToArticle = () => {
+      if (returnPath) {
+          const id = returnPath;
+          setReturnPath(null); 
+          handleScrollToArticle(id);
+      }
+  };
   
   const handleAddEmptyArticle = (categoryCode: string) => { 
       if (!canAddArticle()) return;
@@ -1360,10 +1390,17 @@ const App: React.FC = () => {
   useEffect(() => {
       const handleGlobalMouseMove = (e: MouseEvent) => {
           if (isDraggingToolbar) {
-              setToolbarPos({
-                  x: e.clientX - dragOffset.current.x,
-                  y: e.clientY - dragOffset.current.y
-              });
+              const menuWidth = 240; 
+              const menuHeight = 44; 
+              
+              let nextX = e.clientX - dragOffset.current.x;
+              let nextY = e.clientY - dragOffset.current.y;
+              
+              // BLOCCO CONFINI SCHERMO (Boundary Locking)
+              nextX = Math.max(10, Math.min(nextX, window.innerWidth - menuWidth - 10));
+              nextY = Math.max(10, Math.min(nextY, window.innerHeight - menuHeight - 10));
+
+              setToolbarPos({ x: nextX, y: nextY });
           }
       };
       const handleGlobalMouseUp = () => setIsDraggingToolbar(false);
@@ -1472,7 +1509,7 @@ const App: React.FC = () => {
         <>
           {showAutoLoginAd && (
             <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-500">
-               <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col h-[80vh]">
+               <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col h-[80vh]">
                   <div className="bg-[#2c3e50] p-6 flex justify-between items-center text-white border-b border-slate-600">
                       <div className="flex items-center gap-3">
                           <Award className="w-6 h-6 text-orange-400" />
@@ -1514,10 +1551,14 @@ const App: React.FC = () => {
                         </div>
                     )}
                     {!isVisitor && (
-                        <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1.5 rounded-full border border-slate-700 text-white font-bold text-sm cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
-                            {isAutoSaving && <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)] mr-2"></span>}
-                            <span className="truncate max-w-[250px]">{projectInfo.title}</span>
-                            <Edit3 className="w-3 h-3 text-slate-400 ml-1" />
+                        <div className="flex flex-col items-center">
+                            <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1 rounded-t-xl border border-slate-700 text-white font-bold text-xs cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
+                                {isAutoSaving && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></span>}
+                                <span className="truncate max-w-[200px]">{projectInfo.title}</span>
+                            </div>
+                            <div className="bg-slate-900 px-3 py-0.5 rounded-b-lg border-x border-b border-slate-700 text-[8px] font-black uppercase text-slate-500 tracking-tighter">
+                                Operatore: {typeof user === 'object' ? user?.email : 'Visitatore'}
+                            </div>
                         </div>
                     )}
                     <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
@@ -1529,12 +1570,12 @@ const App: React.FC = () => {
                 <div className="flex items-center space-x-2">
                     <button onClick={() => fileInputRef.current?.click()} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Carica Progetto (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <div className="relative">
-                        <button onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" title="Esporta Progetto"><Save className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} /></button>
+                        <button onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" title="Salva con nome / Esporta"><Save className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isSaveMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                                <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Computo Metrico (.json)</b></button>
+                                <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Salva in JSON (.json)</b></button>
                                 <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Esporta in Excel (.xls)</b></button>
-                                <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta per Altri Soft.</b></button>
+                                <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta Altri Formati</b></button>
                             </div>
                         )}
                     </div>
@@ -1630,39 +1671,47 @@ const App: React.FC = () => {
                 </div>
             )}
 
-            <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'p-0' : 'p-5 gap-4'} relative`}>
+            <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'px-10 py-4' : 'p-5 gap-4'} relative`}>
                {/* OMBRE FISSE STICKY PER EFFETTO ROTOLO */}
-               <div className={`absolute left-0 right-0 h-12 bg-gradient-to-b from-black/25 via-black/5 to-transparent z-40 pointer-events-none rounded-t-3xl transition-all ${isFocusMode ? 'top-0' : 'top-5'}`}></div>
-               <div className={`absolute left-0 right-0 h-16 bg-gradient-to-t from-black/20 via-black/5 to-transparent z-40 pointer-events-none rounded-b-3xl transition-all ${isFocusMode ? 'bottom-0' : 'bottom-5'}`}></div>
+               <div className={`absolute left-10 right-10 h-12 bg-gradient-to-b from-black/25 via-black/5 to-transparent z-40 pointer-events-none rounded-t-xl transition-all ${isFocusMode ? 'top-4' : 'hidden'}`}></div>
+               <div className={`absolute left-10 right-10 h-16 bg-gradient-to-t from-black/20 via-black/5 to-transparent z-40 pointer-events-none rounded-b-xl transition-all ${isFocusMode ? 'bottom-4' : 'hidden'}`}></div>
 
-               {/* COMPACT & DRAGGABLE FLOATING TOOLBAR IN FOCUS MODE */}
+               {/* COMPACT & DRAGGABLE FLOATING TOOLBAR IN FOCUS MODE (MINIMAL DESIGN) */}
                {isFocusMode && (
                  <div 
                     style={{ left: toolbarPos.x, top: toolbarPos.y }}
-                    className="fixed z-[300] flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-xl border border-slate-700 p-1.5 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.6)] animate-in slide-in-from-top-4 duration-500 group select-none ring-1 ring-white/10"
+                    className="fixed z-[300] flex items-center gap-1.5 bg-slate-900/40 hover:bg-slate-900 backdrop-blur-md border border-slate-700/50 p-1 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] animate-in slide-in-from-top-4 duration-500 group select-none ring-1 ring-white/10 opacity-70 hover:opacity-100 transition-all"
                  >
                     <div 
                         onMouseDown={handleToolbarMouseDown}
-                        className="p-2 cursor-move text-slate-500 hover:text-blue-400 transition-colors"
+                        className="p-1.5 cursor-move text-slate-500 hover:text-blue-400 transition-colors"
                         title="Trascina per spostare"
                     >
-                        <GripHorizontal className="w-3.5 h-3.5" />
+                        <GripHorizontal className="w-3 h-3" />
                     </div>
-                    <div className="flex items-center gap-2 border-r border-slate-700 pr-3 mr-1 ml-1">
-                        <Calculator className="w-3 h-3 text-orange-500" />
-                        <span className="text-[8px] font-black text-white uppercase tracking-tighter max-w-[120px] truncate">{activeCategory?.code} - {activeCategory?.name}</span>
+                    <div className="flex items-center gap-2 pr-3 mr-1 ml-1">
+                        <span className="text-[10px] font-black text-white/90 uppercase tracking-tighter max-w-[150px] truncate">{activeCategory?.code} - {activeCategory?.name}</span>
+                        <div className="h-3 w-[1.5px] bg-slate-700"></div>
+                        <span className="text-[10px] font-black text-orange-400 font-mono tracking-tighter">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
                     </div>
-                    <div className="flex gap-0.5">
-                        <button onClick={() => handleUndo()} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors" title="Annulla"><Undo2 className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => handleRedo()} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors" title="Ripristina"><Redo2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                    <div className="h-4 w-px bg-slate-700 mx-1"></div>
-                    <div className="flex gap-1 items-center">
-                        <button onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90" title="Aggiungi Voce"><Plus className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => handleSmartSave(false)} className="bg-green-600 hover:bg-green-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90" title="Salva Progetto"><Save className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => setIsFocusMode(false)} className="bg-orange-600 hover:bg-orange-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90 ml-1" title="Esci Tutto Schermo"><Minimize2 className="w-3.5 h-3.5" /></button>
-                    </div>
+                    <button onClick={() => setIsFocusMode(false)} className="bg-orange-600 hover:bg-orange-500 text-white p-1.5 rounded-full shadow-lg transition-all active:scale-90" title="Esci Tutto Schermo">
+                        <Minimize2 className="w-3 h-3" />
+                    </button>
                  </div>
+               )}
+
+               {/* TASTO FLUTTUANTE "TORNA ALLA VOCE DI LAVORO" (MEMORY NAVIGATION) */}
+               {returnPath && (
+                 <button 
+                    onClick={handleReturnToArticle}
+                    className="fixed bottom-12 right-12 z-[250] flex items-center gap-3 bg-blue-600/30 hover:bg-blue-600 backdrop-blur-lg border border-blue-500/40 text-blue-100 px-6 py-4 rounded-[2rem] shadow-2xl transition-all hover:scale-105 active:scale-95 group animate-in slide-in-from-bottom-8 duration-500"
+                 >
+                    <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                    <div className="text-left">
+                        <span className="block text-[8px] font-black uppercase tracking-widest opacity-60">Navigazione Circolare</span>
+                        <span className="block text-xs font-black uppercase">Torna alla voce di lavoro</span>
+                    </div>
+                 </button>
                )}
 
                {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && !isFocusMode && (
@@ -1683,8 +1732,8 @@ const App: React.FC = () => {
                )}
 
            <div 
-             className={`flex-1 overflow-y-auto overflow-x-hidden bg-white shadow-[0_35px_60px_-15px_rgba(0,0,0,0.4)] border-x border-gray-400 flex flex-col relative scroll-smooth group/rotolo transition-all duration-500 ${isFocusMode ? 'rounded-none' : 'rounded-3xl'}`} 
-             style={{ backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.02) 0%, transparent 5%, transparent 95%, rgba(0,0,0,0.02) 100%)', backgroundAttachment: 'local' }}
+             className={`flex-1 overflow-y-auto overflow-x-hidden bg-white shadow-[0_35px_60px_-15px_rgba(0,0,0,0.4)] border-x border-gray-400 flex flex-col relative scroll-smooth group/rotolo transition-all duration-500 ${isFocusMode ? 'rounded-xl' : 'rounded-xl'}`} 
+             style={{ backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.015) 0%, transparent 4%, transparent 96%, rgba(0,0,0,0.015) 100%)', backgroundAttachment: 'local' }}
              onKeyDown={handleInputKeyDown}
              onDragOver={handleWorkspaceDragOver}
              onDragLeave={() => setIsWorkspaceDragOver(false)}
@@ -1693,14 +1742,13 @@ const App: React.FC = () => {
               {/* GRADIENTE INIZIO ROTOLO */}
               <div className="sticky top-0 left-0 right-0 h-10 bg-gradient-to-b from-white/95 via-white/40 to-transparent z-[100] pointer-events-none transition-opacity"></div>
               
-              <div className="flex-1 flex flex-col min-h-full">
+              <div className="flex-1 flex flex-col min-h-full px-6">
                   {isWorkspaceDragOver && viewMode === 'COMPUTO' && (
                     <div className="absolute inset-0 z-[110] bg-blue-600/10 backdrop-blur-[2px] border-4 border-dashed border-blue-500 flex items-center justify-center p-12 pointer-events-none animate-in fade-in duration-200">
-                        <div className="bg-white p-12 rounded-[3.5rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] border border-blue-200 flex flex-col items-center text-center max-w-md animate-in zoom-in-95">
+                        <div className="bg-white p-12 rounded-[2.5rem] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] border border-blue-200 flex flex-col items-center text-center max-w-md animate-in zoom-in-95">
                             <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6 ring-8 ring-blue-50 shadow-inner"><Sparkles className="w-12 h-12 text-blue-600 animate-pulse" /></div>
-                            <h3 className="text-3xl font-black text-blue-900 mb-2 uppercase tracking-tighter">Aggancio in corso</h3>
+                            <h3 className="text-3xl font-black text-blue-900 mb-2 uppercase tracking-tighter">Aggancio Magnetico</h3>
                             <p className="text-gray-600 mb-6 leading-relaxed">Rilascia per caricare la voce nel capitolo:<br/><span className="font-black text-blue-700 italic">{activeCategory?.code} - {activeCategory?.name}</span></p>
-                            <div className="flex items-center gap-3 text-xs font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-8 py-3 rounded-full border-2 border-blue-100 shadow-md animate-bounce"><MousePointerClick className="w-4 h-4" /> Rilascia per agganciare</div>
                         </div>
                     </div>
                 )}
@@ -1716,7 +1764,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={12} className="p-32 text-center">
                                         <div className="flex flex-col items-center gap-6 max-w-lg mx-auto">
                                             <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div>
-                                            <p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Il foglio è pronto per essere srotolato</span></p>
+                                            <p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p>
                                         </div>
                                     </td></tr></tbody>
                                 ) : (
@@ -1730,7 +1778,6 @@ const App: React.FC = () => {
                                         <td colSpan={12} className="p-0 border-none">
                                             <div 
                                                 className={`min-h-[85vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}
-                                                title="Rilascia qui per caricare voci in coda"
                                             >
                                                 <div className={`flex flex-col items-center gap-6 p-12 rounded-[4rem] border-4 border-dashed transition-all duration-500 ${isWorkspaceDragOver ? 'border-blue-500 bg-white shadow-2xl scale-110' : 'border-slate-100 opacity-20'}`}>
                                                     <div className={`p-6 rounded-full transition-colors ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-50 text-slate-300'}`}>
@@ -1738,10 +1785,10 @@ const App: React.FC = () => {
                                                     </div>
                                                     <div className="text-center">
                                                         <span className={`block text-2xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>
-                                                            {isWorkspaceDragOver ? 'Aggancio Magnetico Attivo' : 'Continua il Computo qui'}
+                                                            {isWorkspaceDragOver ? 'Rilascia per caricare' : 'Computo in divenire'}
                                                         </span>
                                                         <span className={`text-xs font-bold uppercase tracking-widest mt-2 block ${isWorkspaceDragOver ? 'text-blue-500' : 'text-slate-300'}`}>
-                                                            {isWorkspaceDragOver ? 'Rilascia la voce per l\'inserimento istantaneo' : 'Trascina le voci per srotolare il foglio'}
+                                                            Trascina le voci qui per continuare lo srotolamento
                                                         </span>
                                                     </div>
                                                 </div>
