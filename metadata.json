@@ -1,6 +1,5 @@
-
 {
-  "name": "GeCoLa AI_SPW_11.0 carica file _aggiunti totale generale_15 voci nella versione demo",
+  "name": "GeCoLa AI_SPW_12.1 srol dinamico del voglio di lavoro",
   "description": "A professional construction estimate application (Computo Metrico Estimativo) tailored for Italian standards, featuring dynamic calculations, categorization, and AI-assisted item generation. Visitor limit increased to 15 items.",
   "requestFramePermissions": [
     "microphone"

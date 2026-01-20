@@ -3,12 +3,9 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Article, Measurement, Category } from '../types';
 import { CATEGORIES } from '../constants';
 
+// Added comment above fix: strictly following initialization guidelines
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key is not configured");
-  }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 const cleanAndParseJson = (text: string) => {
@@ -83,6 +80,7 @@ export const generateBulkItems = async (
       },
     });
 
+    // Added comment: correctly accessing .text property
     const data = cleanAndParseJson(response.text || "");
     const groundingUrls = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
@@ -146,6 +144,7 @@ export const parseVoiceMeasurement = async (transcript: string): Promise<Partial
               }
             }
         });
+        // Added comment: correctly accessing .text property
         const data = JSON.parse(response.text || "{}");
         return {
             description: data.description || transcript,

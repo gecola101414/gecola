@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Edit3, ArrowRightLeft, TestTubes, Award } from 'lucide-react';
+import { X, Save, Edit3, ArrowRightLeft, TestTubes, Award, Sparkles, Download } from 'lucide-react';
 import { Article } from '../types';
 import { COMMON_UNITS, SOA_CATEGORIES } from '../constants';
+import { parseDroppedContent } from '../services/geminiService';
 
 interface ArticleEditModalProps {
   isOpen: boolean;
@@ -14,6 +15,8 @@ interface ArticleEditModalProps {
 
 const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, article, onSave, onConvertToAnalysis }) => {
   const [formData, setFormData] = useState<Partial<Article>>({});
+  const [isDragOver, setIsDragOver] = useState(false);
+  
   // Unique ID for this modal instance's datalist to prevent conflicts
   const datalistId = `units-list-${article.id}`;
 
@@ -45,6 +48,42 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
           onConvertToAnalysis(updatedArticle);
           onClose();
       }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    
+    const text = e.dataTransfer.getData('text');
+    if (text) {
+        const parsed = parseDroppedContent(text);
+        if (parsed) {
+            // ACQUISIZIONE INTEGRALE: Sovrascriviamo TUTTI i parametri della nuova voce
+            // includendo codice, descrizione, unità, prezzo, manodopera e fonte.
+            setFormData(prev => ({
+                ...prev,
+                code: parsed.code !== undefined ? parsed.code : prev.code,
+                description: parsed.description !== undefined ? parsed.description : prev.description,
+                unit: parsed.unit !== undefined ? parsed.unit : prev.unit,
+                unitPrice: parsed.unitPrice !== undefined ? parsed.unitPrice : prev.unitPrice,
+                laborRate: parsed.laborRate !== undefined ? parsed.laborRate : prev.laborRate,
+                priceListSource: parsed.priceListSource !== undefined ? parsed.priceListSource : prev.priceListSource
+            }));
+        }
+    }
   };
 
   return (
@@ -100,14 +139,32 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
                  </select>
               </div>
 
-              {/* Row 2: Description */}
-              <div className="col-span-4">
-                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Descrizione Completa</label>
-                <textarea 
-                  value={formData.description || ''}
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none h-32 text-sm font-serif leading-relaxed shadow-inner"
-                />
+              {/* Row 2: Description with DROP ZONE */}
+              <div className="col-span-4 relative">
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-1 flex justify-between">
+                    <span>Descrizione Completa</span>
+                    <span className="text-[10px] text-blue-500 normal-case font-medium italic">Trascina una voce qui per sostituire TUTTI i parametri</span>
+                </label>
+                <div 
+                    className={`relative rounded-lg transition-all duration-200 ${isDragOver ? 'ring-4 ring-blue-500 ring-offset-2' : ''}`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                >
+                    <textarea 
+                        value={formData.description || ''}
+                        onChange={(e) => setFormData({...formData, description: e.target.value})}
+                        className={`w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none h-32 text-sm font-serif leading-relaxed shadow-inner transition-colors ${isDragOver ? 'bg-blue-50 border-blue-400' : ''}`}
+                    />
+                    
+                    {isDragOver && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-blue-600/10 backdrop-blur-[1px] pointer-events-none rounded-lg border-2 border-dashed border-blue-500 animate-pulse">
+                            <Sparkles className="w-8 h-8 text-blue-600 mb-2" />
+                            <span className="text-blue-700 font-black uppercase text-xs tracking-widest">Rilascia per Sostituire Dati</span>
+                            <span className="text-[9px] text-blue-500 font-bold mt-1 uppercase">Tutti i parametri tecnici verranno aggiornati</span>
+                        </div>
+                    )}
+                </div>
               </div>
 
               {/* Row 3: Metrics */}
@@ -136,70 +193,59 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
                   step="0.01"
                   value={formData.unitPrice || 0}
                   onChange={(e) => setFormData({...formData, unitPrice: parseFloat(e.target.value)})}
-                  className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-right font-mono font-bold text-gray-800"
+                  className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-right font-mono"
                 />
               </div>
 
-              <div className="col-span-2 bg-gray-50 p-2 rounded border border-gray-200">
-                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Incidenza Manodopera (%)</label>
-                <div className="flex items-center">
-                  <input 
-                      type="range" 
-                      min="0" 
-                      max="100" 
-                      value={formData.laborRate || 0} 
-                      onChange={(e) => setFormData({...formData, laborRate: parseFloat(e.target.value)})}
-                      className="w-full mr-3 accent-blue-600"
-                  />
-                  <input 
-                      type="number" 
-                      value={formData.laborRate || 0}
-                      onChange={(e) => setFormData({...formData, laborRate: parseFloat(e.target.value)})}
-                      className="w-16 border border-gray-300 rounded p-2 text-right text-sm font-mono"
-                  />
-                </div>
+              <div className="col-span-1">
+                <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Inc. Manodopera (%)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={formData.laborRate || 0}
+                  onChange={(e) => setFormData({...formData, laborRate: parseFloat(e.target.value)})}
+                  className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none text-right font-mono"
+                />
               </div>
-
             </div>
           </form>
         </div>
 
-        <div className="flex justify-between items-center px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0">
-            {onConvertToAnalysis && !article.linkedAnalysisId ? (
-                <button
-                    type="button"
-                    onClick={handleConvertClick}
-                    className="px-3 py-2 text-xs font-bold text-purple-700 bg-white border border-purple-200 rounded hover:bg-purple-50 flex items-center transition-colors shadow-sm"
-                    title="Crea una nuova Analisi Prezzi partendo da questa voce"
-                >
-                    <TestTubes className="w-4 h-4 mr-2" />
-                    Converti in Analisi
-                </button>
-            ) : (
-                <div></div>
-            )}
-
-            <div className="flex gap-3">
-                <button
+        <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center flex-shrink-0">
+          <div>
+            {onConvertToAnalysis && !article.linkedAnalysisId && (
+              <button 
                 type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 shadow-sm"
-                >
-                Annulla
-                </button>
-                <button
-                type="submit"
-                form="edit-article-form"
-                className="px-4 py-2 text-sm font-bold text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 flex items-center shadow-md transition-transform active:scale-95"
-                >
-                <Save className="w-4 h-4 mr-2" />
-                Applica Modifiche
-                </button>
-            </div>
+                onClick={handleConvertClick}
+                className="text-purple-600 hover:text-purple-800 text-xs font-bold flex items-center gap-2 px-3 py-2 rounded hover:bg-purple-50 transition-colors"
+              >
+                <TestTubes className="w-4 h-4" />
+                TRASFORMA IN ANALISI
+              </button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+            >
+              Annulla
+            </button>
+            <button
+              form="edit-article-form"
+              type="submit"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 flex items-center shadow-sm"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Salva Modifiche
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
+// Fixed missing default export
 export default ArticleEditModal;
