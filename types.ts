@@ -79,6 +79,9 @@ export interface ProjectInfo {
   year: string;
   vatRate: number;
   safetyRate: number;
+  fontSizeTitle?: number; // Personalizzazione font
+  fontSizeClient?: number;
+  fontSizeTotals?: number;
 }
 
 export interface Totals {

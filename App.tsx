@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft, Wand2 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -23,14 +23,14 @@ import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from '.
 import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
 
-// --- Helper Functions ---
+// --- Helper Functions con Separatore Migliaia ---
 const formatCurrency = (val: number) => {
-  return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
+  return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', useGrouping: true }).format(val);
 };
 
 const formatNumber = (val: number | undefined) => {
     if (val === undefined || val === null || val === 0) return '';
-    return val.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return val.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true });
 };
 
 const getWbsNumber = (code: string) => {
@@ -117,7 +117,7 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
       <th className="py-2.5 px-1 text-left w-[85px] border-r border-gray-300">Tariffa</th>
       <th className={`py-2.5 px-1 text-left min-w-[200px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
-      <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
+      <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung..</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Larg.</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
       <th className="py-2.5 px-1 text-center w-[65px] border-r border-gray-300 bg-gray-100">Quantità</th>
@@ -133,6 +133,8 @@ interface ArticleGroupProps {
   article: Article;
   index: number;
   allArticles: Article[];
+  projectInfo: ProjectInfo; // Aggiunto per prompt Gemini
+  activeCategory?: Category; // Aggiunto per prompt Gemini
   isPrintMode: boolean;
   isCategoryLocked?: boolean;
   onUpdateArticle: (id: string, field: keyof Article, value: string | number) => void;
@@ -149,7 +151,7 @@ interface ArticleGroupProps {
   onReorderMeasurements: (articleId: string, startIndex: number, endIndex: number) => void;
   onArticleDragStart: (e: React.DragEvent, article: Article) => void;
   onArticleDrop: (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom') => void;
-  onArticleDragEnd: () => void;
+  onArticleDropEnd: () => void;
   lastAddedMeasurementId: string | null;
   onColumnFocus: (col: string | null) => void;
   onViewAnalysis: (analysisId: string) => void; 
@@ -162,7 +164,7 @@ interface ArticleGroupProps {
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, allArticles, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, isPaintingAutomationActive, isRebarAutomationActive } = props;
+   const { article, index, allArticles, projectInfo, activeCategory, isPrintMode, isCategoryLocked, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDropEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, isPaintingAutomationActive, isRebarAutomationActive } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -227,6 +229,18 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const hierarchicalNumber = `${wbsNumber}.${index + 1}`;
    const isAnalysisLinked = !!article.linkedAnalysisId;
 
+   const handleOpenGemini = () => {
+      const prompt = `Agisci come un Esperto Estimatore. Scrivi una descrizione tecnica professionale e dettagliata per la seguente voce di computo metrico: 
+      - Codice: ${article.code}
+      - Capitolo WBS: ${activeCategory?.name || article.categoryCode}
+      - Progetto: ${projectInfo.title}
+      - Luogo: ${projectInfo.location}
+      Includi i materiali necessari, le modalità di posa e gli oneri compresi nel prezzo. Rispondi solo con il testo della descrizione.`;
+      
+      const url = `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`;
+      window.open(url, '_blank');
+   };
+
    const handleMeasDragStart = (e: React.DragEvent, index: number) => {
        e.stopPropagation(); 
        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
@@ -266,7 +280,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    };
 
    const handleArticleHeaderDragEnd = (e: React.DragEvent) => {
-       onArticleDragEnd();
+       onArticleDropEnd();
        setArticleDropPosition(null);
    };
 
@@ -437,18 +451,30 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                   </div>
                )}
             </td>
-            <td className="p-2 border-r border-gray-200 bg-white">
+            <td className="p-2 border-r border-gray-200 bg-white relative">
                {isPrintMode ? (
                  <p className="text-sm text-gray-900 leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap">{article.description}</p>
                ) : (
-                 <textarea 
-                    readOnly
-                    value={article.description}
-                    rows={isArticleLocked ? 2 : 4}
-                    className={`w-full text-sm text-gray-900 font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'}`}
-                    placeholder="Descrizione..."
-                    disabled={true}
-                 />
+                 <div className="relative group/desc">
+                    <textarea 
+                        readOnly
+                        value={article.description}
+                        rows={isArticleLocked ? 2 : 4}
+                        className={`w-full text-sm text-gray-900 font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'}`}
+                        placeholder="Descrizione..."
+                        disabled={true}
+                    />
+                    {!isArticleLocked && !isPrintMode && (
+                        <button 
+                            onClick={handleOpenGemini}
+                            className="absolute right-1 top-1 bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white p-1.5 rounded-lg shadow-lg opacity-0 group-hover/desc:opacity-100 transition-all hover:scale-110 active:scale-95 flex items-center gap-1.5 ring-1 ring-white/20 animate-pulse"
+                            title="Chiedi a Gemini Web di rifinire la descrizione tecnica"
+                        >
+                            <Sparkles className="w-3 h-3" />
+                            <span className="text-[8px] font-black uppercase tracking-tighter">AI Genius</span>
+                        </button>
+                    )}
+                 </div>
                )}
                {article.groundingUrls && article.groundingUrls.length > 0 && !isArticleLocked && (
                  <div className="mt-3 px-1 border-t border-gray-100 pt-2 animate-in fade-in slide-in-from-bottom-1 duration-500">
@@ -499,24 +525,22 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            <>
             <tr className="bg-gray-50/50 border-b border-gray-100">
                 <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center justify-between">
+                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center gap-4">
                     <span>MISURE</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-2">
                         <button 
                             onClick={() => onOpenPaintingCalculator(article.id)}
-                            className={`bg-blue-100 hover:bg-blue-800 text-blue-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/paint ${isPaintingAutomationActive ? 'animate-pulse ring-2 ring-blue-500' : ''}`}
-                            title="Calcolo Automatico Pitturazioni (Soffitto + Pareti)"
+                            className="text-gray-400 hover:text-blue-600 p-1 rounded transition-colors"
+                            title="Calcolo Automatico Pitturazioni"
                         >
-                            <Paintbrush className={`w-2.5 h-2.5 ${isPaintingAutomationActive ? 'animate-bounce' : ''}`} />
-                            <span className="text-[7px] font-black group-hover/paint:block hidden uppercase">Pitture</span>
+                            <Paintbrush className="w-4 h-4" />
                         </button>
                         <button 
                             onClick={() => onOpenRebarCalculator(article.id)}
-                            className={`bg-slate-200 hover:bg-slate-800 text-slate-600 hover:text-white p-1 rounded-md transition-all flex items-center gap-1 shadow-sm group/rebar ${isRebarAutomationActive ? 'animate-pulse ring-2 ring-orange-500' : ''}`}
+                            className="text-gray-400 hover:text-orange-600 p-1 rounded transition-colors"
                             title="Calcolo Ferri d'Armatura"
                         >
-                            <CircleDot className={`w-2.5 h-2.5 ${isRebarAutomationActive ? 'animate-bounce' : ''}`} />
-                            <span className="text-[7px] font-black group-hover/rebar:block hidden uppercase">Ferri</span>
+                            <CircleDot className="w-4 h-4" />
                         </button>
                     </div>
                 </td>
@@ -864,6 +888,32 @@ const App: React.FC = () => {
       return { newCategories, newArticles, codeMap };
   };
 
+  const handleAddNewAnalysis = () => {
+    const nextCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
+    const newAnalysis: PriceAnalysis = {
+        id: Math.random().toString(36).substr(2, 9),
+        code: nextCode,
+        description: 'Nuova Analisi Prezzo',
+        unit: 'cad',
+        analysisQuantity: 0, // MODIFICATO: ora inizializzato a 0
+        generalExpensesRate: 15,
+        profitRate: 10,
+        totalMaterials: 0,
+        totalLabor: 0,
+        totalEquipment: 0,
+        costoTecnico: 0,
+        valoreSpese: 0,
+        valoreUtile: 0,
+        totalBatchValue: 0,
+        totalUnitPrice: 0,
+        components: []
+    };
+    const updatedAnalyses = [...analyses, newAnalysis];
+    updateState(articles, categories, updatedAnalyses);
+    setEditingAnalysis(newAnalysis);
+    setIsAnalysisEditorOpen(true);
+  };
+
   const handleSaveAnalysis = (updatedAnalysis: PriceAnalysis) => {
       const roundedAnalysis = { ...updatedAnalysis, totalUnitPrice: roundTwoDecimals(updatedAnalysis.totalUnitPrice), totalBatchValue: roundTwoDecimals(updatedAnalysis.totalBatchValue) };
       let newAnalyses = [...analyses];
@@ -928,11 +978,10 @@ const App: React.FC = () => {
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newAnalysisId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0,
-          components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
+          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 0, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0,
+          components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 0 }]
       };
       const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
-      setAnalyses(prev => [...prev, newAnalysis]);
       updateState(updatedArticles, categories, [...analyses, newAnalysis]);
       setEditingAnalysis(newAnalysis);
       setViewMode('ANALISI');
@@ -987,7 +1036,7 @@ const App: React.FC = () => {
               const jsonStr = textData.replace('GECOLA_DATA::ANALYSIS::', '');
               const analysis = JSON.parse(jsonStr);
               const newAnalysis: PriceAnalysis = { ...analysis, id: Math.random().toString(36).substr(2, 9), code: `AP.${(analyses.length + 1).toString().padStart(2, '0')}`, description: `${analysis.description} (Copia)`, isLocked: false };
-              setAnalyses(prev => [...prev, newAnalysis]);
+              updateState(articles, categories, [...analyses, newAnalysis]);
           } catch (err) { console.error("Analysis Drop Error", err); }
       }
   };
@@ -1226,7 +1275,7 @@ const App: React.FC = () => {
       e.dataTransfer.setData('articleId', article.id); 
       e.dataTransfer.effectAllowed = 'all'; 
   };
-  const handleArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
+  const handleArticleDropEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
   const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === targetArticleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
@@ -1265,11 +1314,10 @@ const App: React.FC = () => {
       if (!canAddArticle()) return;
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newMeasId = Math.random().toString(36).substr(2, 9);
-      const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] };
+      const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 0, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 0 }] };
       const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
       
       setLastAddedMeasurementId(newMeasId); 
-      setAnalyses(prev => [...prev, newAnalysis]);
       updateState([...articles, newArticle], categories, [...analyses, newAnalysis]);
       setEditingAnalysis(newAnalysis);
       setViewMode('ANALISI');
@@ -1319,23 +1367,24 @@ const App: React.FC = () => {
   };
 
   const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => {
-    if (!paintingTargetArticleId) return;
-    const updated = articles.map(art => {
-        if (art.id !== paintingTargetArticleId) return art;
-        const newMeasures = paintRows.map(row => ({
-            ...row,
-            id: Math.random().toString(36).substr(2, 9)
-        }));
-        return { ...art, measurements: [...art.measurements, ...newMeasures] };
-    });
-    updateState(updated);
-    
-    setIsPaintingModalOpen(false);
-    if (shouldAutoReopenPainting) {
-        if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
-        paintingTimerRef.current = setTimeout(() => {
-            setIsPaintingModalOpen(true);
-        }, 5000);
+    if (paintingTargetArticleId) {
+        const updated = articles.map(art => {
+            if (art.id !== paintingTargetArticleId) return art;
+            const newMeasures = paintRows.map(row => ({
+                ...row,
+                id: Math.random().toString(36).substr(2, 9)
+            }));
+            return { ...art, measurements: [...art.measurements, ...newMeasures] };
+        });
+        updateState(updated);
+        
+        setIsPaintingModalOpen(false);
+        if (shouldAutoReopenPainting) {
+            if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
+            paintingTimerRef.current = setTimeout(() => {
+                setIsPaintingModalOpen(true);
+            }, 5000);
+        }
     }
   };
 
@@ -1396,7 +1445,6 @@ const App: React.FC = () => {
               let nextX = e.clientX - dragOffset.current.x;
               let nextY = e.clientY - dragOffset.current.y;
               
-              // BLOCCO CONFINI SCHERMO (Boundary Locking)
               nextX = Math.max(10, Math.min(nextX, window.innerWidth - menuWidth - 10));
               nextY = Math.max(10, Math.min(nextY, window.innerHeight - menuHeight - 10));
 
@@ -1645,7 +1693,7 @@ const App: React.FC = () => {
                         </ul>
                         <div className="mt-auto p-3 border-t border-gray-300 bg-slate-50 sticky bottom-0 z-20">
                             <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-2.5 rounded text-xs font-black uppercase transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-white border border-transparent hover:border-slate-200'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo Generale</button>
-                            <div className="mt-2 px-2 py-1.5 bg-slate-100/50 rounded-lg border border-slate-200/50 text-center animate-in fade-in duration-500"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Valore Totale Progetto</span><span className="text-sm font-mono font-black text-blue-700">{formatCurrency(totals.totalWorks + totals.safetyCosts)}</span></div>
+                            <div className="mt-2 px-2 py-1.5 bg-slate-100/50 rounded-lg border border-slate-200/50 text-center animate-in fade-in duration-500"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Valore Totale Progetto</span><span className="text-sm font-mono font-black text-blue-700" style={{ fontSize: projectInfo.fontSizeTotals ? `${projectInfo.fontSizeTotals}px` : undefined }}>{formatCurrency(totals.totalWorks + totals.safetyCosts)}</span></div>
                         </div>
                         </>
                     ) : (
@@ -1769,7 +1817,7 @@ const App: React.FC = () => {
                                     </td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
+                                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} projectInfo={projectInfo} activeCategory={activeCategory} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDropEnd={handleArticleDropEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
                                     ))
                                 )}
                                 
@@ -1803,6 +1851,15 @@ const App: React.FC = () => {
                 
                 {viewMode === 'ANALISI' && (
                     <div className="p-12 bg-slate-50 min-h-full">
+                        <div className="flex justify-between items-center mb-10">
+                            <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestione Analisi Prezzi</h2>
+                            <button 
+                                onClick={handleAddNewAnalysis}
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-600/20 flex items-center gap-3 transition-all hover:scale-105 active:scale-95"
+                            >
+                                <Plus className="w-5 h-5" /> Nuova Analisi
+                            </button>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
                             {analyses.map(analysis => (
                                 <div key={analysis.id} className={`bg-white rounded-3xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}>
@@ -1832,7 +1889,7 @@ const App: React.FC = () => {
       </div>
       
       <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
-      {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
+      {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} projectInfo={projectInfo} activeCategory={categories.find(c => c.code === editingArticle.categoryCode)} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
       {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
       <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} />
       <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />

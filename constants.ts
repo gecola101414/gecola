@@ -14,6 +14,41 @@ export const COMMON_UNITS = [
     'cad', 'm', 'm²', 'm³', 'kg', 'q', 't', 'h', 'cm', 'mm', 'l', 'a corpo'
 ];
 
+// Cataloghi per Analisi Prezzi
+export const LABOR_CATALOG = [
+  { description: "Operaio Specializzato", unit: "h", price: 35.50 },
+  { description: "Operaio Qualificato", unit: "h", price: 32.15 },
+  { description: "Operaio Comune", unit: "h", price: 28.30 },
+  { description: "Capocantiere / Tecnico IV liv.", unit: "h", price: 42.00 },
+  { description: "Autista / Meccanico", unit: "h", price: 33.50 }
+];
+
+export const EQUIPMENT_CATALOG = [
+  { description: "Escavatore cingolato 15-20t", unit: "h", price: 55.00 },
+  { description: "Mini-escavatore 1.5t", unit: "h", price: 25.00 },
+  { description: "Gru a torre braccio 40-50m", unit: "h", price: 38.00 },
+  { description: "Autocarro ribaltabile 10t", unit: "h", price: 32.00 },
+  { description: "Pompa per calcestruzzo braccio 24m", unit: "h", price: 110.00 },
+  { description: "Ponteggio metallico (Noleggio/Mese)", unit: "mq", price: 1.80 },
+  { description: "Betoniera a bicchiere", unit: "h", price: 4.50 },
+  { description: "Motocompressore 3000 l/min", unit: "h", price: 12.00 },
+  { description: "Trabattello in alluminio h 6m", unit: "h", price: 3.50 }
+];
+
+export const MATERIAL_CATALOG = [
+  { description: "Calcestruzzo C25/30 XC2 Rck 30", unit: "m³", price: 125.00 },
+  { description: "Calcestruzzo C30/37 XC3 Rck 37", unit: "m³", price: 138.00 },
+  { description: "Malta cementizia M5 (sacco 25kg)", unit: "cad", price: 4.50 },
+  { description: "Acciaio B450C in barre per armatura", unit: "kg", price: 1.15 },
+  { description: "Rete elettrosaldata Ø6 10x10", unit: "kg", price: 1.35 },
+  { description: "Blocchi laterizio forato sp. 8cm", unit: "m²", price: 12.50 },
+  { description: "Blocchi laterizio forato sp. 12cm", unit: "m²", price: 15.80 },
+  { description: "Intonaco premiscelato base calce/cem", unit: "kg", price: 0.32 },
+  { description: "Pittura lavabile per interni (fustino 14l)", unit: "cad", price: 65.00 },
+  { description: "Collante cementizio per pavimenti C2TE", unit: "kg", price: 0.85 },
+  { description: "Gres porcellanato standard 30x60", unit: "m²", price: 24.00 }
+];
+
 export const REBAR_WEIGHTS = [
   { diameter: 6, weight: 0.222 },
   { diameter: 8, weight: 0.395 },
@@ -50,6 +85,9 @@ export const PROJECT_INFO: ProjectInfo = {
   year: '2025',
   vatRate: 10,
   safetyRate: 3.5,
+  fontSizeTitle: 30,
+  fontSizeClient: 16,
+  fontSizeTotals: 24,
 };
 
 export const CATEGORIES: Category[] = [
@@ -121,18 +159,19 @@ export const INITIAL_ANALYSES: PriceAnalysis[] = [
     generalExpensesRate: 15,
     profitRate: 10,
     components: [
-      { id: 'c1', type: 'material', description: 'Malta bastarda pronta', unit: 'm³', unitPrice: 120.00, quantity: 0.02 },
-      { id: 'c2', type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.00, quantity: 0.40 },
-      { id: 'c3', type: 'labor', description: 'Operaio Comune', unit: 'h', unitPrice: 28.00, quantity: 0.30 },
-      { id: 'c4', type: 'equipment', description: 'Impalcatura mobile', unit: 'h', unitPrice: 5.00, quantity: 0.40 }
+      { id: 'c1', type: 'material', description: 'Intonaco premiscelato base calce/cem', unit: 'kg', unitPrice: 0.32, quantity: 20 },
+      { id: 'c2', type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.50, quantity: 0.40 },
+      { id: 'c3', type: 'labor', description: 'Operaio Comune', unit: 'h', unitPrice: 28.30, quantity: 0.30 },
+      // Added comment above fix: correctly using unitPrice property instead of price
+      { id: 'c4', type: 'equipment', description: 'Trabattello in alluminio h 6m', unit: 'h', unitPrice: 3.50, quantity: 0.40 }
     ],
-    totalMaterials: 2.4,
-    totalLabor: 22.4,
-    totalEquipment: 2.0,
-    costoTecnico: 26.8,
-    valoreSpese: 4.02,
-    valoreUtile: 3.08,
-    totalBatchValue: 33.90,
-    totalUnitPrice: 33.90
+    totalMaterials: 6.4,
+    totalLabor: 22.69,
+    totalEquipment: 1.4,
+    costoTecnico: 30.49,
+    valoreSpese: 4.57,
+    valoreUtile: 3.51,
+    totalBatchValue: 38.57,
+    totalUnitPrice: 38.57
   }
 ];

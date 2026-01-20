@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ProjectInfo } from '../types';
 import { FileText, MapPin, Calendar, User, BookOpen, Settings } from 'lucide-react';
@@ -20,7 +21,12 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ info, onEdit }) => {
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 pr-10">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 leading-tight mb-2">{info.title}</h1>
+          <h1 
+            className="font-bold text-gray-900 leading-tight mb-2"
+            style={{ fontSize: info.fontSizeTitle ? `${info.fontSizeTitle}px` : '1.875rem' }}
+          >
+            {info.title}
+          </h1>
           <div className="flex items-center text-gray-500 text-sm space-x-4">
              <span className="flex items-center"><MapPin className="w-4 h-4 mr-1" /> {info.location}</span>
              <span className="flex items-center"><Calendar className="w-4 h-4 mr-1" /> {info.date}</span>
@@ -37,7 +43,7 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ info, onEdit }) => {
         <div className="flex items-center text-gray-700">
           <User className="w-5 h-5 mr-3 text-gray-400" />
           <span className="font-semibold w-24">Committente:</span>
-          <span>{info.client}</span>
+          <span style={{ fontSize: info.fontSizeClient ? `${info.fontSizeClient}px` : undefined }}>{info.client}</span>
         </div>
         <div className="flex items-center text-gray-700">
           <BookOpen className="w-5 h-5 mr-3 text-gray-400" />

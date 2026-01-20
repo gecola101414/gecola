@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Map, UserCheck } from 'lucide-react';
+import { X, Save, Map, UserCheck, Type } from 'lucide-react';
 import { ProjectInfo } from '../types';
 import { REGIONS, YEARS } from '../constants';
 
@@ -16,7 +16,12 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
 
   useEffect(() => {
     if (isOpen) {
-      setFormData(info);
+      setFormData({
+          ...info,
+          fontSizeTitle: info.fontSizeTitle || 30,
+          fontSizeClient: info.fontSizeClient || 16,
+          fontSizeTotals: info.fontSizeTotals || 24,
+      });
     }
   }, [isOpen, info]);
 
@@ -34,8 +39,8 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-300">
-        <div className="bg-[#2c3e50] px-5 py-4 flex justify-between items-center border-b border-gray-600">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-300 flex flex-col max-h-[95vh]">
+        <div className="bg-[#2c3e50] px-5 py-4 flex justify-between items-center border-b border-gray-600 flex-shrink-0">
           <h3 className="text-white font-semibold text-lg flex items-center gap-2">
             <Map className="w-5 h-5 text-orange-400" />
             Impostazioni Progetto & Prezzario
@@ -45,7 +50,7 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-6">
+        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
             {/* Sezione Anagrafica */}
@@ -92,7 +97,7 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
               />
             </div>
 
-            {/* Sezione Prezzario (Cruciale) */}
+            {/* Sezione Prezzario */}
             <div className="col-span-2 bg-orange-50 p-4 rounded border border-orange-100 mt-2">
               <h4 className="font-bold text-orange-800 text-sm mb-3 border-b border-orange-200 pb-1">Configurazione Prezzario (AI)</h4>
               <div className="grid grid-cols-2 gap-4">
@@ -117,9 +122,6 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
                   </select>
                 </div>
               </div>
-              <p className="text-[10px] text-orange-600 mt-2">
-                * Le voci generate dall'IA cercheranno di rispettare i codici e i prezzi medi di questa regione e annualità su GeCoLa.it.
-              </p>
             </div>
 
             {/* Parametri Economici */}
@@ -142,9 +144,61 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
               />
             </div>
 
+            {/* TABELLA FONT SIZES (Nuova Richiesta) */}
+            <div className="col-span-2 mt-4 pt-4 border-t border-slate-200">
+               <h4 className="font-black text-slate-800 text-xs mb-4 uppercase tracking-widest flex items-center gap-2">
+                 <Type className="w-4 h-4 text-blue-600" /> Dimensioni Caratteri (PX)
+               </h4>
+               <div className="overflow-hidden border border-slate-200 rounded-xl">
+                 <table className="w-full text-xs text-left border-collapse">
+                   <thead className="bg-slate-100 text-slate-500 uppercase font-black">
+                     <tr>
+                       <th className="p-3 border-b border-slate-200">Elemento dell'Interfaccia</th>
+                       <th className="p-3 border-b border-slate-200 text-center w-32">Dimensione</th>
+                     </tr>
+                   </thead>
+                   <tbody className="bg-white">
+                     <tr className="hover:bg-slate-50">
+                       <td className="p-3 border-b border-slate-100 font-medium">Titolo Principale Progetto (Rotolo)</td>
+                       <td className="p-3 border-b border-slate-100">
+                          <input 
+                            type="number" 
+                            value={formData.fontSizeTitle} 
+                            onChange={(e) => handleChange('fontSizeTitle', parseInt(e.target.value) || 30)}
+                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
+                          />
+                       </td>
+                     </tr>
+                     <tr className="hover:bg-slate-50">
+                       <td className="p-3 border-b border-slate-100 font-medium">Nome Committente (Header)</td>
+                       <td className="p-3 border-b border-slate-100">
+                          <input 
+                            type="number" 
+                            value={formData.fontSizeClient} 
+                            onChange={(e) => handleChange('fontSizeClient', parseInt(e.target.value) || 16)}
+                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
+                          />
+                       </td>
+                     </tr>
+                     <tr className="hover:bg-slate-50">
+                       <td className="p-3 border-b border-slate-100 font-medium">Importi Totali (Sidebar e Riepilogo)</td>
+                       <td className="p-3 border-b border-slate-100">
+                          <input 
+                            type="number" 
+                            value={formData.fontSizeTotals} 
+                            onChange={(e) => handleChange('fontSizeTotals', parseInt(e.target.value) || 24)}
+                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
+                          />
+                       </td>
+                     </tr>
+                   </tbody>
+                 </table>
+               </div>
+            </div>
+
           </div>
 
-          <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100">
+          <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
             <button
               type="button"
               onClick={onClose}
