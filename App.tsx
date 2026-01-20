@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2 } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -113,18 +113,18 @@ interface TableHeaderProps {
 const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
   <thead className="bg-[#f8f9fa] border-b-2 border-black text-[9px] uppercase font-black text-gray-800 sticky top-0 z-[70] shadow-md">
     <tr>
-      <th className="py-3 px-1 text-center w-[35px] border-r border-gray-300">N.</th>
-      <th className="py-3 px-1 text-left w-[100px] border-r border-gray-300">Tariffa</th>
-      <th className={`py-3 px-1 text-left min-w-[250px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
-      <th className={`py-3 px-1 text-center w-[45px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
-      <th className={`py-3 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung..</th>
-      <th className={`py-3 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Largh.</th>
-      <th className={`py-3 px-1 text-center w-[55px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
-      <th className="py-3 px-1 text-center w-[70px] border-r border-gray-300 bg-gray-100">Quantità</th>
-      <th className="py-3 px-1 text-right w-[80px] border-r border-gray-300">Prezzo €</th>
-      <th className="py-3 px-1 text-right w-[90px] border-r border-gray-300">Importo €</th>
-      <th className="py-3 px-1 text-right w-[80px] border-r border-gray-300">M.O. €</th>
-      <th className="py-3 px-1 text-center w-[50px] print:hidden text-gray-400">Cmd</th>
+      <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N.</th>
+      <th className="py-2.5 px-1 text-left w-[85px] border-r border-gray-300">Tariffa</th>
+      <th className={`py-2.5 px-1 text-left min-w-[200px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
+      <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
+      <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
+      <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Larg.</th>
+      <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'h' ? 'bg-blue-50 text-blue-900' : ''}`}>H/Peso</th>
+      <th className="py-2.5 px-1 text-center w-[65px] border-r border-gray-300 bg-gray-100">Quantità</th>
+      <th className="py-2.5 px-1 text-right w-[75px] border-r border-gray-300">Prezzo €</th>
+      <th className="py-2.5 px-1 text-right w-[85px] border-r border-gray-300">Importo €</th>
+      <th className="py-2.5 px-1 text-right w-[75px] border-r border-gray-300">M.O. €</th>
+      <th className="py-2.5 px-1 text-center w-[40px] print:hidden text-gray-400">Cmd</th>
     </tr>
   </thead>
 );
@@ -644,6 +644,9 @@ const App: React.FC = () => {
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
   const [showAutoLoginAd, setShowAutoLoginAd] = useState(false); 
   const [isFocusMode, setIsFocusMode] = useState(false); 
+  const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 50 }); // Floating Menu Draggable Pos
+  const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
 
   const [isRebarModalOpen, setIsRebarModalOpen] = useState(false);
   const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
@@ -687,6 +690,11 @@ const App: React.FC = () => {
     });
     return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
+
+  // Centra inizialmente il toolbar
+  useEffect(() => {
+      setToolbarPos({ x: (window.innerWidth / 2) - 150, y: 30 });
+  }, []);
 
   const stopAllAutomations = useCallback(() => {
     if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
@@ -1341,6 +1349,34 @@ const App: React.FC = () => {
     }
   };
 
+  const handleToolbarMouseDown = (e: React.MouseEvent) => {
+      setIsDraggingToolbar(true);
+      dragOffset.current = {
+          x: e.clientX - toolbarPos.x,
+          y: e.clientY - toolbarPos.y
+      };
+  };
+
+  useEffect(() => {
+      const handleGlobalMouseMove = (e: MouseEvent) => {
+          if (isDraggingToolbar) {
+              setToolbarPos({
+                  x: e.clientX - dragOffset.current.x,
+                  y: e.clientY - dragOffset.current.y
+              });
+          }
+      };
+      const handleGlobalMouseUp = () => setIsDraggingToolbar(false);
+      if (isDraggingToolbar) {
+          window.addEventListener('mousemove', handleGlobalMouseMove);
+          window.addEventListener('mouseup', handleGlobalMouseUp);
+      }
+      return () => {
+          window.removeEventListener('mousemove', handleGlobalMouseMove);
+          window.removeEventListener('mouseup', handleGlobalMouseUp);
+      };
+  }, [isDraggingToolbar]);
+
   const getFullProjectExportData = () => { return JSON.stringify({ gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); };
   
   const handleSmartSave = async (silent: boolean = false) => { 
@@ -1463,7 +1499,6 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* NAVBAR - HIDDEN IN FOCUS MODE */}
           {!isFocusMode && (
             <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
                 <div className="flex items-center space-x-3 w-72">
@@ -1521,7 +1556,6 @@ const App: React.FC = () => {
           )}
           
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
-            {/* SIDEBAR - HIDDEN IN FOCUS MODE */}
             {!isFocusMode && (
                 <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
                 <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
@@ -1601,19 +1635,33 @@ const App: React.FC = () => {
                <div className={`absolute left-0 right-0 h-12 bg-gradient-to-b from-black/25 via-black/5 to-transparent z-40 pointer-events-none rounded-t-3xl transition-all ${isFocusMode ? 'top-0' : 'top-5'}`}></div>
                <div className={`absolute left-0 right-0 h-16 bg-gradient-to-t from-black/20 via-black/5 to-transparent z-40 pointer-events-none rounded-b-3xl transition-all ${isFocusMode ? 'bottom-0' : 'bottom-5'}`}></div>
 
-               {/* FLOATING TOOLBAR IN FOCUS MODE */}
+               {/* COMPACT & DRAGGABLE FLOATING TOOLBAR IN FOCUS MODE */}
                {isFocusMode && (
-                 <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-3 bg-slate-900/90 backdrop-blur-md border border-slate-700 px-6 py-3 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.5)] animate-in slide-in-from-top-4 duration-500 group">
-                    <div className="flex items-center gap-2 border-r border-slate-700 pr-4 mr-2">
-                        <Calculator className="w-4 h-4 text-orange-500" />
-                        <span className="text-[10px] font-black text-white uppercase tracking-widest">{activeCategory?.code} <span className="opacity-40 ml-1">/</span> <span className="text-blue-400">{activeCategory?.name}</span></span>
+                 <div 
+                    style={{ left: toolbarPos.x, top: toolbarPos.y }}
+                    className="fixed z-[300] flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-xl border border-slate-700 p-1.5 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.6)] animate-in slide-in-from-top-4 duration-500 group select-none ring-1 ring-white/10"
+                 >
+                    <div 
+                        onMouseDown={handleToolbarMouseDown}
+                        className="p-2 cursor-move text-slate-500 hover:text-blue-400 transition-colors"
+                        title="Trascina per spostare"
+                    >
+                        <GripHorizontal className="w-3.5 h-3.5" />
                     </div>
-                    <button onClick={() => handleUndo()} className="p-2 text-slate-400 hover:text-white transition-colors" title="Annulla"><Undo2 className="w-4 h-4" /></button>
-                    <button onClick={() => handleRedo()} className="p-2 text-slate-400 hover:text-white transition-colors mr-2" title="Ripristina"><Redo2 className="w-4 h-4" /></button>
-                    <div className="h-6 w-px bg-slate-700 mx-1"></div>
-                    <button onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90"><Plus className="w-5 h-5" /></button>
-                    <button onClick={() => handleSmartSave(false)} className="bg-green-600 hover:bg-green-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90"><Save className="w-5 h-5" /></button>
-                    <button onClick={() => setIsFocusMode(false)} className="bg-orange-600 hover:bg-orange-500 text-white px-4 py-2 rounded-full font-black text-[10px] uppercase shadow-lg flex items-center gap-2 transition-all active:scale-90 ml-4"><Minimize2 className="w-4 h-4" /> Esci</button>
+                    <div className="flex items-center gap-2 border-r border-slate-700 pr-3 mr-1 ml-1">
+                        <Calculator className="w-3 h-3 text-orange-500" />
+                        <span className="text-[8px] font-black text-white uppercase tracking-tighter max-w-[120px] truncate">{activeCategory?.code} - {activeCategory?.name}</span>
+                    </div>
+                    <div className="flex gap-0.5">
+                        <button onClick={() => handleUndo()} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors" title="Annulla"><Undo2 className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => handleRedo()} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors" title="Ripristina"><Redo2 className="w-3.5 h-3.5" /></button>
+                    </div>
+                    <div className="h-4 w-px bg-slate-700 mx-1"></div>
+                    <div className="flex gap-1 items-center">
+                        <button onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90" title="Aggiungi Voce"><Plus className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => handleSmartSave(false)} className="bg-green-600 hover:bg-green-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90" title="Salva Progetto"><Save className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setIsFocusMode(false)} className="bg-orange-600 hover:bg-orange-500 text-white p-2 rounded-full shadow-lg transition-all active:scale-90 ml-1" title="Esci Tutto Schermo"><Minimize2 className="w-3.5 h-3.5" /></button>
+                    </div>
                  </div>
                )}
 
@@ -1635,14 +1683,14 @@ const App: React.FC = () => {
                )}
 
            <div 
-             className={`flex-1 overflow-y-auto bg-white shadow-[0_35px_60px_-15px_rgba(0,0,0,0.4)] border-x border-gray-400 flex flex-col relative scroll-smooth group/rotolo transition-all duration-500 ${isFocusMode ? 'rounded-none' : 'rounded-3xl'}`} 
+             className={`flex-1 overflow-y-auto overflow-x-hidden bg-white shadow-[0_35px_60px_-15px_rgba(0,0,0,0.4)] border-x border-gray-400 flex flex-col relative scroll-smooth group/rotolo transition-all duration-500 ${isFocusMode ? 'rounded-none' : 'rounded-3xl'}`} 
              style={{ backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.02) 0%, transparent 5%, transparent 95%, rgba(0,0,0,0.02) 100%)', backgroundAttachment: 'local' }}
              onKeyDown={handleInputKeyDown}
              onDragOver={handleWorkspaceDragOver}
              onDragLeave={() => setIsWorkspaceDragOver(false)}
              onDrop={handleWorkspaceDrop}
            >
-              {/* GRADIENTE INIZIO ROTOLO - SEMPRE VISIBILE SOPRA TESTATA */}
+              {/* GRADIENTE INIZIO ROTOLO */}
               <div className="sticky top-0 left-0 right-0 h-10 bg-gradient-to-b from-white/95 via-white/40 to-transparent z-[100] pointer-events-none transition-opacity"></div>
               
               <div className="flex-1 flex flex-col min-h-full">
@@ -1677,7 +1725,6 @@ const App: React.FC = () => {
                                     ))
                                 )}
                                 
-                                {/* LANDING STRIP INTEGRATA NELLA TABELLA PER TENERE LO STICKY HEADER */}
                                 <tbody>
                                     <tr className="border-none">
                                         <td colSpan={12} className="p-0 border-none">
@@ -1731,7 +1778,7 @@ const App: React.FC = () => {
                 )}
               </div>
               
-              {/* GRADIENTE FINE ROTOLO - DINAMICO */}
+              {/* GRADIENTE FINE ROTOLO */}
               <div className="sticky bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white/95 via-white/30 to-transparent z-40 pointer-events-none transition-all"></div>
            </div>
         </div>
