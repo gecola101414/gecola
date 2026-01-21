@@ -42,7 +42,7 @@ const roundTwoDecimals = (num: number) => {
     return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
-// --- Sistema Audio Moderno (Sintesi Granulare UI 3.0) ---
+// --- Sistema Audio Moderno (Sintesi Granulare UI 4.0) ---
 const playUISound = (type: 'confirm' | 'move' | 'newline') => {
     try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -51,52 +51,44 @@ const playUISound = (type: 'confirm' | 'move' | 'newline') => {
         masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
         
         if (type === 'confirm') {
-            // Suono moderno "Chime" armonico (Conferma Dato)
+            // Suono "Dato Acquisito" - Chime morbido
+            masterGain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.005);
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); 
+            osc.connect(masterGain);
+            osc.start();
+            masterGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
+            osc.stop(audioCtx.currentTime + 0.2);
+        } else if (type === 'move') {
+            // Suono "Avanzamento Cella" - Cascade (ex Newline, come richiesto)
             masterGain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 0.005);
             const osc1 = audioCtx.createOscillator();
             const osc2 = audioCtx.createOscillator();
             osc1.type = 'sine';
             osc2.type = 'sine';
-            osc1.frequency.setValueAtTime(880, audioCtx.currentTime); 
-            osc2.frequency.setValueAtTime(1318.51, audioCtx.currentTime); 
+            osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+            osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.05); // E5
             osc1.connect(masterGain);
             osc2.connect(masterGain);
             osc1.start();
-            osc2.start();
+            osc2.start(audioCtx.currentTime + 0.05);
             masterGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.3);
             osc1.stop(audioCtx.currentTime + 0.3);
             osc2.stop(audioCtx.currentTime + 0.3);
-        } else if (type === 'move') {
-            // Suono "Tick" cristallino ad alto volume (Cambio Cella)
-            masterGain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 0.002);
-            const osc = audioCtx.createOscillator();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(1200, audioCtx.currentTime); 
-            osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.04); 
-            osc.connect(masterGain);
-            osc.start();
-            masterGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.05);
-            osc.stop(audioCtx.currentTime + 0.05);
         } else if (type === 'newline') {
-            // Suono "Carriage Return" a cascata (Fine rigo / A capo)
+            // Suono "Nuovo Rigo / Fine Lavoro" - Rintocco Triplo di Successo
             masterGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.005);
-            const osc1 = audioCtx.createOscillator();
-            const osc2 = audioCtx.createOscillator();
-            osc1.type = 'sine';
-            osc2.type = 'sine';
-            // Sequenza ascendente rapida
-            osc1.frequency.setValueAtTime(440, audioCtx.currentTime);
-            osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.08);
-            
-            osc1.connect(masterGain);
-            osc2.connect(masterGain);
-            
-            osc1.start();
-            osc2.start(audioCtx.currentTime + 0.08);
-            
+            const freqs = [523.25, 659.25, 783.99]; // Accordo C Major (Do-Mi-Sol)
+            freqs.forEach((f, i) => {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(f, audioCtx.currentTime + (i * 0.08));
+                osc.connect(masterGain);
+                osc.start(audioCtx.currentTime + (i * 0.08));
+                osc.stop(audioCtx.currentTime + 0.5);
+            });
             masterGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
-            osc1.stop(audioCtx.currentTime + 0.5);
-            osc2.stop(audioCtx.currentTime + 0.5);
         }
     } catch (e) {
         console.debug("Audio play failed", e);
@@ -242,7 +234,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const areControlsDisabled = isCategoryLocked || isArticleLocked;
    const isVoiceActive = voiceAutomationActiveId === article.id;
 
-   // Gestione Automazione Vocale 2.1 (Suoni e Ritardi)
+   // Gestione Automazione Vocale 2.2 (Ottimizzazione Suoni)
    const [activeAutomationRowId, setActiveAutomationRowId] = useState<string | null>(null);
    const [activeAutomationFieldIndex, setActiveAutomationFieldIndex] = useState(0); 
    const automationFields = ['description', 'multiplier', 'length', 'width', 'height'];
@@ -267,7 +259,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       const idx = automationFields.indexOf(fieldName);
       if (idx !== -1) {
           setActiveAutomationFieldIndex(idx);
-          playUISound('move'); // Tick più alto e udibile
+          // Suona cascade per indicare spostamento cursore
+          playUISound('move'); 
       }
    };
 
@@ -303,9 +296,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     handleVoiceCommand('prev');
                 } else {
                     handleVoiceData(text);
-                    playUISound('confirm'); // Feedback moderno "chime"
+                    // Rimosso il suono di conferma qui per evitare il "doppio suono" (confirm + move)
+                    // Il feedback avverrà tramite l'avanzamento automatico
                     
-                    // Auto-advance dopo 2 secondi di silenzio
                     silenceTimerRef.current = setTimeout(() => {
                         handleVoiceCommand('next');
                     }, 2000);
@@ -352,9 +345,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
        if (cmd === 'next') {
            if (activeAutomationFieldIndex < 4) {
                setActiveAutomationFieldIndex(prev => prev + 1);
-               playUISound('move'); // Tick alto
+               playUISound('move'); // Cascade sonora per avanzamento cella
            } else {
-               // Nuovo rigo e suono lungo di "a capo"
+               // Nuovo rigo e suono di "Fine Riga / Nuovo Rigo"
                playUISound('newline'); 
                const newId = Math.random().toString(36).substr(2, 9);
                const newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined };
@@ -365,7 +358,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
        } else if (cmd === 'prev') {
            if (activeAutomationFieldIndex > 0) {
                setActiveAutomationFieldIndex(prev => prev - 1);
-               playUISound('move'); // Tick alto
+               playUISound('move');
            }
        }
    };
