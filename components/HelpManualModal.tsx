@@ -4,7 +4,7 @@ import {
   X, Book, ChevronRight, ChevronLeft, Calculator, Sparkles, Award, 
   Layers, Search, Save, Users, User, Zap, ShieldCheck, Share2, 
   Maximize2, Paintbrush, CircleDot, Database, Terminal, Cpu, 
-  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft
+  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft, CopyPlus
 } from 'lucide-react';
 
 interface HelpManualModalProps {
@@ -24,72 +24,77 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
     {
       title: "2. L'Autore: Ing. Domenico GIMONDO",
       icon: <User className="w-5 h-5" />,
-      content: "Professionista esperto nel settore delle Opere Pubbliche, Domenico Gimondo ha dedicato la sua carriera alla ricerca della sintesi tecnica. \n\nIl suo viaggio è iniziato negli anni '90 con la creazione di applicativi complessi in Excel e Visual Basic for Applications (VBA), nati per risolvere i problemi quotidiani della contabilità di cantiere. Attraverso l'evoluzione dei fogli condivisi, è approdato alla visione Cloud con il progetto 'Spin', di cui GeCoLa è l'espressione più avanzata: un ambiente dove il calcolo ingegneristico è potente ma accessibile ovunque."
+      content: "Professionista esperto nel settore delle Opere Pubbliche, Domenico Gimondo ha dedicato la sua carriera alla ricerca della sintesi tecnica. \n\nIl suo viaggio è iniziato negli anni '90 con la creazione di applicativi complessi in Excel e Visual Basic for Applications (VBA), nati per risolvere i problemi quotidiani della contabilità di cantiere. Attraverso l'evoluzione dei fogli condivisi, è approdato alla visione Cloud con il progetto 'Spin', di cui GeCoLa è l'espressione più avanzata."
     },
     {
       title: "3. Navigazione & Workspace",
       icon: <Maximize2 className="w-5 h-5" />,
-      content: "L'area di lavoro è divisa in tre zone: Sidebar (Indice WBS), Top Bar (Dati Progetto) e il Foglio (Misure). \n\nPuoi spostare la visuale velocemente cliccando sui nomi dei capitoli a sinistra. Il foglio è 'infinito': man mano che aggiungi voci, esso si srotola verso il basso come un antico rotolo di pergamena tecnica, mantenendo sempre la testata delle colonne visibile per non perdere mai il riferimento della misura."
+      content: "L'area di lavoro è divisa in tre zone: Sidebar (Indice WBS), Top Bar (Dati Progetto) e il Foglio (Misure). \n\nPuoi spostare la visuale velocemente cliccando sui nomi dei capitoli a sinistra. Il foglio è 'infinito': man mano che aggiungi voci, esso si srotola verso il basso mantenendo sempre la testata delle colonne visibile."
     },
     {
       title: "4. Focus Mode & Toolbar Dinamica",
       icon: <MousePointer2 className="w-5 h-5" />,
-      content: "Attiva il 'Tutto Schermo' per eliminare ogni distrazione. In questa modalità, una toolbar fluttuante minimalista comparirà al centro. \n\nGestione Toolbar:\n- TRASCINAMENTO: Tieni premuto sulla maniglia e spostala. Il sistema impedisce alla toolbar di uscire dai bordi dello schermo (Boundary Lock), garantendo che sia sempre accessibile.\n- CONTENUTO: Mostra solo il nome della WBS attiva e il suo importo parziale, per un monitoraggio discreto del budget."
+      content: "Attiva il 'Tutto Schermo' per eliminare ogni distrazione. In questa modalità, una toolbar fluttuante minimalista comparirà al centro. \n\nGestione Toolbar:\n- TRASCINAMENTO: Tieni premuto sulla maniglia e spostala.\n- CONTENUTO: Mostra il nome della WBS attiva e il suo importo parziale."
     },
     {
       title: "5. Gestione WBS (Capitoli)",
       icon: <Layers className="w-5 h-5" />,
-      content: "La WBS è il cuore del computo. Puoi aggiungere nuovi capitoli col tasto (+), rinominarli o bloccarli. \n\nBloccare un capitolo (icona Lucchetto) impedisce modifiche accidentali: ideale quando una fase di lavoro è stata approvata o completata. Ricorda: puoi trascinare le WBS per cambiare l'ordine cronologico dei lavori; il sistema rinumererà tutto automaticamente."
+      content: "La WBS è il cuore del computo. Puoi aggiungere nuovi capitoli col tasto (+), rinominarli o bloccarli. \n\nBloccare un capitolo impedisce modifiche accidentali. Puoi trascinare le WBS per cambiare l'ordine cronologico; il sistema rinumererà tutto automaticamente."
     },
     {
       title: "6. Caricamento Misure Standard",
       icon: <Calculator className="w-5 h-5" />,
-      content: "Ogni rigo misura accetta Descrizione, Parti Uguali, Lunghezza, Larghezza e Altezza/Peso. \n\nSe inserisci solo la Lunghezza, il sistema la considera come quantità lineare. Se compili più campi, GeCoLa calcola il prodotto. Il tasto INVIO ti sposta automaticamente al campo successivo, rendendo l'inserimento veloce come su un foglio Excel tradizionale."
+      content: "Ogni rigo misura accetta Descrizione, Parti Uguali, Lunghezza, Larghezza e Altezza/Peso. \n\nIl tasto INVIO ti sposta automaticamente al campo successivo, rendendo l'inserimento veloce come su un foglio Excel tradizionale."
     },
     {
       title: "7. Smart Painting (Pitturazioni)",
       icon: <Paintbrush className="w-5 h-5" />,
-      content: "Accedi al calcolatore cliccando l'icona 'Pitture'. Definisci se il vano è rettangolare o a 'L'. \n\nInserendo le dimensioni del perimetro e l'altezza, il sistema genera due righi: uno per il soffitto (area) e uno per le pareti (perimetro x altezza). Una volta confermato, le misure vengono 'esplose' nel foglio principale, pronte per eventuali detrazioni di porte o finestre."
+      content: "Accedi al calcolatore cliccando l'icona 'Pitture'. Definisci se il vano è rettangolare o a 'L'. \n\nIl sistema genera automaticamente righi per soffitto e pareti, 'esplodendoli' nel foglio principale."
     },
     {
       title: "8. Configuratore Ferri d'Armatura",
       icon: <CircleDot className="w-5 h-5" />,
-      content: "Progettato per calcolare i KG di acciaio B450C. Seleziona il diametro (Ø) e il sistema applica il peso specifico corretto. \n\nIndica il numero di pezzi (staffe o barre) e la lunghezza. La designazione del rigo verrà formattata automaticamente includendo il diametro e la struttura di riferimento (es: [TRAVE T1] Staffe Ø8). Ideale per computare armature complesse in pochi secondi."
+      content: "Calcola i KG di acciaio B450C selezionando il diametro (Ø). Il sistema applica il peso specifico corretto e formatta automaticamente la designazione del rigo."
     },
     {
       title: "9. Navigazione Circolare 'Vedi Voce'",
       icon: <Link className="w-5 h-5" />,
-      content: "La funzione 'Vedi Voce' implementa una navigazione circolare assistita per la verifica istantanea dei dati.\n\n- ISPEZIONE: Cliccando su un link 'Vedi voce n. X.Y', il software ti proietta direttamente alla voce sorgente per verificarne le misure.\n- RITORNO SMART: Automaticamente apparirà sullo schermo un tasto fluttuante trasparente 'Torna alla voce di lavoro'. Cliccandolo, GeCoLa ti riporta istantaneamente al punto esatto dove stavi scrivendo, chiudendo il ciclo di verifica senza farti scorrere manualmente il foglio."
+      content: "La funzione 'Vedi Voce' implementa una navigazione circolare assistita:\n\n- ISPEZIONE: Il link ti proietta alla voce sorgente.\n- RITORNO SMART: Un tasto fluttuante trasparente ti riporta istantaneamente al punto dove stavi scrivendo."
     },
     {
       title: "10. Assistente AI & Voice Control",
       icon: <Sparkles className="w-5 h-5" />,
-      content: "GeCoLa usa l'intelligenza artificiale per aiutarti nella scrittura. \n\n- Ricerca Prezzi: Chiedi all'IA di trovare il prezzo di un lavoro; lei cercherà su gecola.it e scriverà la voce per te.\n- Dettatura Vocale: Tieni premuta l'icona del Microfono su un rigo e parla. L'IA interpreterà la tua voce estraendo descrizione e misure numeriche (es: 'parete soggiorno lunga cinque metri e venti per altezza due e settanta')."
+      content: "GeCoLa usa l'IA per aiutarti:\n- Ricerca Prezzi: Chiedi all'IA di trovare voci su gecola.it.\n- Dettatura Vocale: Tieni premuta l'icona Microfono per estrarre descrizione e numeri dalla voce."
     },
     {
       title: "11. Analisi dei Nuovi Prezzi",
       icon: <Database className="w-5 h-5" />,
-      content: "Quando un prezzo non esiste nei listini, devi giustificarlo. Il modulo Analisi permette di scomporre la voce in Materiali, Manodopera e Noli. \n\nGeCoLa calcola automaticamente il Costo Tecnico, aggiunge le Spese Generali (15%) e l'Utile d'Impresa (10%), restituendo il Prezzo Unitario finito da applicare al computo. Ogni modifica all'analisi aggiorna in tempo reale il valore della voce nel computo."
+      content: "Modulo per giustificare prezzi non a listino. Scomponi in Materiali, Manodopera e Noli. Calcola automaticamente Costo Tecnico, Spese Generali (15%) e Utile (10%)."
     },
     {
       title: "12. Qualifiche SOA & Normativa",
       icon: <Award className="w-5 h-5" />,
-      content: "Essenziale per le Opere Pubbliche. Assegna a ogni voce la sua categoria SOA (OG1, OS3, etc.). \n\nNel Riepilogo Generale, il sistema analizzerà la distribution degli importi determinando la Categoria Prevalente e le Scorporabili. Questo assicura che il tuo computo sia pronto per le procedure di gara o per la contabilità lavori ufficiale."
+      content: "Assegna categorie SOA (OG1, OS3, etc.). Il Riepilogo Generale determina Categoria Prevalente e Scorporabili, fondamentale per le gare pubbliche."
     },
     {
       title: "13. Stima Manodopera & Sicurezza",
       icon: <HardHat className="w-5 h-5" />,
-      content: "Il sistema monitora l'incidenza della manodopera per ogni voce. \n\nPuoi stampare il documento specifico 'Stima Manodopera', obbligatorio per verificare l'anomalia delle offerte. Gli oneri della sicurezza (fissi) vengono calcolati in percentuale sul totale lavori, garantendo che i costi per la salute dei lavoratori siano sempre chiaramente evidenziati e non soggetti a ribasso."
+      content: "Monitoraggio incidenza manodopera e calcolo oneri sicurezza fissi. Genera stampe obbligatorie per l'analisi delle offerte anomale."
     },
     {
       title: "14. Export, Excel & Stampe PDF",
       icon: <FileText className="w-5 h-5" />,
-      content: "Il lavoro prodotto è tuo e deve essere portabile. \n\n- PDF: Stampe professionali con logo e impaginazione ministeriale.\n- Excel: Esportazione in formato tabellare con formule attive per revisioni contabili esterne.\n- JSON: Formato di scambio universale per salvare il progetto sul tuo PC e riaprirlo in futuro o su un altro computer."
+      content: "Portabilità totale: PDF professionali, Excel con formule attive e JSON per backup universali."
     },
     {
       title: "15. Supporto & Assistenza",
       icon: <Settings className="w-5 h-5" />,
-      content: "GeCoLa è un sistema vivo. Se riscontri difficoltà o hai bisogno di personalizzazioni, il team di assistenza è a disposizione. \n\nLe icone di aiuto sparse nell'interfaccia offrono suggerimenti contestuali. Per problemi tecnici gravi, utilizza i canali diretti indicati nella schermata di Login. Ricorda: GeCoLa è uno strumento creato da tecnici per i tecnici."
+      content: "GeCoLa è un sistema vivo. Suggerimenti contestuali e assistenza tecnica diretta garantiscono la continuità del tuo lavoro professionale."
+    },
+    {
+      title: "16. Smart Repeat (Misure Seriali)",
+      icon: <CopyPlus className="w-5 h-5" />,
+      content: "Attivando il quarto pulsante della barra strumenti (icona clona), abiliti la modalità 'Smart Repeat'. \n\nQuesta funzione è fondamentale per lavori ripetitivi: ogni volta che crei un nuovo rigo (tramite pulsante (+), tasto INVIO o Comando Vocale), il sistema pre-compila automaticamente i campi con i dati del rigo precedente. È ideale per computare vani identici o armature seriali in frazioni di secondo."
     }
   ];
 
@@ -136,7 +141,6 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
           <div className="flex-1 p-10 overflow-y-auto bg-white custom-scrollbar">
             <div className="max-w-3xl mx-auto">
               {activeChapter === 1 ? (
-                /* Layout Speciale per Biografia Autore */
                 <div className="animate-in slide-in-from-bottom-4 duration-500">
                     <div className="flex items-center gap-8 mb-12">
                         <div className="relative">
@@ -179,7 +183,6 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
                     </div>
                 </div>
               ) : (
-                /* Layout Standard Capitoli */
                 <div className="animate-in fade-in duration-500">
                     <div className="flex items-center gap-6 mb-10">
                         <div className="bg-blue-50 p-6 rounded-[2rem] border border-blue-100 shadow-inner">
@@ -232,7 +235,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
           <div className="flex items-center gap-6">
              <div className="h-1.5 w-64 bg-slate-200 rounded-full overflow-hidden flex">
                 <div 
-                    className="h-full bg-blue-600 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(37,99,235,0.5)]" 
+                    className="h-full bg-blue-600 transition-all duration-700 ease-out shadow-[0_0_10px_rgba(34,197,94,0.5)]" 
                     style={{ width: `${((activeChapter + 1) / chapters.length) * 100}%` }}
                 ></div>
              </div>
@@ -243,7 +246,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
 
           <button 
             disabled={activeChapter === chapters.length - 1}
-            onClick={() => setActiveChapter(prev => prev + 1)}
+            onClick={() => setActiveChapter(prev => prev - 1)}
             className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 disabled:opacity-20 transition-all hover:translate-x-1"
           >
             Successivo <ChevronRight className="w-5 h-5" />
