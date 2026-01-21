@@ -70,14 +70,61 @@ export const SOA_CATEGORIES = [
     { code: 'OG1', desc: 'Edifici civili e industriali' },
     { code: 'OG2', desc: 'Restauro e manutenzione beni immobili' },
     { code: 'OG3', desc: 'Strade, autostrade, ponti, viadotti' },
+    { code: 'OG4', desc: 'Opere d’arte nel sottosuolo' },
+    { code: 'OG5', desc: 'Dighe' },
+    { code: 'OG6', desc: 'Acquedotti, gasdotti, oleodotti' },
+    { code: 'OG7', desc: 'Opere marittime e lavori di dragaggio' },
+    { code: 'OG8', desc: 'Opere fluviali, di difesa, di sistemazione idraulica' },
+    { code: 'OG9', desc: 'Impianti per la produzione di energia elettrica' },
+    { code: 'OG10', desc: 'Impianti per la trasformazione alta/media tensione' },
+    { code: 'OG11', desc: 'Impianti tecnologici' },
+    { code: 'OG12', desc: 'Opere ed impianti di bonifica e protezione ambientale' },
+    { code: 'OG13', desc: 'Opere di ingegneria naturalistica' },
+    { code: 'OS1', desc: 'Lavori in terra' },
+    { code: 'OS2-A', desc: 'Superfici decorate di beni immobili' },
+    { code: 'OS2-B', desc: 'Beni culturali mobili' },
     { code: 'OS3', desc: 'Impianti idrico-sanitario, cucine, lavanderie' },
-    { code: 'OS30', desc: 'Impianti interni elettrici, telefonici, radiotelefonici e televisivi' }
+    { code: 'OS4', desc: 'Impianti elettromeccanici trasportatori' },
+    { code: 'OS5', desc: 'Impianti pneumatici e antintrusione' },
+    { code: 'OS6', desc: 'Finiture di opere generali in materiali lignei, plastici, metallici e vetrosi' },
+    { code: 'OS7', desc: 'Finiture di opere generali di natura edile e tecnica' },
+    { code: 'OS8', desc: 'Opere di impermeabilizzazione' },
+    { code: 'OS9', desc: 'Impianti per la segnaletica luminosa e sicurezza traffico' },
+    { code: 'OS10', desc: 'Segnaletica stradale non luminosa' },
+    { code: 'OS11', desc: 'Apparecchiature strutturali speciali' },
+    { code: 'OS12-A', desc: 'Barriere stradali di sicurezza' },
+    { code: 'OS12-B', desc: 'Barriere paramassi, ferma neve e simili' },
+    { code: 'OS13', desc: 'Strutture prefabbricate in cemento armato' },
+    { code: 'OS14', desc: 'Impianti di smaltimento e recupero rifiuti' },
+    { code: 'OS15', desc: 'Pulizia di acque marine, lacustri, fluviali' },
+    { code: 'OS16', desc: 'Impianti per centrali di produzione energia elettrica' },
+    { code: 'OS17', desc: 'Linee telefoniche ed impianti di telefonia' },
+    { code: 'OS18-A', desc: 'Componenti strutturali in acciaio' },
+    { code: 'OS18-B', desc: 'Componenti per facciate continue' },
+    { code: 'OS19', desc: 'Impianti di reti di telecomunicazione e dati' },
+    { code: 'OS20-A', desc: 'Rilevamenti topografici' },
+    { code: 'OS20-B', desc: 'Indagini geognostiche' },
+    { code: 'OS21', desc: 'Opere strutturali speciali' },
+    { code: 'OS22', desc: 'Impianti di potabilizzazione e depurazione' },
+    { code: 'OS23', desc: 'Demolizione di opere' },
+    { code: 'OS24', desc: 'Verde e arredo urbano' },
+    { code: 'OS25', desc: 'Scavi archeologici' },
+    { code: 'OS26', desc: 'Pavimentazioni e sovrastrutture speciali' },
+    { code: 'OS27', desc: 'Impianti per la trazione elettrica' },
+    { code: 'OS28', desc: 'Impianti termici e di condizionamento' },
+    { code: 'OS29', desc: 'Armamento ferroviario' },
+    { code: 'OS30', desc: 'Impianti interni elettrici, telefonici, radiotelefonici e televisivi' },
+    { code: 'OS31', desc: 'Impianti per la mobilità sospesa' },
+    { code: 'OS32', desc: 'Strutture in legno' },
+    { code: 'OS33', desc: 'Coperture speciali' },
+    { code: 'OS34', desc: 'Sistemi antirumore per infrastrutture di mobilità' },
+    { code: 'OS35', desc: 'Interventi a basso impatto ambientale' }
 ];
 
 export const PROJECT_INFO: ProjectInfo = {
-  title: 'Ristrutturazione Edificio Residenziale "Palazzo del Sole"',
-  client: 'Condominio Via Roma 12',
-  designer: 'Arch. Marco Rossi',
+  title: 'Ristrutturazione Integrale Attico Via Manzoni',
+  client: 'Dott.ssa Elisabetta Bianchi',
+  designer: 'Ing. Domenico Gimondo',
   location: 'Milano (MI)',
   date: new Date().toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }),
   priceList: 'Prezzario Lombardia 2025', 
@@ -85,66 +132,81 @@ export const PROJECT_INFO: ProjectInfo = {
   year: '2025',
   vatRate: 10,
   safetyRate: 3.5,
-  fontSizeTitle: 30,
-  fontSizeClient: 16,
-  fontSizeTotals: 24,
+  fontSizeTitle: 28,
+  fontSizeClient: 15,
+  fontSizeTotals: 22,
 };
 
 export const CATEGORIES: Category[] = [
   { code: 'WBS.01', name: 'Apprestamenti di Cantiere e Sicurezza', isEnabled: true, isLocked: false },
-  { code: 'WBS.02', name: 'Demolizioni, Rimozioni e Scavi', isEnabled: true, isLocked: false },
-  { code: 'WBS.03', name: 'Strutture e Opere Murarie', isEnabled: true, isLocked: false },
-  { code: 'WBS.04', name: 'Impianti Tecnologici (Idro-Termo-Sanitario)', isEnabled: true, isLocked: false },
-  { code: 'WBS.05', name: 'Opere di Finitura e Rivestimenti', isEnabled: true, isLocked: false },
+  { code: 'WBS.02', name: 'Demolizioni e Rimozioni', isEnabled: true, isLocked: false },
+  { code: 'WBS.03', name: 'Opere Murarie e Sottofondi', isEnabled: true, isLocked: false },
+  { code: 'WBS.04', name: 'Impianto Idrico e Condizionamento', isEnabled: true, isLocked: false },
+  { code: 'WBS.05', name: 'Pavimenti e Finiture', isEnabled: true, isLocked: false },
 ];
 
 export const INITIAL_ARTICLES: Article[] = [
   {
-    id: 'demo-art-1',
+    id: 'art-01',
+    categoryCode: 'WBS.01',
+    code: '1.A.05',
+    description: 'Noleggio e montaggio di trabattello professionale h 6m per lavori in quota, compreso ogni onere di sicurezza e certificazione.',
+    unit: 'h',
+    unitPrice: 3.50,
+    laborRate: 10,
+    soaCategory: 'OG1',
+    priceListSource: 'Prezzario Lombardia 2025',
+    quantity: 0,
+    measurements: [
+      { id: 'm1', description: 'Apprestamento per lavori in soggiorno', multiplier: 24, length: 1, type: 'positive' }
+    ]
+  },
+  {
+    id: 'art-02',
     categoryCode: 'WBS.02',
-    code: '1.A.01.10.a',
-    description: 'Demolizione di muratura di qualsiasi natura e spessore, compreso l\'onere per il carico, il trasporto e lo scarico alle discariche autorizzate del materiale di risulta.',
-    unit: 'm³',
-    unitPrice: 45.50,
-    laborRate: 85,
+    code: '2.B.10',
+    description: 'Demolizione di pavimentazione interna in ceramica o marmo, compreso lo smantellamento del massetto e il carico su automezzo.',
+    unit: 'm²',
+    unitPrice: 22.40,
+    laborRate: 90,
     soaCategory: 'OG1',
     priceListSource: 'Prezzario Lombardia 2025',
     quantity: 0,
     measurements: [
-      { id: 'm1', description: 'Parete divisoria corridoio', multiplier: 1, length: 4.50, width: 0.15, height: 2.70, type: 'positive' },
-      { id: 'm2', description: 'Sfondato porta cucina', multiplier: 1, length: 0.90, width: 0.15, height: 2.10, type: 'deduction' }
+      { id: 'm2', description: 'Zona Giorno', multiplier: 1, length: 8.50, width: 6.20, type: 'positive' },
+      { id: 'm3', description: 'Corridoio notte', multiplier: 1, length: 4.30, width: 1.20, type: 'positive' }
     ]
   },
   {
-    id: 'demo-art-2',
+    id: 'art-03',
     categoryCode: 'WBS.03',
-    code: '2.B.20.05.b',
-    description: 'Fornitura e posa in opera di tramezzatura interna realizzata con blocchi in laterizio forato sp. 8 cm, compreso allettamento con malta bastarda e ogni altro onere.',
+    code: '3.C.02',
+    description: 'Tramezzatura interna realizzata in blocchi di laterizio forato sp. 8 cm, compreso allettamento con malta cementizia M5.',
     unit: 'm²',
-    unitPrice: 32.80,
-    laborRate: 45,
+    unitPrice: 34.50,
+    laborRate: 55,
     soaCategory: 'OG1',
     priceListSource: 'Prezzario Lombardia 2025',
     quantity: 0,
     measurements: [
-      { id: 'm3', description: 'Nuovo divisorio camera/bagno', multiplier: 1, length: 3.20, height: 2.70, type: 'positive' },
-      { id: 'm4', description: 'Nuovo divisorio ingresso', multiplier: 2, length: 1.50, height: 2.70, type: 'positive' }
+      { id: 'm4', description: 'Nuova parete divisoria cucina', multiplier: 1, length: 3.50, height: 2.70, type: 'positive' },
+      { id: 'm5', description: 'A dedurre sfondato porta', multiplier: 1, length: 0.90, height: 2.10, type: 'deduction' }
     ]
   },
   {
-    id: 'demo-art-3',
+    id: 'art-04',
     categoryCode: 'WBS.05',
-    code: '5.F.15.10.c',
-    description: 'Posa in opera di pavimento in gres porcellanato di prima scelta, in piastrelle di qualsiasi formato, compresa la formazione del letto di posa con collante cementizio.',
+    code: '5.F.15',
+    description: 'Fornitura e posa di parquet in rovere massello sp. 14mm, in listoni di varie lunghezze, incollato su massetto preesistente.',
     unit: 'm²',
-    unitPrice: 28.00,
-    laborRate: 60,
+    unitPrice: 85.00,
+    laborRate: 35,
     soaCategory: 'OG1',
     priceListSource: 'Prezzario Lombardia 2025',
     quantity: 0,
     measurements: [
-      { id: 'm5', description: 'Pavimentazione soggiorno', multiplier: 1, length: 6.00, width: 4.50, type: 'positive' },
-      { id: 'm6', description: 'Pavimentazione camera', multiplier: 1, length: 4.00, width: 4.00, type: 'positive' }
+      { id: 'm6', description: 'Pavimentazione camere da letto', multiplier: 2, length: 4.00, width: 3.50, type: 'positive' },
+      { id: 'm7', description: 'Zona disimpegno', multiplier: 1, length: 2.50, width: 1.20, type: 'positive' }
     ]
   }
 ];
@@ -162,7 +224,6 @@ export const INITIAL_ANALYSES: PriceAnalysis[] = [
       { id: 'c1', type: 'material', description: 'Intonaco premiscelato base calce/cem', unit: 'kg', unitPrice: 0.32, quantity: 20 },
       { id: 'c2', type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.50, quantity: 0.40 },
       { id: 'c3', type: 'labor', description: 'Operaio Comune', unit: 'h', unitPrice: 28.30, quantity: 0.30 },
-      // Added comment above fix: correctly using unitPrice property instead of price
       { id: 'c4', type: 'equipment', description: 'Trabattello in alluminio h 6m', unit: 'h', unitPrice: 3.50, quantity: 0.40 }
     ],
     totalMaterials: 6.4,

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Save, Edit3, ArrowRightLeft, TestTubes, Award, Sparkles, Download } from 'lucide-react';
-import { Article, ProjectInfo, Category } from '../types';
+import { Article } from '../types';
 import { COMMON_UNITS, SOA_CATEGORIES } from '../constants';
 import { parseDroppedContent } from '../services/geminiService';
 
@@ -9,13 +9,11 @@ interface ArticleEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   article: Article;
-  projectInfo: ProjectInfo; // Aggiunto
-  activeCategory?: Category; // Aggiunto
   onSave: (id: string, updates: Partial<Article>) => void;
   onConvertToAnalysis?: (article: Article) => void;
 }
 
-const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, article, projectInfo, activeCategory, onSave, onConvertToAnalysis }) => {
+const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, article, onSave, onConvertToAnalysis }) => {
   const [formData, setFormData] = useState<Partial<Article>>({});
   const [isDragOver, setIsDragOver] = useState(false);
   
@@ -37,17 +35,6 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
   }, [isOpen, article]);
 
   if (!isOpen) return null;
-
-  const handleOpenGemini = () => {
-    const prompt = `Agisci come un Esperto Estimatore. Scrivi una descrizione tecnica professionale e dettagliata per la seguente voce di computo metrico: 
-    - Codice: ${formData.code || article.code}
-    - Capitolo WBS: ${activeCategory?.name || article.categoryCode}
-    - Progetto: ${projectInfo.title}
-    Includi i materiali necessari, le modalità di posa e gli oneri compresi nel prezzo. Rispondi solo con il testo della descrizione.`;
-    
-    const url = `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`;
-    window.open(url, '_blank');
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,6 +71,8 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
     if (text) {
         const parsed = parseDroppedContent(text);
         if (parsed) {
+            // ACQUISIZIONE INTEGRALE: Sovrascriviamo TUTTI i parametri della nuova voce
+            // includendo codice, descrizione, unità, prezzo, manodopera e fonte.
             setFormData(prev => ({
                 ...prev,
                 code: parsed.code !== undefined ? parsed.code : prev.code,
@@ -114,6 +103,7 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
           <form id="edit-article-form" onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               
+              {/* Row 1: Code, Source, SOA */}
               <div className="col-span-1">
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Codice</label>
                 <input 
@@ -149,10 +139,11 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
                  </select>
               </div>
 
+              {/* Row 2: Description with DROP ZONE */}
               <div className="col-span-4 relative">
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1 flex justify-between">
                     <span>Descrizione Completa</span>
-                    <span className="text-[10px] text-blue-500 normal-case font-medium italic">Sostituzione rapida via Drag & Drop attiva</span>
+                    <span className="text-[10px] text-blue-500 normal-case font-medium italic">Trascina una voce qui per sostituire TUTTI i parametri</span>
                 </label>
                 <div 
                     className={`relative rounded-lg transition-all duration-200 ${isDragOver ? 'ring-4 ring-blue-500 ring-offset-2' : ''}`}
@@ -166,24 +157,17 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
                         className={`w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none h-32 text-sm font-serif leading-relaxed shadow-inner transition-colors ${isDragOver ? 'bg-blue-50 border-blue-400' : ''}`}
                     />
                     
-                    <button 
-                        type="button"
-                        onClick={handleOpenGemini}
-                        className="absolute right-3 bottom-3 bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white px-4 py-2 rounded-xl shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 ring-2 ring-white/30 animate-in fade-in zoom-in"
-                    >
-                        <Sparkles className="w-4 h-4" />
-                        <span className="text-xs font-black uppercase tracking-tight">Migliora con Gemini</span>
-                    </button>
-
                     {isDragOver && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-blue-600/10 backdrop-blur-[1px] pointer-events-none rounded-lg border-2 border-dashed border-blue-500 animate-pulse">
                             <Sparkles className="w-8 h-8 text-blue-600 mb-2" />
                             <span className="text-blue-700 font-black uppercase text-xs tracking-widest">Rilascia per Sostituire Dati</span>
+                            <span className="text-[9px] text-blue-500 font-bold mt-1 uppercase">Tutti i parametri tecnici verranno aggiornati</span>
                         </div>
                     )}
                 </div>
               </div>
 
+              {/* Row 3: Metrics */}
               <div className="col-span-1">
                 <label className="block text-xs font-bold uppercase text-gray-500 mb-1">U.M.</label>
                 <input 
@@ -263,4 +247,5 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
   );
 };
 
+// Fixed missing default export
 export default ArticleEditModal;

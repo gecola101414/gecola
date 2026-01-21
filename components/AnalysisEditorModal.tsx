@@ -1,9 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Save, Plus, Trash2, Calculator, Coins, Hammer, Truck, Package, Scale, Maximize2, Minimize2, Lock, Sparkles, Loader2, Wand2 } from 'lucide-react';
+import { X, Save, Plus, Trash2, Calculator, Coins, Hammer, Truck, Package, Scale, Maximize2, Minimize2, Lock } from 'lucide-react';
 import { PriceAnalysis, AnalysisComponent } from '../types';
 import { COMMON_UNITS, LABOR_CATALOG, EQUIPMENT_CATALOG, MATERIAL_CATALOG } from '../constants';
-import { GoogleGenAI, Type } from "@google/genai";
 
 interface AnalysisEditorModalProps {
   isOpen: boolean;
@@ -19,7 +18,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
     code: '',
     description: '',
     unit: 'cad',
-    analysisQuantity: 0,
+    analysisQuantity: 0, // MODIFICA: Default 0
     components: [],
     generalExpensesRate: 15,
     profitRate: 10,
@@ -35,8 +34,8 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
   });
 
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   
+  // Datalist IDs
   const sharedDatalistId = "analysis-units-datalist";
   const laborDatalistId = "labor-catalog-datalist";
   const equipDatalistId = "equip-catalog-datalist";
@@ -52,8 +51,10 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
             code: nextCode || 'AP.01',
             description: '',
             unit: 'cad',
-            analysisQuantity: 0, 
-            components: [],
+            analysisQuantity: 0, // MODIFICA: Default 0
+            components: [
+                { id: Math.random().toString(36).substr(2, 9), type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.50, quantity: 1 }
+            ],
             generalExpensesRate: 15,
             profitRate: 10,
             totalMaterials: 0,
@@ -69,86 +70,6 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
       }
     }
   }, [isOpen, analysis, nextCode]);
-
-  const handleFullAiGeneration = async () => {
-    if (isGenerating || !formData.description) {
-      alert("Inserisci un titolo o una breve descrizione per attivare l'AI Genius.");
-      return;
-    }
-    
-    setIsGenerating(true);
-    try {
-      // Inizializzazione protetta per Vercel environment recognition
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      
-      const prompt = `Agisci come un Ingegnere Estimatore esperto. 
-      LAVORO: Genera un'analisi prezzi completa per: "${formData.description}".
-      RIFERIMENTO: Analisi per 1 ${formData.unit}.
-      
-      ISTRUZIONI:
-      1. Descrizione: Scrivi una descrizione tecnica professionale e dettagliata.
-      2. Componenti: Inserisci Manodopera (Operaio Specializzato/Comune), Materiali specifici e Noli.
-      3. Valori: Usa quantità realistiche e prezzi medi di mercato correnti (Regione ${formData.unit}).
-      
-      RESTITUISCI SOLO JSON:
-      {
-        "description": "descrizione tecnica completa",
-        "components": [
-          { "type": "material|labor|equipment", "description": "nome componente", "unit": "h|kg|mc|...", "unitPrice": 10.50, "quantity": 0.5 }
-        ]
-      }`;
-
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              description: { type: Type.STRING },
-              components: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    type: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    unit: { type: Type.STRING },
-                    unitPrice: { type: Type.NUMBER },
-                    quantity: { type: Type.NUMBER }
-                  },
-                  required: ["type", "description", "unit", "unitPrice", "quantity"]
-                }
-              }
-            },
-            required: ["description", "components"]
-          }
-        }
-      });
-
-      const result = JSON.parse(response.text || "{}");
-      
-      if (result.components && result.components.length > 0) {
-        const newComponents: AnalysisComponent[] = result.components.map((c: any) => ({
-          ...c,
-          id: Math.random().toString(36).substr(2, 9)
-        }));
-
-        setFormData(prev => ({
-          ...prev,
-          description: result.description || prev.description,
-          components: newComponents,
-          analysisQuantity: 1 // Impostiamo a 1 come base generata
-        }));
-      }
-    } catch (error) {
-      console.error("Vercel/Gemini API Error:", error);
-      alert("Errore di connessione con il motore AI. Verifica la chiave API nelle impostazioni di Vercel.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   const calculatedTotals = useMemo(() => {
     let mat = 0, lab = 0, eq = 0;
@@ -181,19 +102,27 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
         description: '',
         unit: type === 'labor' || type === 'equipment' ? 'h' : 'cad',
         unitPrice: 0,
-        quantity: 0
+        quantity: 1
     };
     setFormData(prev => ({ ...prev, components: [...prev.components, newComp] }));
   };
 
   const handleUpdateComponent = (id: string, field: keyof AnalysisComponent, value: any) => {
     if (isLocked) return;
+    
     setFormData(prev => {
         const newComponents = prev.components.map(c => {
             if (c.id !== id) return c;
+            
             const updated = { ...c, [field]: value };
+
+            // AUTOFILL LOGIC: Se cambia la descrizione, cerchiamo nel catalogo corrispondente
             if (field === 'description') {
-                const catalog = c.type === 'labor' ? LABOR_CATALOG : c.type === 'equipment' ? EQUIPMENT_CATALOG : MATERIAL_CATALOG;
+                let catalog: any[] = [];
+                if (c.type === 'labor') catalog = LABOR_CATALOG;
+                else if (c.type === 'equipment') catalog = EQUIPMENT_CATALOG;
+                else if (c.type === 'material') catalog = MATERIAL_CATALOG;
+
                 const match = catalog.find(item => item.description === value);
                 if (match) {
                     updated.unit = match.unit;
@@ -208,12 +137,15 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
 
   const handleDeleteComponent = (id: string) => {
     if (isLocked) return;
-    setFormData(prev => ({ ...prev, components: prev.components.filter(c => c.id !== id) }));
+    setFormData(prev => {
+        const newComponents = prev.components.filter(c => c.id !== id);
+        return { ...prev, components: newComponents };
+    });
   };
 
   const handleSave = () => {
      if (isLocked) return;
-     onSave({
+     const finalAnalysis: PriceAnalysis = {
          ...formData,
          totalMaterials: calculatedTotals.mat,
          totalLabor: calculatedTotals.lab,
@@ -223,7 +155,8 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
          valoreUtile: calculatedTotals.utile,
          totalBatchValue: calculatedTotals.totalBatch,
          totalUnitPrice: calculatedTotals.unitPrice
-     });
+     };
+     onSave(finalAnalysis);
      onClose();
   };
 
@@ -232,8 +165,18 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
 
   return (
     <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      {/* CATALOG DATALISTS */}
       <datalist id={sharedDatalistId}>
           {COMMON_UNITS.map((u, i) => (<option key={`${u}-${i}`} value={u} />))}
+      </datalist>
+      <datalist id={laborDatalistId}>
+          {LABOR_CATALOG.map((item, i) => (<option key={i} value={item.description}>{formatEuro(item.price)}/h</option>))}
+      </datalist>
+      <datalist id={equipDatalistId}>
+          {EQUIPMENT_CATALOG.map((item, i) => (<option key={i} value={item.description}>{formatEuro(item.price)}/h</option>))}
+      </datalist>
+      <datalist id={matDatalistId}>
+          {MATERIAL_CATALOG.map((item, i) => (<option key={i} value={item.description}>{formatEuro(item.price)}/{item.unit}</option>))}
       </datalist>
 
       <div className={`bg-white rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden border border-gray-300 relative ${isLocked ? 'opacity-95' : ''}`}>
@@ -245,19 +188,9 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                         <h4 className="font-bold text-xl text-purple-900 flex items-center gap-2"><Maximize2 className="w-5 h-5"/> Descrizione Estesa Analisi</h4>
                         <p className="text-gray-500 text-sm">Codice: <span className="font-mono font-bold">{formData.code}</span></p>
                     </div>
-                    <div className="flex gap-3">
-                        <button 
-                            onClick={handleFullAiGeneration} 
-                            disabled={isGenerating || !formData.description}
-                            className="bg-gradient-to-tr from-[#4285F4] via-[#9B72CB] to-[#D96570] text-white px-5 py-2 rounded-lg font-black uppercase text-[10px] flex items-center gap-2 shadow-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
-                        >
-                            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} 
-                            AI GENIUS PRO
-                        </button>
-                        <button onClick={() => setIsDescriptionExpanded(false)} className="bg-slate-700 text-white px-5 py-2 rounded-lg font-bold hover:bg-slate-800 flex items-center gap-2 shadow-md">
-                            <Minimize2 className="w-4 h-4" /> Chiudi
-                        </button>
-                    </div>
+                    <button onClick={() => setIsDescriptionExpanded(false)} className="bg-purple-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-purple-700 flex items-center gap-2 shadow-md transition-transform hover:scale-105">
+                        <Minimize2 className="w-4 h-4" /> Conferma e Chiudi
+                    </button>
                 </div>
                 <div className="flex-1 flex flex-col">
                     <textarea
@@ -280,7 +213,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                     Analisi Prezzo Unitario
                     {isLocked && <Lock className="w-4 h-4 text-red-400" />}
                 </h3>
-                <p className="text-purple-200 text-xs">Composizione automatica ottimizzata per Cloud & Vercel</p>
+                <p className="text-purple-200 text-xs">Giustificazione analitica professionale</p>
               </div>
           </div>
           <button onClick={onClose} className="text-purple-200 hover:text-white transition-colors bg-white/10 p-2 rounded-full">
@@ -295,35 +228,18 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                         <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Codice</label>
                         <input type="text" readOnly={isLocked} value={formData.code} onChange={e => setFormData({...formData, code: e.target.value})} className={`w-full border border-gray-300 rounded p-2 text-sm font-bold font-mono text-purple-900 ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} />
                     </div>
-                    <div className="col-span-5 relative group/desc">
+                    <div className="col-span-5 relative">
                         <div className="flex justify-between items-center mb-1">
-                            <label className="block text-xs font-bold uppercase text-gray-500">Titolo/Oggetto</label>
-                            <div className="flex gap-1">
-                                <button 
-                                    onClick={handleFullAiGeneration} 
-                                    disabled={isGenerating || !formData.description}
-                                    className={`text-white hover:scale-105 transition-all text-[9px] font-black uppercase flex items-center gap-1 bg-gradient-to-r from-[#4285F4] to-[#D96570] px-2 py-1 rounded shadow-lg opacity-0 group-hover/desc:opacity-100 disabled:opacity-30 ${isGenerating ? 'animate-pulse' : ''}`}
-                                >
-                                    {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />} 
-                                    AI GENIUS
-                                </button>
-                                <button onClick={() => setIsDescriptionExpanded(true)} className="text-purple-600 hover:text-purple-800 text-[10px] font-bold flex items-center gap-1 bg-purple-50 px-2 py-1 rounded border border-purple-200 hover:bg-purple-100 transition-colors">
-                                    <Maximize2 className="w-3 h-3" /> Espandi
-                                </button>
-                            </div>
+                            <label className="block text-xs font-bold uppercase text-gray-500">Descrizione Voce</label>
+                            <button onClick={() => setIsDescriptionExpanded(true)} className="text-purple-600 hover:text-purple-800 text-[10px] font-bold flex items-center gap-1 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 hover:bg-purple-100 transition-colors">
+                                <Maximize2 className="w-3 h-3" /> Espandi
+                            </button>
                         </div>
-                        <textarea readOnly={isLocked} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className={`w-full border border-gray-300 rounded p-2 text-sm resize-none h-[52px] leading-tight focus:ring-1 focus:ring-purple-500 outline-none ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="Inserisci il titolo della voce..." />
+                        <textarea readOnly={isLocked} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className={`w-full border border-gray-300 rounded p-2 text-sm resize-none h-[52px] leading-tight focus:ring-1 focus:ring-purple-500 outline-none ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="Es. Posa in opera di..." />
                     </div>
                     <div className={`col-span-3 p-2 rounded border h-[76px] flex flex-col justify-center ${isLocked ? 'bg-gray-100 border-gray-300' : 'bg-purple-100 border-purple-200'}`}>
                         <label className="block text-[10px] font-bold uppercase text-purple-700 mb-1 flex items-center gap-1"><Scale className="w-3 h-3" /> Quantità Analizzata</label>
-                        <input 
-                            readOnly={isLocked} 
-                            type="number" 
-                            value={formData.analysisQuantity === 0 ? '' : formData.analysisQuantity} 
-                            onChange={e => setFormData({...formData, analysisQuantity: parseFloat(e.target.value) || 0})} 
-                            className={`w-full border border-purple-300 rounded p-1 text-sm text-center font-bold text-purple-900 focus:ring-1 focus:ring-purple-500 ${isLocked ? 'bg-white cursor-not-allowed' : ''}`} 
-                            placeholder="Inserisci Q.tà"
-                        />
+                        <input readOnly={isLocked} type="number" value={formData.analysisQuantity || ''} onChange={e => setFormData({...formData, analysisQuantity: parseFloat(e.target.value) || 0})} className={`w-full border border-purple-300 rounded p-1 text-sm text-center font-bold text-purple-900 focus:ring-1 focus:ring-purple-500 ${isLocked ? 'bg-white cursor-not-allowed' : ''}`} placeholder="0" />
                     </div>
                     <div className="col-span-2">
                         <label className="block text-xs font-bold uppercase text-gray-500 mb-1">U.M. Finale</label>
@@ -336,7 +252,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                         <thead className="bg-gray-100 text-gray-600 font-bold text-[10px] uppercase sticky top-0 z-10 shadow-sm">
                             <tr>
                                 <th className="p-2 w-8 border-b border-gray-200"></th>
-                                <th className="p-2 border-b border-gray-200">Elemento Analitico (Materiali / M.O. / Noli)</th>
+                                <th className="p-2 border-b border-gray-200">Descrizione Elemento (Catalogo)</th>
                                 <th className="p-2 w-16 text-center border-b border-gray-200">U.M.</th>
                                 <th className="p-2 w-24 text-center border-b border-gray-200 bg-blue-50 text-blue-700 font-black">Quantità</th>
                                 <th className="p-2 w-28 text-right border-b border-gray-200">Prezzo Unit.</th>
@@ -345,7 +261,9 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                             </tr>
                         </thead>
                         <tbody>
-                            {formData.components.map(comp => (
+                            {formData.components.map(comp => {
+                                const dlId = comp.type === 'labor' ? laborDatalistId : comp.type === 'equipment' ? equipDatalistId : matDatalistId;
+                                return (
                                 <tr key={comp.id} className="border-b border-gray-100 hover:bg-gray-50 group transition-colors">
                                     <td className="p-2 text-center">
                                         {comp.type === 'material' && <Package className="w-4 h-4 text-orange-500" />}
@@ -355,21 +273,22 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                                     <td className="p-2">
                                         <input 
                                             type="text" 
+                                            list={dlId}
                                             readOnly={isLocked} 
                                             value={comp.description} 
                                             onChange={e => handleUpdateComponent(comp.id, 'description', e.target.value)} 
                                             className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-medium text-gray-700 ${isLocked ? 'cursor-not-allowed' : ''}`}
-                                            placeholder="Scegli o scrivi..."
+                                            placeholder="Scegli dal catalogo o scrivi..."
                                         />
                                     </td>
                                     <td className="p-2">
                                         <input readOnly={isLocked} type="text" list={sharedDatalistId} value={comp.unit} onChange={e => handleUpdateComponent(comp.id, 'unit', e.target.value)} className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm text-center text-gray-500 ${isLocked ? 'cursor-not-allowed' : ''}`} autoComplete="off" />
                                     </td>
                                     <td className="p-2 bg-blue-50/30">
-                                        <input readOnly={isLocked} type="number" step="any" value={comp.quantity === 0 ? '' : comp.quantity} onChange={e => handleUpdateComponent(comp.id, 'quantity', parseFloat(e.target.value) || 0)} className={`w-full bg-transparent border-none focus:ring-1 focus:ring-blue-200 p-0 text-sm text-center font-black text-blue-900 ${isLocked ? 'cursor-not-allowed' : ''}`} />
+                                        <input readOnly={isLocked} type="number" step="any" value={comp.quantity} onChange={e => handleUpdateComponent(comp.id, 'quantity', parseFloat(e.target.value))} className={`w-full bg-transparent border-none focus:ring-1 focus:ring-blue-200 p-0 text-sm text-center font-black text-blue-900 ${isLocked ? 'cursor-not-allowed' : ''}`} />
                                     </td>
                                     <td className="p-2">
-                                        <input readOnly={isLocked} type="number" step="0.01" value={comp.unitPrice === 0 ? '' : comp.unitPrice} onChange={e => handleUpdateComponent(comp.id, 'unitPrice', parseFloat(e.target.value) || 0)} className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm text-right font-mono ${isLocked ? 'cursor-not-allowed' : ''}`} />
+                                        <input readOnly={isLocked} type="number" step="0.01" value={comp.unitPrice} onChange={e => handleUpdateComponent(comp.id, 'unitPrice', parseFloat(e.target.value))} className={`w-full bg-transparent border-none focus:ring-0 p-0 text-sm text-right font-mono ${isLocked ? 'cursor-not-allowed' : ''}`} />
                                     </td>
                                     <td className="p-2 text-right font-mono font-bold text-gray-800">
                                         {formatEuro((comp.quantity || 0) * (comp.unitPrice || 0))}
@@ -379,27 +298,22 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                                             <button 
                                                 onClick={() => handleDeleteComponent(comp.id)} 
                                                 className="text-gray-300 hover:text-red-500 p-1 rounded-full hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                                                title="Elimina Componente"
                                             >
                                                 <Trash2 className="w-4 h-4" />
                                             </button>
                                         )}
                                     </td>
                                 </tr>
-                            ))}
+                            );})}
                         </tbody>
                     </table>
-                    {formData.components.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-16 text-gray-300">
-                            <Wand2 className="w-12 h-12 mb-4 opacity-20" />
-                            <p className="text-sm italic uppercase tracking-widest font-black">Usa AI GENIUS per generare l'analisi</p>
-                        </div>
-                    )}
                 </div>
                 
-                <div className="p-3 bg-gray-50 border-t border-gray-200 flex justify-center gap-3 shadow-inner z-20">
-                    <button disabled={isLocked} onClick={() => handleAddComponent('labor')} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-blue-200 text-blue-700 rounded-xl hover:bg-blue-600 hover:text-white text-xs font-black shadow-sm disabled:opacity-50 transition-all uppercase tracking-tighter">+ Manodopera</button>
-                    <button disabled={isLocked} onClick={() => handleAddComponent('material')} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-orange-200 text-orange-700 rounded-xl hover:bg-orange-600 hover:text-white text-xs font-black shadow-sm disabled:opacity-50 transition-all uppercase tracking-tighter">+ Materiale</button>
-                    <button disabled={isLocked} onClick={() => handleAddComponent('equipment')} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-green-200 text-green-700 rounded-xl hover:bg-green-600 hover:text-white text-xs font-black shadow-sm disabled:opacity-50 transition-all uppercase tracking-tighter">+ Noli</button>
+                <div className="p-3 bg-gray-50 border-t border-gray-200 flex justify-center gap-3 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-20">
+                    <button disabled={isLocked} onClick={() => handleAddComponent('labor')} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-blue-200 text-blue-700 rounded-xl hover:bg-blue-600 hover:text-white text-xs font-black shadow-sm disabled:opacity-50 transition-all"><Hammer className="w-3.5 h-3.5" /> + MANODOPERA</button>
+                    <button disabled={isLocked} onClick={() => handleAddComponent('material')} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-orange-200 text-orange-700 rounded-xl hover:bg-orange-600 hover:text-white text-xs font-black shadow-sm disabled:opacity-50 transition-all"><Package className="w-3.5 h-3.5" /> + MATERIALE</button>
+                    <button disabled={isLocked} onClick={() => handleAddComponent('equipment')} className="flex items-center gap-1.5 px-4 py-2 bg-white border border-green-200 text-green-700 rounded-xl hover:bg-green-600 hover:text-white text-xs font-black shadow-sm disabled:opacity-50 transition-all"><Truck className="w-3.5 h-3.5" /> + NOLI/ATTR.</button>
                 </div>
             </div>
 
