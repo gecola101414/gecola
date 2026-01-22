@@ -128,11 +128,11 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
                       </thead>
                       <tbody>
                           {wbsBreakdown.map((cat, idx) => (
-                              <tr key={cat.code} className={`border-b border-gray-100 ${cat.code === 'WBS.SIC' ? 'bg-red-50/50' : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')}`}>
+                              <tr key={cat.code} className={`border-b border-gray-100 ${cat.code === 'WBS.SIC' ? 'bg-orange-50/50' : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')}`}>
                                   <td className="p-3 font-mono font-bold text-gray-500 align-top">{cat.code}</td>
                                   <td className="p-3 text-gray-800 font-medium align-top">
                                     {cat.name}
-                                    {cat.code === 'WBS.SIC' && <span className="ml-2 text-[9px] bg-red-600 text-white px-1.5 py-0.5 rounded font-black uppercase">Analitico</span>}
+                                    {cat.code === 'WBS.SIC' && <span className="ml-2 text-[9px] bg-orange-600 text-white px-1.5 py-0.5 rounded font-black uppercase">Analitico</span>}
                                   </td>
                                   <td className="p-3 text-right font-mono font-bold text-gray-700 align-top">{formatCurrency(cat.total)}</td>
                               </tr>
@@ -215,10 +215,10 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
               </div>
               <div className="flex justify-between items-center text-gray-600 text-base border-b border-gray-100 pb-2">
                   <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-red-600" />
+                    <ShieldCheck className="w-4 h-4 text-orange-600" />
                     <span>Oneri per la Sicurezza (Calcolo Analitico) (B)</span>
                   </div>
-                  <span className="font-mono font-black text-red-700">{formatCurrency(safetyAnalitico)}</span>
+                  <span className="font-mono font-black text-orange-700">{formatCurrency(safetyAnalitico)}</span>
               </div>
               
               <div className="pt-4 flex justify-between items-center bg-blue-50 p-6 rounded-lg border border-blue-100">
