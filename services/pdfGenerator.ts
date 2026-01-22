@@ -1,3 +1,4 @@
+
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
@@ -50,13 +51,6 @@ const numberToItalianWords = (num: number): string => {
     return `${words}/${decimalPart.toString().padStart(2, '0')}`;
 };
 
-// Added missing helper function to extract WBS numerical index
-const getWbsNumber = (code: string) => {
-    const match = code.match(/WBS\.(\d+)/);
-    return match ? parseInt(match[1], 10) : code;
-};
-
-// --- FORMATTERS ---
 const formatCurrency = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
@@ -93,39 +87,6 @@ const getLibs = async () => {
     const autoTableModule = await import('jspdf-autotable');
     const autoTable = (autoTableModule as any).default || autoTableModule;
     return { jsPDF, autoTable };
-};
-
-// Exact column coordinates (cumulative widths)
-const COL_BOUNDARY_X = [
-    10,      // Left Frame
-    20,      // Num.Ord
-    42,      // Tariffa
-    102,     // Designazione (Desc)
-    112,     // par.ug.
-    124,     // lung.
-    136,     // larg.
-    148,     // H/peso
-    166,     // Quantità
-    184,     // unitario
-    200      // TOTALE / Right Frame
-];
-
-const drawGridLines = (doc: any, startY: number, endY: number) => {
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.1);
-    for (let i = 1; i < COL_BOUNDARY_X.length - 1; i++) {
-        doc.line(COL_BOUNDARY_X[i], startY, COL_BOUNDARY_X[i], endY);
-    }
-};
-
-const drawTableFrame = (doc: any, startY: number, endY: number) => {
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.4);
-    doc.line(10, startY, 10, endY); 
-    doc.line(200, startY, 200, endY); 
-    doc.line(10, endY, 200, endY); 
-    doc.line(10, startY, 200, startY); 
-    doc.setLineWidth(0.1);
 };
 
 const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number, grandTotal?: number, isTotalCurrency: boolean = true) => {
@@ -175,61 +136,26 @@ const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined
 };
 
 // --------------------------------------------------------------------------------
-// 1. COMPUTO METRICO ESTIMATIVO (PROFESSIONALE)
+// 1. GENERATORE CORE COMPUTO (Riutilizzato per entrambi i PDF)
 // --------------------------------------------------------------------------------
-export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+const generateBaseComputoPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[], title: string) => {
   try {
     const { jsPDF, autoTable } = await getLibs();
     const doc = new jsPDF();
-    const tableBody: any[] = [];
-    const pageHeight = doc.internal.pageSize.height;
+    const body: any[] = [];
 
     categories.forEach((cat) => {
         if (!cat.isEnabled) return;
         const catArticles = articles.filter(a => a.categoryCode === cat.code);
         if (catArticles.length === 0) return;
 
-        // WBS header
-        tableBody.push([
-            { content: '', styles: { isWbs: true } }, 
-            { content: '', styles: { isWbs: true } }, 
-            { 
-                content: `${cat.code} - ${cat.name}`, 
-                styles: { 
-                    fillColor: [245, 245, 245], 
-                    fontStyle: 'bold', 
-                    halign: 'left', 
-                    cellPadding: { left: 4, right: 4 },
-                    isWbs: true
-                } 
-            },
-            '', '', '', '', '', '', ''
-        ]);
+        body.push([{ content: `${cat.code} - ${cat.name}`, colSpan: 10, styles: { fillColor: [245, 245, 245], fontStyle: 'bold', halign: 'left' } }]);
 
         catArticles.forEach((art, artIndex) => {
-            const wbsNum = cat.code.match(/WBS\.(\d+)/)?.[1] || cat.code;
-            const artNum = `${parseInt(wbsNum, 10)}.${artIndex + 1}`;
+            const wbsNum = cat.code === 'WBS.SIC' ? 'S' : (cat.code.match(/WBS\.(\d+)/)?.[1] || '0');
+            const artNum = `${wbsNum}.${artIndex + 1}`;
 
-            // Article Main Row
-            tableBody.push([
-                { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', cellPadding: { top: 3, bottom: 1 } } },
-                { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
-                { 
-                    content: art.description, 
-                    styles: { 
-                        isArt: true, 
-                        fontStyle: 'normal', 
-                        halign: 'justify', 
-                        cellPadding: { left: 4, right: 4, top: 3, bottom: 2 }, 
-                        fontSize: 7.5,
-                        valign: 'top'
-                    } 
-                },
-                '', '', '', '', '', '', ''
-            ]);
-
-            // Label for measurements
-            tableBody.push([ '', '', { content: 'ELENCO MISURE:', styles: { fontStyle: 'bold', fontSize: 6.5, textColor: [100, 100, 100], cellPadding: { top: 2, bottom: 1, left: 4 } } }, '', '', '', '', '', '', '' ]);
+            body.push([{ content: artNum, styles: { fontStyle: 'bold', halign: 'center' } }, { content: art.code, styles: { fontStyle: 'bold' } }, { content: art.description, styles: { fontStyle: 'normal', halign: 'justify', fontSize: 7.5 } }, '', '', '', '', '', '', '']);
 
             let runningPartial = 0;
             art.measurements.forEach(m => {
@@ -246,33 +172,11 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
                 let displayVal = (m.type === 'subtotal') ? runningPartial : val;
                 if (m.type === 'subtotal') runningPartial = 0; else runningPartial += val;
                 
-                tableBody.push([
-                    '', '', 
-                    { 
-                        content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, 
-                        styles: { 
-                            fontStyle: 'bold',
-                            halign: m.type === 'subtotal' ? 'right' : 'left',
-                            textColor: m.type === 'deduction' ? [200, 0, 0] : [0, 0, 0],
-                            cellPadding: { left: m.type === 'subtotal' ? 4 : 6, top: 1, bottom: 1 } 
-                        } 
-                    },
-                    formatNumber(m.multiplier), formatNumber(m.length), formatNumber(m.width), formatNumber(m.height),
-                    { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: 'bold', cellPadding: { right: 1.5 } } },
-                    '', ''
-                ]);
+                body.push(['', '', { content: m.type === 'subtotal' ? 'Sommano parziale' : m.description, styles: { fontStyle: 'bold', halign: m.type === 'subtotal' ? 'right' : 'left', textColor: m.type === 'deduction' ? [200, 0, 0] : [0, 0, 0] } }, formatNumber(m.multiplier), formatNumber(m.length), formatNumber(m.width), formatNumber(m.height), { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: 'bold' } }, '', '']);
             });
 
-            const totalAmount = art.quantity * art.unitPrice;
-            tableBody.push([
-                '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 5, top: 3, bottom: 2 }, isTotalRow: true } },
-                '', '', '', '',
-                { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, right: 1.5 }, isTotalRow: true } },
-                { content: formatNumber(art.unitPrice), styles: { halign: 'right', cellPadding: { top: 3, right: 1.5 }, isTotalRow: true } },
-                { content: totalAmount, styles: { fontStyle: 'bold', halign: 'right', textColor: [0, 0, 120], cellPadding: { top: 3, right: 1.5 }, isTotalRow: true } } 
-            ]);
-
-            tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
+            body.push(['', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right' } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right' } }, { content: formatNumber(art.unitPrice), styles: { halign: 'right' } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'right', textColor: [0, 0, 120] } }]);
+            body.push([{ content: '', colSpan: 10, styles: { cellPadding: 1 } }]);
         });
     });
 
@@ -280,108 +184,32 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     let pageTotal = 0;  
 
     autoTable(doc, {
-      head: [['Num.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'par.ug.', 'lung.', 'larg.', 'H/peso', 'Quantità', 'unitario', 'TOTALE']],
-      body: tableBody,
-      startY: 47,
-      margin: { top: 25, bottom: 25, left: 10, right: 10 }, 
-      theme: 'plain', 
-      styles: { fontSize: 7.5, valign: 'top', cellPadding: 1.2, lineWidth: 0, overflow: 'linebreak', font: 'helvetica' },
-      columnStyles: {
-          0: { cellWidth: 10, halign: 'center' }, 
-          1: { cellWidth: 22, halign: 'left' }, 
-          2: { cellWidth: 60, halign: 'left' }, 
-          3: { cellWidth: 10, halign: 'center' }, 
-          4: { cellWidth: 12, halign: 'center' }, 
-          5: { cellWidth: 12, halign: 'center' }, 
-          6: { cellWidth: 12, halign: 'center' }, 
-          7: { cellWidth: 18, halign: 'right', cellPadding: { right: 1.5 } }, 
-          8: { cellWidth: 18, halign: 'right', cellPadding: { right: 1.5 } }, 
-          9: { cellWidth: 16, halign: 'right', cellPadding: { right: 1.5 } }  
-      },
-      headStyles: { fillColor: [245, 245, 245], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.2 }, lineColor: [0,0,0] },
-      didDrawCell: (data: any) => {
-          if (data.section === 'body' && data.cell.styles.isTotalRow) {
-              if (data.column.index >= 7 && data.column.index <= 9) {
-                  const x = data.cell.x; const y = data.cell.y; const w = data.cell.width;
-                  doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(x, y, x + w, y);
-                  doc.setLineWidth(0.1); doc.line(x, y + 0.6, x + w, y + 0.6);
-                  doc.setLineWidth(0.1);
-              }
-          }
-          if (data.section === 'body' && data.column.index === 9) {
-              const rawVal = data.cell.raw;
-              if (typeof rawVal === 'number' || (typeof rawVal === 'object' && (rawVal as any).content && typeof (rawVal as any).content === 'number')) {
-                  pageTotal += (typeof rawVal === 'number' ? rawVal : (rawVal as any).content);
-              }
-          }
-      },
-      didParseCell: (data: any) => {
-          if (data.section === 'body' && data.column.index === 9) {
-               const rawVal = data.cell.raw;
-               if (typeof rawVal === 'object' && typeof (rawVal as any).content === 'number') {
-                   data.cell.text = [formatCurrency((rawVal as any).content)];
-               }
-          }
-      },
-      didDrawPage: (data: any) => {
-          const currentTableStartY = data.pageNumber === 1 ? 47 : 25;
-          const tableEndY = pageHeight - 25;
-          drawHeader(doc, projectInfo, "COMPUTO METRICO ESTIMATIVO", data.pageNumber, grandTotal);
-          drawGridLines(doc, currentTableStartY, tableEndY);
-          drawTableFrame(doc, currentTableStartY, tableEndY);
-          drawFooter(doc, data.pageNumber, grandTotal, pageTotal);
-          grandTotal += pageTotal;
-          pageTotal = 0;
-      }
-    });
-
-    // --- DOCUMENT CLOSURE / SIGNATURE SECTION ---
-    let finalY = (doc as any).lastAutoTable.finalY + 15;
-    if (finalY > pageHeight - 75) { doc.addPage(); finalY = 30; }
-
-    const descColX = 42; const descColWidth = 60; 
-    doc.setFontSize(8); doc.setFont("helvetica", "normal");
-    doc.text(`${projectInfo.location}, ${projectInfo.date}`, descColX + 4, finalY);
-    finalY += 12;
-    doc.setFontSize(9); doc.setFont("helvetica", "bold");
-    doc.text("IL PROGETTISTA", descColX + descColWidth / 2, finalY, { align: 'center' });
-    doc.setFont("helvetica", "normal");
-    doc.text(projectInfo.designer, descColX + descColWidth / 2, finalY + 7, { align: 'center' });
-    
-    doc.setDrawColor(0); doc.setLineWidth(0.1);
-    let closingLineY = finalY + 14;
-    const lineMargin = 5; 
-    while (closingLineY < pageHeight - 25) {
-        doc.line(descColX + lineMargin, closingLineY, descColX + descColWidth - lineMargin, closingLineY);
-        closingLineY += 4.5; 
-    }
-
-    // --- SUMMARY PAGE ---
-    doc.addPage();
-    doc.setFontSize(12); doc.setFont("helvetica", "bold");
-    doc.text("RIEPILOGO GENERALE", 12, 22);
-    const summaryRows: any[] = [];
-    let totalWorks = 0;
-    categories.forEach(cat => {
-        if (!cat.isEnabled) return;
-        const catTotal = articles.filter(a => a.categoryCode === cat.code).reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
-        if (catTotal > 0.01) {
-            totalWorks += catTotal;
-            summaryRows.push([cat.code, cat.name, formatCurrency(catTotal)]);
+        head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'par.ug.', 'lung.', 'larg.', 'H/peso', 'Quantità', 'unitario', 'TOTALE']],
+        body: body,
+        startY: 47,
+        margin: { top: 25, bottom: 25, left: 10, right: 10 }, 
+        theme: 'plain', 
+        styles: { fontSize: 7.5, valign: 'top', cellPadding: 1, lineWidth: 0, overflow: 'linebreak', font: 'helvetica' },
+        columnStyles: {
+            0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 22 }, 2: { cellWidth: 60 }, 3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 12, halign: 'center' }, 5: { cellWidth: 12, halign: 'center' }, 6: { cellWidth: 12, halign: 'center' }, 7: { cellWidth: 18, halign: 'right' }, 8: { cellWidth: 18, halign: 'right' }, 9: { cellWidth: 16, halign: 'right' }  
+        },
+        headStyles: { fillColor: [245, 245, 245], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.2 } },
+        didDrawCell: (data: any) => {
+            if (data.section === 'body' && data.column.index === 9) {
+                const rawVal = data.cell.raw;
+                if (typeof rawVal === 'number') pageTotal += rawVal;
+            }
+        },
+        didParseCell: (data: any) => {
+            if (data.section === 'body' && data.column.index === 9 && typeof data.cell.raw === 'number') {
+                data.cell.text = [formatCurrency(data.cell.raw)];
+            }
+        },
+        didDrawPage: (data: any) => {
+            drawHeader(doc, projectInfo, title, data.pageNumber, grandTotal);
+            drawFooter(doc, data.pageNumber, grandTotal, pageTotal);
+            grandTotal += pageTotal; pageTotal = 0;
         }
-    });
-    const safetyCosts = totalWorks * (projectInfo.safetyRate / 100);
-    summaryRows.push(['', '', '']); 
-    summaryRows.push([{ content: 'TOTALE GENERALE (Escluso IVA)', colSpan: 2, styles: { fontStyle: 'bold', halign: 'right', fillColor: [230, 230, 230] } }, { content: formatCurrency(totalWorks + safetyCosts), styles: { fontStyle: 'bold', halign: 'right', fillColor: [230, 230, 230], cellPadding: { right: 1.5 } } }]);
-
-    autoTable(doc, {
-        head: [['Codice', 'Descrizione Capitolo', 'Importo (€)']],
-        body: summaryRows,
-        startY: 32,
-        theme: 'grid',
-        styles: { fontSize: 9, cellPadding: 2.5 },
-        columnStyles: { 0: { cellWidth: 25 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 45, halign: 'right', cellPadding: { right: 1.5 } } },
-        headStyles: { fillColor: [60, 60, 60], textColor: [255, 255, 255] }
     });
 
     const pdfBlob = doc.output('blob');
@@ -389,9 +217,17 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
   } catch (error) { console.error(error); alert("Errore PDF."); }
 };
 
-// --------------------------------------------------------------------------------
-// 2. ELENCO PREZZI UNITARI
-// --------------------------------------------------------------------------------
+// --- Funzioni Pubbliche per Export Separati ---
+export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+    const lavoriCats = categories.filter(c => c.code !== 'WBS.SIC');
+    return generateBaseComputoPdf(projectInfo, lavoriCats, articles, "COMPUTO METRICO ESTIMATIVO (LAVORI)");
+};
+
+export const generateComputoSicurezzaPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+    const sicurezzaCats = categories.filter(c => c.code === 'WBS.SIC');
+    return generateBaseComputoPdf(projectInfo, sicurezzaCats, articles, "COMPUTO ONERI DELLA SICUREZZA (ANALITICI)");
+};
+
 export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
     try {
         const { jsPDF, autoTable } = await getLibs();
@@ -403,8 +239,9 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
             if (catArticles.length === 0) return;
             tableBody.push([{ content: `${cat.code} - ${cat.name}`, colSpan: 5, styles: { fillColor: [230, 230, 230], fontStyle: 'bold' } }]);
             catArticles.forEach((art, artIndex) => {
+                const wbsNum = cat.code === 'WBS.SIC' ? 'S' : (cat.code.match(/WBS\.(\d+)/)?.[1] || '0');
                 tableBody.push([
-                    { content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } },
+                    { content: `${wbsNum}.${artIndex + 1}`, styles: { halign: 'center' } },
                     { content: art.code, styles: { fontStyle: 'bold' } },
                     { content: art.description, styles: { halign: 'justify', fontSize: 8 } },
                     { content: art.unit, styles: { halign: 'center' } },
@@ -415,22 +252,19 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
         autoTable(doc, {
             head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'U.M.', 'PREZZO UNITARIO']],
             body: tableBody,
-            startY: 40,
+            startY: 45,
             theme: 'grid',
             styles: { fontSize: 8, cellPadding: 2.5 },
             columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 25 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 15 }, 4: { cellWidth: 45 } },
             headStyles: { fillColor: [60, 60, 60], textColor: [255, 255, 255] },
             didDrawPage: (data: any) => {
-                drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI", data.pageNumber);
+                drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI (LAVORI E SICUREZZA)", data.pageNumber);
             }
         });
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Elenco Prezzi."); }
 };
 
-// --------------------------------------------------------------------------------
-// 3. STIMA INCIDENZA MANODOPERA
-// --------------------------------------------------------------------------------
 export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
     try {
         const { jsPDF, autoTable } = await getLibs();
@@ -443,11 +277,12 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
             if (catArticles.length === 0) return;
             tableBody.push([{ content: `${cat.code} - ${cat.name}`, colSpan: 6, styles: { fillColor: [230, 230, 230], fontStyle: 'bold' } }]);
             catArticles.forEach((art, artIndex) => {
+                const wbsNum = cat.code === 'WBS.SIC' ? 'S' : (cat.code.match(/WBS\.(\d+)/)?.[1] || '0');
                 const totalItem = art.quantity * art.unitPrice;
                 const laborPart = totalItem * (art.laborRate / 100);
                 totalLaborSum += laborPart;
                 tableBody.push([
-                    { content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } },
+                    { content: `${wbsNum}.${artIndex + 1}`, styles: { halign: 'center' } },
                     art.code,
                     { content: art.description, styles: { fontSize: 7, halign: 'justify' } },
                     formatNumber(art.quantity),
@@ -460,7 +295,7 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
         autoTable(doc, {
             head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'QUANTITÀ', '% M.O.', 'IMPORTO M.O.']],
             body: tableBody,
-            startY: 40,
+            startY: 45,
             theme: 'grid',
             styles: { fontSize: 8, cellPadding: 2 },
             columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 25 }, 3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 15 }, 5: { cellWidth: 30 } },
@@ -473,9 +308,6 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
     } catch (e) { alert("Errore Manodopera."); }
 };
 
-// --------------------------------------------------------------------------------
-// 4. ANALISI DEI PREZZI UNITARI
-// --------------------------------------------------------------------------------
 export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyses: PriceAnalysis[]) => {
     try {
         const { jsPDF, autoTable } = await getLibs();

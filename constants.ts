@@ -90,7 +90,7 @@ export const SOA_CATEGORIES = [
     { code: 'OS7', desc: 'Finiture di opere generali di natura edile e tecnica' },
     { code: 'OS8', desc: 'Opere di impermeabilizzazione' },
     { code: 'OS9', desc: 'Impianti per la segnaletica luminosa e sicurezza traffico' },
-    { code: 'OS10', desc: 'Segnaletica stradale non luminosa' },
+    { code: 'OS10', ss: 'Segnaletica stradale non luminosa' },
     { code: 'OS11', desc: 'Apparecchiature strutturali speciali' },
     { code: 'OS12-A', desc: 'Barriere stradali di sicurezza' },
     { code: 'OS12-B', desc: 'Barriere paramassi, ferma neve e simili' },
@@ -138,19 +138,34 @@ export const PROJECT_INFO: ProjectInfo = {
 };
 
 export const CATEGORIES: Category[] = [
-  { code: 'WBS.01', name: 'Apprestamenti di Cantiere e Sicurezza', isEnabled: true, isLocked: false },
-  { code: 'WBS.02', name: 'Demolizioni e Rimozioni', isEnabled: true, isLocked: false },
-  { code: 'WBS.03', name: 'Opere Murarie e Sottofondi', isEnabled: true, isLocked: false },
-  { code: 'WBS.04', name: 'Impianto Idrico e Condizionamento', isEnabled: true, isLocked: false },
-  { code: 'WBS.05', name: 'Pavimenti e Finiture', isEnabled: true, isLocked: false },
+  { code: 'WBS.SIC', name: 'Oneri della Sicurezza (Analitici)', isEnabled: true, isLocked: false },
+  { code: 'WBS.01', name: 'Apprestamenti di Cantiere e Demolizioni', isEnabled: true, isLocked: false },
+  { code: 'WBS.02', name: 'Opere Murarie e Sottofondi', isEnabled: true, isLocked: false },
+  { code: 'WBS.03', name: 'Impianto Idrico e Condizionamento', isEnabled: true, isLocked: false },
+  { code: 'WBS.04', name: 'Pavimenti e Finiture', isEnabled: true, isLocked: false },
 ];
 
 export const INITIAL_ARTICLES: Article[] = [
   {
+    id: 'art-sic-01',
+    categoryCode: 'WBS.SIC',
+    code: 'SIC.01',
+    description: 'Recinzione di cantiere in pannelli di rete elettrosaldata, compresi basamenti in calcestruzzo e segnaletica di sicurezza.',
+    unit: 'm',
+    unitPrice: 15.50,
+    laborRate: 10,
+    soaCategory: 'OG1',
+    priceListSource: 'Oneri Sicurezza',
+    quantity: 0,
+    measurements: [
+      { id: 'ms1', description: 'Perimetro area di cantiere', multiplier: 1, length: 45, type: 'positive' }
+    ]
+  },
+  {
     id: 'art-01',
     categoryCode: 'WBS.01',
     code: '1.A.05',
-    description: 'Noleggio e montaggio di trabattello professionale h 6m per lavori in quota, compreso ogni onere di sicurezza e certificazione.',
+    description: 'Noleggio e montaggio di trabattello professionale h 6m per lavori in quota, compreso ogni onere di montaggio e certificazione.',
     unit: 'h',
     unitPrice: 3.50,
     laborRate: 10,
@@ -163,7 +178,7 @@ export const INITIAL_ARTICLES: Article[] = [
   },
   {
     id: 'art-02',
-    categoryCode: 'WBS.02',
+    categoryCode: 'WBS.01',
     code: '2.B.10',
     description: 'Demolizione di pavimentazione interna in ceramica o marmo, compreso lo smantellamento del massetto e il carico su automezzo.',
     unit: 'm²',
@@ -175,38 +190,6 @@ export const INITIAL_ARTICLES: Article[] = [
     measurements: [
       { id: 'm2', description: 'Zona Giorno', multiplier: 1, length: 8.50, width: 6.20, type: 'positive' },
       { id: 'm3', description: 'Corridoio notte', multiplier: 1, length: 4.30, width: 1.20, type: 'positive' }
-    ]
-  },
-  {
-    id: 'art-03',
-    categoryCode: 'WBS.03',
-    code: '3.C.02',
-    description: 'Tramezzatura interna realizzata in blocchi di laterizio forato sp. 8 cm, compreso allettamento con malta cementizia M5.',
-    unit: 'm²',
-    unitPrice: 34.50,
-    laborRate: 55,
-    soaCategory: 'OG1',
-    priceListSource: 'Prezzario Lombardia 2025',
-    quantity: 0,
-    measurements: [
-      { id: 'm4', description: 'Nuova parete divisoria cucina', multiplier: 1, length: 3.50, height: 2.70, type: 'positive' },
-      { id: 'm5', description: 'A dedurre sfondato porta', multiplier: 1, length: 0.90, height: 2.10, type: 'deduction' }
-    ]
-  },
-  {
-    id: 'art-04',
-    categoryCode: 'WBS.05',
-    code: '5.F.15',
-    description: 'Fornitura e posa di parquet in rovere massello sp. 14mm, in listoni di varie lunghezze, incollato su massetto preesistente.',
-    unit: 'm²',
-    unitPrice: 85.00,
-    laborRate: 35,
-    soaCategory: 'OG1',
-    priceListSource: 'Prezzario Lombardia 2025',
-    quantity: 0,
-    measurements: [
-      { id: 'm6', description: 'Pavimentazione camere da letto', multiplier: 2, length: 4.00, width: 3.50, type: 'positive' },
-      { id: 'm7', description: 'Zona disimpegno', multiplier: 1, length: 2.50, width: 1.20, type: 'positive' }
     ]
   }
 ];

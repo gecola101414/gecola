@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Eraser, ShieldCheck } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -20,7 +20,7 @@ import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
-import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
 
 // --- Helper Functions con Separatore Migliaia ---
@@ -34,6 +34,7 @@ const formatNumber = (val: number | undefined) => {
 };
 
 const getWbsNumber = (code: string) => {
+    if (code === 'WBS.SIC') return 'S';
     const match = code.match(/WBS\.(\d+)/);
     return match ? parseInt(match[1], 10) : code;
 };
@@ -1036,24 +1037,38 @@ const App: React.FC = () => {
   }, [articles, categories]);
 
   const totals: Totals = useMemo(() => {
+    // 1. Totale Solo Lavori (Esclusa WBS Sicurezza)
     const totalWorks = articles.reduce((acc, art) => {
         const cat = categories.find(c => c.code === art.categoryCode);
-        if (cat && (cat.isEnabled === false)) return acc;
+        if (!cat || cat.isEnabled === false || cat.code === 'WBS.SIC') return acc;
         return acc + (art.quantity * art.unitPrice);
     }, 0);
-    const safetyCosts = totalWorks * (projectInfo.safetyRate / 100);
+    
+    // 2. Oneri Sicurezza ANALITICI (Somma WBS.SIC)
+    const safetyCosts = articles.reduce((acc, art) => {
+        if (art.categoryCode === 'WBS.SIC') {
+            return acc + (art.quantity * art.unitPrice);
+        }
+        return acc;
+    }, 0);
+
     const totalTaxable = totalWorks + safetyCosts;
     const vatAmount = totalTaxable * (projectInfo.vatRate / 100);
     const grandTotal = totalTaxable + vatAmount;
     return { totalWorks, safetyCosts, totalTaxable, vatAmount, grandTotal };
-  }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
+  }, [articles, categories, projectInfo.vatRate]);
 
-  const generateNextWbsCode = (currentCats: Category[]) => `WBS.${(currentCats.length + 1).toString().padStart(2, '0')}`;
+  const generateNextWbsCode = (currentCats: Category[]) => {
+      const numericCats = currentCats.filter(c => c.code.startsWith('WBS.') && c.code !== 'WBS.SIC');
+      return `WBS.${(numericCats.length + 1).toString().padStart(2, '0')}`;
+  };
   
   const renumberCategories = (cats: Category[], currentArts: Article[]) => {
       const codeMap: Record<string, string> = {};
-      const newCategories = cats.map((cat, index) => {
-          const newCode = `WBS.${(index + 1).toString().padStart(2, '0')}`;
+      let counter = 1;
+      const newCategories = cats.map((cat) => {
+          if (cat.code === 'WBS.SIC') return cat;
+          const newCode = `WBS.${(counter++).toString().padStart(2, '0')}`;
           codeMap[cat.code] = newCode;
           return { ...cat, code: newCode };
       });
@@ -1233,6 +1248,13 @@ const App: React.FC = () => {
 
   const handleDeleteCategory = (code: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (code === 'WBS.SIC') {
+        if (window.confirm(`La WBS Sicurezza è permanente. Vuoi svuotarla completamente di tutte le voci inserite?`)) {
+            const newArts = articles.filter(a => a.categoryCode !== code);
+            updateState(newArts, categories);
+        }
+        return;
+    }
     if (window.confirm(`Sei sicuro di voler eliminare la WBS ${code} e tutte le sue voci?`)) {
       let newCats = categories.filter(c => c.code !== code);
       let newArts = articles.filter(a => a.categoryCode !== code);
@@ -1851,7 +1873,8 @@ const App: React.FC = () => {
                         {isPrintMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                                 <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
+                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo (Lavori)</b></button>
+                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoSicurezzaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-red-50 flex items-center gap-3"><ShieldCheck className="w-4 h-4 text-red-500" /><b>Computo Sicurezza (Analitico)</b></button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
@@ -1882,17 +1905,18 @@ const App: React.FC = () => {
                             {categories.map(cat => (
                             <li 
                                 key={cat.code} 
-                                className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
+                                className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${cat.code === 'WBS.SIC' ? 'border-l-4 border-l-red-500' : ''}`} 
                                 onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
                                 onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                                 onDragLeave={handleWbsDragLeave}
                                 onDrop={(e) => handleWbsDrop(e, cat.code)}
                             >
                                 {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
-                                <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
+                                <div draggable={cat.code !== 'WBS.SIC'} onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
                                     <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
                                         <div className="flex items-center gap-2 mb-0.5">
-                                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
+                                            {cat.code !== 'WBS.SIC' && <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />}
+                                            {cat.code === 'WBS.SIC' && <ShieldAlert className="w-3 h-3 text-red-500" />}
                                             <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
                                             {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
                                             {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
@@ -1905,7 +1929,9 @@ const App: React.FC = () => {
                                     <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
                                     <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
                                     <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
-                                    <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
+                                    <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title={cat.code === 'WBS.SIC' ? "Pulisci Capitolo" : "Elimina"}>
+                                        {cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : (cat.code === 'WBS.SIC' ? <Eraser className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />)}
+                                    </button>
                                 </div>
                             </li>
                             ))}
