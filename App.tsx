@@ -174,7 +174,6 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn }) => (
       <th className="py-2.5 px-1 text-right w-[75px] border-r border-gray-300">Prezzo €</th>
       <th className="py-2.5 px-1 text-right w-[85px] border-r border-gray-300">Importo €</th>
       <th className="py-2.5 px-1 text-right w-[75px] border-r border-gray-300">M.O. €</th>
-      <th className="py-2.5 px-1 text-center w-[80px] print:hidden text-gray-400">Cmd</th>
     </tr>
   </thead>
 );
@@ -234,7 +233,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const isVoiceActive = voiceAutomationActiveId === article.id;
    const isSmartRepeatActive = smartRepeatActiveId === article.id;
 
-   // Gestione Automazione Vocale 2.3
    const [activeAutomationRowId, setActiveAutomationRowId] = useState<string | null>(null);
    const [activeAutomationFieldIndex, setActiveAutomationFieldIndex] = useState(0); 
    const automationFields = ['description', 'multiplier', 'length', 'width', 'height'];
@@ -263,7 +261,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       }
    };
 
-   // Logica Microfono Continuo
    useEffect(() => {
       if (isVoiceActive && !isPrintMode) {
           startContinuousRecognition();
@@ -356,6 +353,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    };
 
    const handleArrowNavigation = (e: React.KeyboardEvent) => {
+       if (!isVoiceActive) return;
        if (e.key === 'ArrowRight') {
            e.preventDefault();
            handleVoiceCommand('next');
@@ -579,7 +577,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
         onDrop={handleTbodyDrop}
       >
          {isArticleDragOver && articleDropPosition === 'top' && (
-             <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 -top-0.5 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
+             <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 -top-0.5 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
          )}
          <tr 
             className={`align-top ${!isPrintMode ? 'cursor-move hover:bg-slate-50' : ''} ${isArticleDragOver ? 'bg-green-50/10' : ''}`}
@@ -658,23 +656,22 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                  </div>
                )}
             </td>
-            <td colSpan={8} className="border-r border-gray-200 bg-white"></td>
-            <td className="print:hidden text-center align-top pt-2 bg-gray-50/30 border-l border-gray-200">
+            <td className="border-r border-gray-200 bg-white p-1 text-center align-top">
                 {!isPrintMode && !isCategoryLocked && (
-                   <div className="flex flex-col items-center gap-1 opacity-0 group-hover/article:opacity-100 transition-opacity">
-                      <button onClick={() => onToggleArticleLock(article.id)} className={`transition-colors p-1 rounded ${isArticleLocked ? 'text-red-500 hover:text-red-700 bg-red-50' : 'text-gray-400 hover:text-blue-500'}`} title={isArticleLocked ? "Sblocca Voce" : "Blocca Voce (Lavoro Fatto)"}>
-                          {isArticleLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                   <div className="flex flex-col items-center gap-1 opacity-0 group-hover/article:opacity-100 transition-opacity mt-1">
+                      <button onClick={() => onToggleArticleLock(article.id)} className={`transition-colors p-0.5 rounded ${isArticleLocked ? 'text-red-500 hover:text-red-700 bg-red-50' : 'text-gray-400 hover:text-blue-500'}`} title={isArticleLocked ? "Sblocca Voce" : "Blocca Voce (Lavoro Fatto)"}>
+                          {isArticleLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                       </button>
                       {!isArticleLocked && (
                           <>
-                            <button onClick={() => onEditArticleDetails(article)} className="text-gray-400 hover:text-blue-600 transition-colors p-1" title="Modifica Dettagli"><PenLine className="w-4 h-4" /></button>
-                            <button onClick={() => onDeleteArticle(article.id)} className="text-gray-400 hover:text-red-600 transition-colors p-1" title="Elimina Voce"><Trash2 className="w-4 h-4" /></button>
+                            <button onClick={() => onEditArticleDetails(article)} className="text-gray-400 hover:text-blue-600 transition-colors p-0.5" title="Modifica Dettagli"><PenLine className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => onDeleteArticle(article.id)} className="text-gray-400 hover:text-red-600 transition-colors p-0.5" title="Elimina Voce"><Trash2 className="w-3.5 h-3.5" /></button>
                           </>
                       )}
                    </div>
                 )}
-                {isCategoryLocked && <Lock className="w-3 h-3 text-gray-300 mx-auto" />}
             </td>
+            <td colSpan={7} className="border-r border-gray-200 bg-white"></td>
          </tr>
          
          {!isArticleLocked && (
@@ -714,9 +711,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         </button>
                     </div>
                 </td>
-                <td colSpan={9} className="border-r border-gray-200"></td>
+                <td colSpan={8} className="border-r border-gray-200"></td>
             </tr>
-            <tr className="h-1"><td colSpan={12} className="border-r border-gray-200 bg-white"></td></tr>
+            <tr className="h-1"><td colSpan={11} className="border-r border-gray-200 bg-white"></td></tr>
             {processedMeasurements.map((m, idx) => {
                 const linkedArt = getLinkedInfo(m);
                 const isSubtotal = m.type === 'subtotal';
@@ -724,13 +721,27 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 
                 return (
                 <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} onDragStart={(e) => handleMeasDragStart(e, idx)} onDragOver={(e) => handleMeasDragOver(e, m.id)} onDragLeave={() => setMeasurementDragOverId(null)} onDrop={(e) => handleMeasDrop(e, idx)} className={`text-xs group/row cursor-default transition-all ${m.type === 'deduction' ? 'text-red-600' : 'text-gray-800'} ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : 'bg-white')} ${isArticleLocked ? 'opacity-70' : ''}`}>
-                    <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
+                    <td className="border-r border-gray-200"></td>
+                    <td className="p-0 border-r border-gray-200 bg-gray-50/30 text-center relative align-middle">
+                        {!isPrintMode && !areControlsDisabled && (
+                            <div className="flex justify-center items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity px-1 h-full py-1">
+                                {!isSubtotal ? (
+                                    <>
+                                        <button onClick={() => onOpenLinkModal(article.id, m.id)} className={`rounded p-0.5 transition-colors ${m.linkedArticleId ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`} title={m.linkedArticleId ? "Modifica Collegamento" : "Vedi Voce (Collega)"}><LinkIcon className="w-3 h-3" /></button>
+                                        <button onClick={() => onToggleDeduction(article.id, m.id)} className={`transition-colors p-0.5 rounded ${m.type === 'positive' ? 'text-red-400 hover:text-red-600 hover:bg-red-50' : 'text-blue-400 hover:text-blue-600 hover:bg-blue-50'}`} title={m.type === 'positive' ? "Trasforma in Deduzione" : "Trasforma in Positivo"}>{m.type === 'positive' ? <MinusCircle className="w-3 h-3" /> : <PlusCircle className="w-3 h-3" />}</button>
+                                    </>
+                                ) : null}
+                                <button onClick={() => onDeleteMeasurement(article.id, m.id)} className="text-gray-300 hover:text-red-500 hover:bg-red-50 rounded p-0.5 transition-colors" title="Elimina Rigo"><Trash2 className="w-3 h-3" /></button>
+                            </div>
+                        )}
+                    </td>
                     <td className="pl-6 pr-2 py-1 border-r border-gray-200 relative">
                         {isSubtotal ? <div className="italic text-gray-600 text-right pr-2">Sommano parziale</div> : (
                             <>
                                 <div className="absolute left-0 top-1/2 w-4 h-[1px] bg-gray-300"></div>
                                 {m.linkedArticleId && linkedArt ? (
                                 <div className="flex items-center space-x-2">
+                                    {m.type === 'deduction' && <span className="text-red-600 font-black text-[10px] uppercase">A DEDURRE:</span>}
                                     <button onClick={() => onScrollToArticle(linkedArt.id, article.id)} className="flex items-center space-x-1 px-1 py-0.5 rounded hover:bg-blue-50 group/link transition-colors text-left">
                                         <span className="text-blue-600 font-bold hover:underline cursor-pointer text-[11px]">Vedi voce n. {getLinkedArticleNumber(linkedArt)}</span>
                                         <span className="text-gray-500 text-[10px]">
@@ -748,7 +759,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                           onBlur={() => onColumnFocus(null)} 
                                           onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} 
                                           onKeyDown={handleArrowNavigation}
-                                          className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id || (isVoiceFocused && activeAutomationFieldIndex === 0) ? 'recording-feedback bg-purple-50 ring-2 ring-purple-600' : ''}`} 
+                                          className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300 font-black' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id || (isVoiceFocused && activeAutomationFieldIndex === 0) ? 'recording-feedback bg-purple-50 ring-2 ring-purple-600' : ''}`} 
                                           placeholder={m.type === 'deduction' ? "A dedurre..." : "Descrizione misura..."} 
                                           disabled={areControlsDisabled}
                                           onMouseDown={() => handleLongPressStart(m.id)}
@@ -774,22 +785,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 'bg-gray-50'}`}>
                         {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" data-last-meas-field="true" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('h'); syncAutomationPoint(m.id, 'height'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'font-black text-purple-900' : ''}`} value={m.height === undefined ? '' : m.height} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.height)}</div>)}
                     </td>
-                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white text-gray-600'} ${m.linkedArticleId ? 'font-bold text-blue-700' : ''}`}>{formatNumber(m.displayValue)}</td>
+                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white'} ${m.type === 'deduction' ? 'text-red-600 font-black' : (m.linkedArticleId ? 'text-blue-700 font-bold' : 'text-gray-600')}`}>{formatNumber(m.displayValue)}</td>
                     <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                    <td className="text-center print:hidden bg-white border-l border-gray-200 w-[80px]">
-                        {!isPrintMode && !areControlsDisabled && (
-                            <div className="flex justify-center items-center space-x-1 opacity-0 group-hover/row:opacity-100 transition-opacity px-1">
-                                {!isSubtotal && (
-                                    <>
-                                        <button onClick={() => onOpenLinkModal(article.id, m.id)} className={`rounded p-0.5 transition-colors ${m.linkedArticleId ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'}`} title={m.linkedArticleId ? "Modifica Collegamento" : "Vedi Voce (Collega)"}><LinkIcon className="w-3.5 h-3.5" /></button>
-                                        <div className="w-px h-3 bg-gray-300 mx-0.5"></div>
-                                        <button onClick={() => onToggleDeduction(article.id, m.id)} className={`transition-colors p-0.5 rounded ${m.type === 'positive' ? 'text-red-400 hover:text-red-600 hover:bg-red-50' : 'text-blue-400 hover:text-blue-600 hover:bg-blue-50'}`} title={m.type === 'positive' ? "Trasforma in Deduzione" : "Trasforma in Positivo"}>{m.type === 'positive' ? <MinusCircle className="w-3.5 h-3.5" /> : <PlusCircle className="w-3.5 h-3.5" />}</button>
-                                    </>
-                                )}
-                                <button onClick={() => onDeleteMeasurement(article.id, m.id)} className="text-gray-300 hover:text-red-500 hover:bg-red-50 rounded p-0.5 transition-colors" title="Elimina Rigo"><Trash2 className="w-3.5 h-3.5" /></button>
-                            </div>
-                        )}
-                    </td>
                 </tr>
                 );})}
            </>
@@ -797,26 +794,26 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
          <tr className="bg-white font-bold text-xs border-t border-gray-300 shadow-inner">
              <td className="border-r border-gray-300"></td><td className="border-r border-gray-200"></td>
-             <td className="px-2 py-3 text-right border-r border-gray-300 uppercase text-gray-400 text-[10px]">Sommano {isPrintMode ? article.unit : <input readOnly value={article.unit} className="w-8 bg-transparent border-b border-dotted border-gray-400 text-center outline-none inline-block disabled:cursor-not-allowed cursor-default" disabled={true} />}</td>
+             <td className="px-2 py-3 text-left border-r border-gray-300 flex items-center gap-3">
+                {!isPrintMode && !areControlsDisabled && (
+                   <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button ref={addBtnRef} onClick={() => onAddMeasurement(article.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-blue-600 hover:text-white hover:bg-blue-600 transition-all border border-blue-200 hover:border-blue-600 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" title="Aggiungi rigo misura"><Plus className="w-4 h-4" /></button>
+                        <button onClick={() => onAddSubtotal(article.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-orange-400 hover:text-white hover:bg-orange-500 transition-all border border-orange-200 hover:border-orange-500 shadow-sm" title="Inserisci Sommano Parziale"><Sigma className="w-3.5 h-3.5" /></button>
+                   </div>
+                )}
+                <span className="uppercase text-gray-400 text-[10px] ml-auto">Sommano {isPrintMode ? article.unit : <input readOnly value={article.unit} className="w-8 bg-transparent border-b border-dotted border-gray-400 text-center outline-none inline-block disabled:cursor-not-allowed cursor-default" disabled={true} />}</span>
+             </td>
              <td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td>
              <td className="text-right pr-1 font-mono border-r border-gray-200 bg-gray-50 font-black">{formatNumber(article.quantity)}</td>
              <td className="border-l border-r border-gray-300 text-right pr-1 font-mono">{isPrintMode ? formatNumber(article.unitPrice) : <input readOnly type="number" value={article.unitPrice} className="w-full text-right bg-transparent border-none focus:ring-0 disabled:cursor-not-allowed cursor-default" disabled={true} />}</td>
              <td className="border-r border-gray-300 text-right pr-1 font-mono text-blue-900 font-black">{formatNumber(totalAmount)}</td>
-             <td className="border-r border-gray-300 text-right pr-1 font-mono text-gray-500 font-normal">
+             <td className="border-r border-gray-200 text-right pr-1 font-mono text-gray-500 font-normal">
                  <div className="flex flex-col items-end leading-none py-1"><span>{formatCurrency(laborValue)}</span><span className="text-[9px] text-gray-400">({article.laborRate}%)</span></div>
              </td>
-             <td className="text-center print:hidden bg-gray-50 border-l border-gray-200 w-[80px]">
-                {!isPrintMode && !areControlsDisabled && (
-                   <div className="flex items-center justify-center space-x-1 px-1">
-                        <button onClick={() => onAddSubtotal(article.id)} className="w-5 h-5 rounded-full flex items-center justify-center text-orange-400 hover:text-white hover:bg-orange-500 transition-all border border-orange-200 hover:border-orange-500 shadow-sm" title="Inserisci Sommano Parziale"><Sigma className="w-3 h-3" /></button>
-                        <button ref={addBtnRef} onClick={() => onAddMeasurement(article.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-blue-600 hover:text-white hover:bg-blue-600 transition-all border border-blue-200 hover:border-blue-600 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" title="Aggiungi rigo misura"><Plus className="w-4 h-4" /></button>
-                   </div>
-                )}
-             </td>
          </tr>
-         <tr className="h-6 bg-transparent border-none"><td colSpan={12} className="border-none"></td></tr>
+         <tr className="h-6 bg-transparent border-none"><td colSpan={11} className="border-none"></td></tr>
          {isArticleDragOver && articleDropPosition === 'bottom' && (
-             <tr className="h-0 p-0 border-none"><td colSpan={12} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 top-0 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
+             <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 top-0 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
          )}
       </tbody>
    );
@@ -1287,7 +1284,6 @@ const App: React.FC = () => {
           if (!article) return;
           if (article.categoryCode === targetCode) return;
           if (e.ctrlKey) {
-              if (!canAddArticle()) return;
               const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
               updateState([...articles, newArticle]);
           } else {
@@ -1445,7 +1441,6 @@ const App: React.FC = () => {
           const lastM = art.measurements.length > 0 ? art.measurements[art.measurements.length - 1] : null;
           let newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; 
           
-          // LOGICA SMART REPEAT: Se attivo, clona l'ultimo rigo
           if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') {
               newM = {
                   ...newM,
@@ -1882,30 +1877,33 @@ const App: React.FC = () => {
                             {categories.map(cat => (
                             <li 
                                 key={cat.code} 
-                                className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
+                                className={`relative border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
                                 onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
                                 onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                                 onDragLeave={handleWbsDragLeave}
                                 onDrop={(e) => handleWbsDrop(e, cat.code)}
                             >
                                 {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
-                                <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
+                                <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(cat.code)}>
                                     <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
                                         <div className="flex items-center gap-2 mb-0.5">
-                                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
-                                            <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
+                                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/wbsrow:opacity-100" />
+                                            <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded transition-all ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'} hover:ring-2 hover:ring-blue-400 cursor-help relative group/codebadge`}>
+                                                {cat.code}
+                                                {/* I comandi appaiono SOLO sull'hover del badge del codice con ritardo magnetico di 1s */}
+                                                <div className="absolute left-[80%] top-1/2 -translate-y-1/2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 pointer-events-none group-hover/codebadge:opacity-100 group-hover/codebadge:pointer-events-auto z-20 space-x-0.5 transition-all duration-300 delay-1000 group-hover/codebadge:delay-0 pl-5 ml-[-5px]">
+                                                    <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
+                                                    <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
+                                                </div>
+                                            </span>
                                             {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
                                             {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
                                         </div>
                                         <div className="pl-5"><span className="text-xs font-semibold block truncate pr-8">{cat.name}</span><span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotals[cat.code] || 0)}</span></div>
                                     </div>
-                                </div>
-                                <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
-                                    <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
-                                    <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                                    <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
-                                    <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                                 </div>
                             </li>
                             ))}
@@ -2042,7 +2040,7 @@ const App: React.FC = () => {
                             <table className="w-full text-left border-collapse table-fixed relative">
                                 <TableHeader activeColumn={activeColumn} />
                                 {activeArticles.length === 0 ? (
-                                    <tbody><tr><td colSpan={12} className="p-32 text-center">
+                                    <tbody><tr><td colSpan={11} className="p-32 text-center">
                                         <div className="flex flex-col items-center gap-6 max-w-lg mx-auto">
                                             <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div>
                                             <p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p>
@@ -2056,7 +2054,7 @@ const App: React.FC = () => {
                                 
                                 <tbody>
                                     <tr className="border-none">
-                                        <td colSpan={12} className="p-0 border-none">
+                                        <td colSpan={11} className="p-0 border-none">
                                             <div 
                                                 className={`min-h-[85vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}
                                             >

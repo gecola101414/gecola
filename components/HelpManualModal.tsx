@@ -29,7 +29,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
     {
       title: "3. Navigazione & Workspace",
       icon: <Maximize2 className="w-5 h-5" />,
-      content: "L'area di lavoro è divisa in tre zone: Sidebar (Indice WBS), Top Bar (Dati Progetto) e il Foglio (Misure). \n\nPuoi spostare la visuale velocemente cliccando sui nomi dei capitoli a sinistra. Il foglio è 'infinito': man mano che aggiungi voci, esso si srotola verso il basso mantenendo sempre la testata delle colonne visibile."
+      content: "L'area di lavoro è divisa in tre zone: Sidebar (Indice WBS), Top Bar (Dati Progetto) e il Foglio (Misure). \n\nIl foglio è 'infinito': man mano che aggiungi voci, esso si srotola verso il basso. I comandi sono integrati direttamente nelle celle per evitare spostamenti inutili del mouse all'estremità destra."
     },
     {
       title: "4. Focus Mode & Toolbar Dinamica",
@@ -42,9 +42,9 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
       content: "La WBS è il cuore del computo. Puoi aggiungere nuovi capitoli col tasto (+), rinominarli o bloccarli. \n\nBloccare un capitolo impedisce modifiche accidentali. Puoi trascinare le WBS per cambiare l'ordine cronologico; il sistema rinumererà tutto automaticamente."
     },
     {
-      title: "6. Caricamento Misure Standard",
-      icon: <Calculator className="w-5 h-5" />,
-      content: "Ogni rigo misura accetta Descrizione, Parti Uguali, Lunghezza, Larghezza e Altezza/Peso. \n\nIl tasto INVIO ti sposta automaticamente al campo successivo, rendendo l'inserimento veloce come su un foglio Excel tradizionale."
+      title: "6. Comandi Integrati (Novità v11.9)",
+      icon: <Settings className="w-5 h-5" />,
+      content: "Per massimizzare la visibilità, la colonna comandi è stata eliminata. \n\nDISPOSIZIONE TASTI:\n- ARTICOLI: I tasti Blocco/Modifica/Elimina sono nella colonna 'Par.Ug'.\n- MISURE: I tasti Link/Segno/Elimina sono nella colonna 'Tariffa'.\n- AGGIUNTA RIGHI: I tasti sono all'interno della colonna 'Designazione' nel rigo finale. La sequenza è: Nuovo Rigo (+) e Sommano Parziale (Σ)."
     },
     {
       title: "7. Smart Painting (Pitturazioni)",
