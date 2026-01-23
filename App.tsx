@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Eraser, ShieldCheck, Globe } from 'lucide-react';
+import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, CircleDot, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -19,12 +19,11 @@ import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOpti
 import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
-import GecolaBrowser from './components/GecolaBrowser';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
-import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
 
-// --- Helper Functions ---
+// --- Helper Functions con Separatore Migliaia ---
 const formatCurrency = (val: number) => {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', useGrouping: true }).format(val);
 };
@@ -35,7 +34,6 @@ const formatNumber = (val: number | undefined) => {
 };
 
 const getWbsNumber = (code: string) => {
-    if (code === 'WBS.SIC') return 'S';
     const match = code.match(/WBS\.(\d+)/);
     return match ? parseInt(match[1], 10) : code;
 };
@@ -44,7 +42,7 @@ const roundTwoDecimals = (num: number) => {
     return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
-// --- Sistema Audio UI ---
+// --- Sistema Audio Moderno (Sintesi Granulare UI 4.0) ---
 const playUISound = (type: 'confirm' | 'move' | 'newline') => {
     try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -859,8 +857,6 @@ const App: React.FC = () => {
   const [voiceAutomationActiveId, setVoiceAutomationActiveId] = useState<string | null>(null);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
 
-  const [isBrowserOpen, setIsBrowserOpen] = useState(false);
-
   const rebarTimerRef = useRef<any>(null);
   const paintingTimerRef = useRef<any>(null);
 
@@ -1040,38 +1036,24 @@ const App: React.FC = () => {
   }, [articles, categories]);
 
   const totals: Totals = useMemo(() => {
-    // 1. Totale Solo Lavori (Esclusa WBS Sicurezza)
     const totalWorks = articles.reduce((acc, art) => {
         const cat = categories.find(c => c.code === art.categoryCode);
-        if (!cat || cat.isEnabled === false || cat.code === 'WBS.SIC') return acc;
+        if (cat && (cat.isEnabled === false)) return acc;
         return acc + (art.quantity * art.unitPrice);
     }, 0);
-    
-    // 2. Oneri Sicurezza ANALITICI (Somma WBS.SIC)
-    const safetyCosts = articles.reduce((acc, art) => {
-        if (art.categoryCode === 'WBS.SIC') {
-            return acc + (art.quantity * art.unitPrice);
-        }
-        return acc;
-    }, 0);
-
+    const safetyCosts = totalWorks * (projectInfo.safetyRate / 100);
     const totalTaxable = totalWorks + safetyCosts;
     const vatAmount = totalTaxable * (projectInfo.vatRate / 100);
     const grandTotal = totalTaxable + vatAmount;
     return { totalWorks, safetyCosts, totalTaxable, vatAmount, grandTotal };
-  }, [articles, categories, projectInfo.vatRate]);
+  }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
 
-  const generateNextWbsCode = (currentCats: Category[]) => {
-      const numericCats = currentCats.filter(c => c.code.startsWith('WBS.') && c.code !== 'WBS.SIC');
-      return `WBS.${(numericCats.length + 1).toString().padStart(2, '0')}`;
-  };
+  const generateNextWbsCode = (currentCats: Category[]) => `WBS.${(currentCats.length + 1).toString().padStart(2, '0')}`;
   
   const renumberCategories = (cats: Category[], currentArts: Article[]) => {
       const codeMap: Record<string, string> = {};
-      let counter = 1;
-      const newCategories = cats.map((cat) => {
-          if (cat.code === 'WBS.SIC') return cat;
-          const newCode = `WBS.${(counter++).toString().padStart(2, '0')}`;
+      const newCategories = cats.map((cat, index) => {
+          const newCode = `WBS.${(index + 1).toString().padStart(2, '0')}`;
           codeMap[cat.code] = newCode;
           return { ...cat, code: newCode };
       });
@@ -1251,13 +1233,6 @@ const App: React.FC = () => {
 
   const handleDeleteCategory = (code: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (code === 'WBS.SIC') {
-        if (window.confirm(`La WBS Sicurezza è permanente. Vuoi svuotarla completamente di tutte le voci inserite?`)) {
-            const newArts = articles.filter(a => a.categoryCode !== code);
-            updateState(newArts, categories);
-        }
-        return;
-    }
     if (window.confirm(`Sei sicuro di voler eliminare la WBS ${code} e tutte le sue voci?`)) {
       let newCats = categories.filter(c => c.code !== code);
       let newArts = articles.filter(a => a.categoryCode !== code);
@@ -1504,7 +1479,7 @@ const App: React.FC = () => {
       e.dataTransfer.effectAllowed = 'all'; 
   };
   const handleArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
-  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === targetArticleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
+  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === draggingId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
   
@@ -1829,7 +1804,7 @@ const App: React.FC = () => {
           )}
 
           {!isFocusMode && (
-            <div className="bg-[#2c3e50] shadow-md z-[150] h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
+            <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
                 <div className="flex items-center space-x-3 w-72">
                     <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
                     <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v11.9.1</span></span>
@@ -1860,18 +1835,11 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                    <button 
-                        onClick={() => setIsBrowserOpen(!isBrowserOpen)}
-                        className={`p-2 transition-all rounded-lg flex items-center gap-2 font-black text-[10px] uppercase shadow-inner ${isBrowserOpen ? 'bg-orange-500 text-white' : 'text-orange-400 bg-slate-800/50 hover:bg-slate-700 hover:text-white'}`} 
-                        title="Apri Gecola.it Interno"
-                    >
-                        <Globe className="w-5 h-5" /> GECOLA.IT
-                    </button>
                     <button onClick={() => fileInputRef.current?.click()} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Carica Progetto (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <div className="relative">
                         <button onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" title="Salva con nome / Esporta"><Save className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isSaveMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[200] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                            <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                                 <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Salva in JSON (.json)</b></button>
                                 <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Esporta in Excel (.xls)</b></button>
                                 <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta Altri Formati</b></button>
@@ -1881,10 +1849,9 @@ const App: React.FC = () => {
                     <div className="relative">
                         <button onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1" title="Stampe Professionali"><FileText className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isPrintMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[200] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                            <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                                 <div className="px-4 py-2 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">Documenti di Progetto</div>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo (Lavori)</b></button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoSicurezzaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-red-50 flex items-center gap-3"><ShieldCheck className="w-4 h-4 text-red-500" /><b>Computo Sicurezza (Analitico)</b></button>
+                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><FileText className="w-4 h-4 text-blue-500" /><b>Computo Estimativo</b></button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" /><b>Elenco Prezzi Unitari</b></button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" /><b>Stima Manodopera</b></button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" /><b>Analisi Nuovi Prezzi</b></button>
@@ -1915,23 +1882,22 @@ const App: React.FC = () => {
                             {categories.map(cat => (
                             <li 
                                 key={cat.code} 
-                                className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${cat.code === 'WBS.SIC' ? 'border-l-4 border-l-orange-500 bg-orange-500 shadow-inner text-white' : ''}`} 
+                                className={`relative group/cat border-b border-gray-100 transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
                                 onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
                                 onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
                                 onDragLeave={handleWbsDragLeave}
                                 onDrop={(e) => handleWbsDrop(e, cat.code)}
                             >
                                 {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
-                                <div draggable={cat.code !== 'WBS.SIC'} onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
-                                    <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? (cat.code === 'WBS.SIC' ? 'bg-orange-600 border-orange-800 shadow-sm' : 'bg-blue-50 border-blue-500 shadow-sm') : 'border-transparent hover:bg-slate-50'))}`}>
+                                <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer" onClick={() => setSelectedCategoryCode(cat.code)}>
+                                    <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
                                         <div className="flex items-center gap-2 mb-0.5">
-                                            {cat.code !== 'WBS.SIC' && <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />}
-                                            {cat.code === 'WBS.SIC' && <ShieldAlert className="w-3 h-3 text-yellow-300" />}
-                                            <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? (cat.code === 'WBS.SIC' ? 'bg-orange-400 text-white' : 'bg-blue-200 text-blue-800') : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
+                                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/cat:opacity-100" />
+                                            <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>{cat.code}</span>
                                             {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
                                             {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
                                         </div>
-                                        <div className="pl-5"><span className={`text-xs font-semibold block truncate pr-8 ${cat.code === 'WBS.SIC' ? 'text-white' : 'text-slate-800'}`}>{cat.name}</span><span className={`text-[10px] font-mono block mt-0.5 ${cat.code === 'WBS.SIC' ? 'text-white/60' : 'text-slate-400'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span></div>
+                                        <div className="pl-5"><span className="text-xs font-semibold block truncate pr-8">{cat.name}</span><span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotals[cat.code] || 0)}</span></div>
                                     </div>
                                 </div>
                                 <div className="absolute right-1 top-2 flex flex-row bg-white/95 shadow-xl rounded-full border border-gray-200 p-0.5 opacity-0 group-hover/cat:opacity-100 z-20 space-x-0.5 transition-all">
@@ -1939,9 +1905,7 @@ const App: React.FC = () => {
                                     <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
                                     <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
                                     <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
-                                    <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title={cat.code === 'WBS.SIC' ? "Pulisci Capitolo" : "Elimina"}>
-                                        {cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : (cat.code === 'WBS.SIC' ? <Eraser className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />)}
-                                    </button>
+                                    <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                                 </div>
                             </li>
                             ))}
@@ -1975,11 +1939,6 @@ const App: React.FC = () => {
             )}
 
             <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'px-10 py-4' : 'p-5 gap-4'} relative`}>
-               {/* FASCIA SICUREZZA FOCUS MODE */}
-               {isFocusMode && activeCategory?.code === 'WBS.SIC' && (
-                 <div className="fixed top-0 left-0 right-0 z-[400] bg-orange-600 h-1.5 shadow-[0_0_15px_rgba(234,88,12,0.8)] animate-pulse"></div>
-               )}
-               
                <div className={`absolute left-10 right-10 h-12 bg-gradient-to-b from-black/25 via-black/5 to-transparent z-40 pointer-events-none rounded-t-xl transition-all ${isFocusMode ? 'top-4' : 'hidden'}`}></div>
                <div className={`absolute left-10 right-10 h-16 bg-gradient-to-t from-black/20 via-black/5 to-transparent z-40 pointer-events-none rounded-b-xl transition-all ${isFocusMode ? 'bottom-4' : 'hidden'}`}></div>
 
@@ -1987,30 +1946,29 @@ const App: React.FC = () => {
                  <>
                   <div 
                     style={{ left: toolbarPos.x, top: toolbarPos.y }}
-                    className={`fixed z-[300] flex items-center gap-3 backdrop-blur-sm hover:backdrop-blur-md border p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in slide-in-from-top-4 duration-500 group select-none opacity-20 hover:opacity-100 transition-all ${activeCategory?.code === 'WBS.SIC' ? 'bg-orange-600 border-orange-800' : 'bg-slate-900/90 border-slate-700'}`}
+                    className="fixed z-[300] flex items-center gap-3 bg-slate-900/10 hover:bg-slate-900/90 backdrop-blur-sm hover:backdrop-blur-md border border-slate-700/30 hover:border-slate-600 p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in slide-in-from-top-4 duration-500 group select-none opacity-20 hover:opacity-100 transition-all"
                   >
                     <div 
                         onMouseDown={handleToolbarMouseDown}
-                        className={`p-2 cursor-move transition-colors ${activeCategory?.code === 'WBS.SIC' ? 'text-white hover:text-yellow-200' : 'text-slate-500 hover:text-blue-400'}`}
+                        className="p-2 cursor-move text-slate-500 hover:text-blue-400 transition-colors"
                         title="Trascina per spostare"
                     >
                         <GripHorizontal className="w-5 h-5" />
                     </div>
                     <div className="flex items-center gap-4 pr-3 mr-1 ml-1">
-                        {activeCategory?.code === 'WBS.SIC' && <ShieldAlert className="w-5 h-5 text-yellow-300 animate-pulse" />}
                         <div className="flex flex-col">
                             <span className="text-[12px] font-black text-white/90 uppercase tracking-tighter max-w-[250px] truncate leading-none mb-1">{activeCategory?.code} - {activeCategory?.name}</span>
-                            <span className={`text-[14px] font-black font-mono tracking-tighter leading-none ${activeCategory?.code === 'WBS.SIC' ? 'text-yellow-200' : 'text-orange-400'}`}>{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
+                            <span className="text-[14px] font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
                         </div>
                         <div className="h-6 w-[1.5px] bg-slate-700"></div>
                         <button 
                             onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }}
-                            className={`px-4 py-2 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg transition-all active:scale-95 ${activeCategory?.code === 'WBS.SIC' ? 'bg-white text-orange-900 hover:bg-orange-50' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg transition-all active:scale-95"
                         >
                             <Plus className="w-4 h-4" /> Aggiungi Voce
                         </button>
                     </div>
-                    <button onClick={() => setIsFocusMode(false)} className={`text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-90 ${activeCategory?.code === 'WBS.SIC' ? 'bg-orange-800 hover:bg-orange-900' : 'bg-slate-800 hover:bg-orange-600'}`} title="Esci Schermo Intero">
+                    <button onClick={() => setIsFocusMode(false)} className="bg-slate-800 hover:bg-orange-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-90" title="Esci Schermo Intero">
                         <Minimize2 className="w-4 h-4" />
                     </button>
                   </div>
@@ -2039,30 +1997,18 @@ const App: React.FC = () => {
                )}
 
                {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && !isFocusMode && (
-                   <div className={`flex items-center justify-between p-4 rounded-xl border shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 ${activeCategory.code === 'WBS.SIC' ? 'bg-orange-600 border-orange-700 text-white shadow-orange-200' : 'bg-white border-gray-300'}`}>
+                   <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30">
                         <div className="flex items-center gap-3">
-                             <button onClick={() => setIsFocusMode(true)} className={`p-2.5 rounded-xl shadow-lg transition-all transform active:scale-95 group relative ${activeCategory.code === 'WBS.SIC' ? 'bg-orange-800 text-white hover:bg-orange-900' : 'bg-[#2c3e50] text-white hover:bg-blue-600'}`}>
-                                <Maximize2 className="w-5 h-5" />
-                                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span>
-                             </button>
-                             <div className={`px-3 py-2.5 rounded-lg border font-black text-xl shadow-inner ${activeCategory.code === 'WBS.SIC' ? 'bg-orange-700 border-orange-500 text-white' : 'bg-slate-100 text-slate-800 border-slate-200'}`}>{activeCategory.code}</div>
-                             <div>
-                                <h2 className={`text-lg font-black uppercase max-w-[400px] truncate tracking-tight ${activeCategory.code === 'WBS.SIC' ? 'text-white' : 'text-slate-800'}`}>{activeCategory.name}</h2>
-                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${activeCategory.code === 'WBS.SIC' ? 'bg-white/20 border-white/30 text-white' : 'bg-blue-50 border-blue-100 text-blue-600'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
-                             </div>
+                             <button onClick={() => setIsFocusMode(true)} className="p-2.5 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
+                             <div className="bg-slate-100 text-slate-800 px-3 py-2.5 rounded-lg border border-slate-200 font-black text-xl shadow-inner">{activeCategory.code}</div>
+                             <div><h2 className="text-lg font-black text-slate-800 uppercase max-w-[400px] truncate tracking-tight">{activeCategory.name}</h2><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
                         </div>
                         <div className="flex items-center gap-3">
-                           {activeCategory.code === 'WBS.SIC' && (
-                             <div className="flex items-center gap-2 mr-4 bg-white/10 px-4 py-2 rounded-xl border border-white/20">
-                               <ShieldAlert className="w-5 h-5 text-yellow-300 animate-pulse" />
-                               <span className="text-[10px] font-black uppercase tracking-widest">Capitolo Protezione e Sicurezza</span>
-                             </div>
-                           )}
                            <div className="flex flex-col">
-                                <span className={`text-[8px] font-black uppercase mb-0.5 ml-1 flex items-center gap-1 ${activeCategory.code === 'WBS.SIC' ? 'text-white/70' : 'text-purple-600'}`}><Award className="w-2.5 h-2.5" /> Preimposta SOA</span>
-                                <select value={activeSoaCategory} onChange={(e) => setActiveSoaCategory(e.target.value)} className={`text-xs font-bold rounded-lg px-2 py-2 min-w-[200px] shadow-sm transition-colors outline-none border ${activeCategory.code === 'WBS.SIC' ? 'bg-orange-700 border-orange-500 text-white' : 'bg-purple-50 border-purple-200 text-purple-900 hover:border-purple-300'}`}>{SOA_CATEGORIES.map(soa => (<option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>))}</select>
+                                <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1"><Award className="w-2.5 h-2.5" /> Preimposta SOA</span>
+                                <select value={activeSoaCategory} onChange={(e) => setActiveSoaCategory(e.target.value)} className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors">{SOA_CATEGORIES.map(soa => (<option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>))}</select>
                            </div>
-                           <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className={`px-4 py-2 rounded-lg font-bold shadow-md transition-all flex items-center gap-2 text-xs h-[38px] mt-3 border ${activeCategory.code === 'WBS.SIC' ? 'bg-white text-orange-700 hover:bg-orange-50 border-white' : 'bg-blue-600 text-white hover:bg-blue-700 border-blue-700'}`}><Plus className="w-4 h-4" /> Aggiungi Voce</button>
+                           <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-xs h-[38px] mt-3"><Plus className="w-4 h-4" /> Aggiungi Voce</button>
                         </div>
                    </div>
                )}
@@ -2075,12 +2021,6 @@ const App: React.FC = () => {
              onDragLeave={() => setIsWorkspaceDragOver(false)}
              onDrop={handleWorkspaceDrop}
            >
-              {activeCategory?.code === 'WBS.SIC' && (
-                <div className="sticky top-10 left-0 right-0 z-50 bg-orange-600 py-1.5 flex items-center justify-center gap-2 shadow-lg border-b border-orange-700 animate-in slide-in-from-top-1 duration-300">
-                    <ShieldAlert className="w-3.5 h-3.5 text-white animate-pulse" />
-                    <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">ZONA SICUREZZA CANTIERE: CONTROLLO ONERI ANALITICI</span>
-                </div>
-              )}
               <div className="sticky top-0 left-0 right-0 h-10 bg-gradient-to-b from-white/95 via-white/40 to-transparent z-[100] pointer-events-none transition-opacity"></div>
               
               <div className="flex-1 flex flex-col min-h-full px-6">
@@ -2104,9 +2044,7 @@ const App: React.FC = () => {
                                 {activeArticles.length === 0 ? (
                                     <tbody><tr><td colSpan={12} className="p-32 text-center">
                                         <div className="flex flex-col items-center gap-6 max-w-lg mx-auto">
-                                            <div className={`p-8 rounded-[2.5rem] border shadow-inner ${activeCategory.code === 'WBS.SIC' ? 'bg-orange-50 border-orange-100' : 'bg-slate-50 border-slate-100'}`}>
-                                                <MousePointerClick className={`w-12 h-12 ${activeCategory.code === 'WBS.SIC' ? 'text-orange-300' : 'text-slate-300'}`} />
-                                            </div>
+                                            <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div>
                                             <p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p>
                                         </div>
                                     </td></tr></tbody>
@@ -2181,7 +2119,6 @@ const App: React.FC = () => {
         </div>
       </div>
       
-      <GecolaBrowser isOpen={isBrowserOpen} onClose={() => setIsBrowserOpen(false)} />
       <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
       {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
       {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
