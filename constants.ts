@@ -135,6 +135,10 @@ export const PROJECT_INFO: ProjectInfo = {
   fontSizeTitle: 28,
   fontSizeClient: 15,
   fontSizeTotals: 22,
+  // Nuovi default richiesti
+  tariffColumnWidth: 105,
+  fontSizeMeasurements: 12,
+  fontSizeWbsSidebar: 14,
 };
 
 export const CATEGORIES: Category[] = [

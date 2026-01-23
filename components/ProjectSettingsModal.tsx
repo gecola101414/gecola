@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Map, UserCheck, Type } from 'lucide-react';
+import { X, Save, Map, UserCheck, Type, Settings2 } from 'lucide-react';
 import { ProjectInfo } from '../types';
 import { REGIONS, YEARS } from '../constants';
 
@@ -21,6 +21,9 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
           fontSizeTitle: info.fontSizeTitle || 30,
           fontSizeClient: info.fontSizeClient || 16,
           fontSizeTotals: info.fontSizeTotals || 24,
+          tariffColumnWidth: info.tariffColumnWidth || 105,
+          fontSizeMeasurements: info.fontSizeMeasurements || 12,
+          fontSizeWbsSidebar: info.fontSizeWbsSidebar || 14,
       });
     }
   }, [isOpen, info]);
@@ -87,16 +90,6 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Località</label>
-              <input 
-                type="text" 
-                value={formData.location}
-                onChange={(e) => handleChange('location', e.target.value)}
-                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
             {/* Sezione Prezzario */}
             <div className="col-span-2 bg-orange-50 p-4 rounded border border-orange-100 mt-2">
               <h4 className="font-bold text-orange-800 text-sm mb-3 border-b border-orange-200 pb-1">Configurazione Prezzario (AI)</h4>
@@ -124,32 +117,12 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
               </div>
             </div>
 
-            {/* Parametri Economici */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Aliquota IVA (%)</label>
-              <input 
-                type="number" 
-                value={formData.vatRate}
-                onChange={(e) => handleChange('vatRate', parseFloat(e.target.value) || 0)}
-                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
-              />
-            </div>
-             <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Sicurezza (%)</label>
-              <input 
-                type="number" 
-                value={formData.safetyRate}
-                onChange={(e) => handleChange('safetyRate', parseFloat(e.target.value) || 0)}
-                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            {/* TABELLA FONT SIZES (Nuova Richiesta) */}
+            {/* TABELLA FONT SIZES & LAYOUT */}
             <div className="col-span-2 mt-4 pt-4 border-t border-slate-200">
                <h4 className="font-black text-slate-800 text-xs mb-4 uppercase tracking-widest flex items-center gap-2">
-                 <Type className="w-4 h-4 text-blue-600" /> Dimensioni Caratteri (PX)
+                 <Settings2 className="w-4 h-4 text-blue-600" /> Dimensioni UI & Layout (PX)
                </h4>
-               <div className="overflow-hidden border border-slate-200 rounded-xl">
+               <div className="overflow-hidden border border-slate-200 rounded-xl shadow-sm">
                  <table className="w-full text-xs text-left border-collapse">
                    <thead className="bg-slate-100 text-slate-500 uppercase font-black">
                      <tr>
@@ -170,12 +143,34 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
                        </td>
                      </tr>
                      <tr className="hover:bg-slate-50">
-                       <td className="p-3 border-b border-slate-100 font-medium">Nome Committente (Header)</td>
+                       <td className="p-3 border-b border-slate-100 font-medium text-orange-600">Larghezza Colonna Tariffa (Computo)</td>
                        <td className="p-3 border-b border-slate-100">
                           <input 
                             type="number" 
-                            value={formData.fontSizeClient} 
-                            onChange={(e) => handleChange('fontSizeClient', parseInt(e.target.value) || 16)}
+                            value={formData.tariffColumnWidth} 
+                            onChange={(e) => handleChange('tariffColumnWidth', parseInt(e.target.value) || 105)}
+                            className="w-full text-center font-bold text-orange-600 bg-orange-50/30 rounded border border-orange-200 p-1"
+                          />
+                       </td>
+                     </tr>
+                     <tr className="hover:bg-slate-50">
+                       <td className="p-3 border-b border-slate-100 font-medium">Righi Misure (Testi e Numeri)</td>
+                       <td className="p-3 border-b border-slate-100">
+                          <input 
+                            type="number" 
+                            value={formData.fontSizeMeasurements} 
+                            onChange={(e) => handleChange('fontSizeMeasurements', parseInt(e.target.value) || 12)}
+                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
+                          />
+                       </td>
+                     </tr>
+                     <tr className="hover:bg-slate-50">
+                       <td className="p-3 border-b border-slate-100 font-medium">Testi Capitoli WBS Sidebar</td>
+                       <td className="p-3 border-b border-slate-100">
+                          <input 
+                            type="number" 
+                            value={formData.fontSizeWbsSidebar} 
+                            onChange={(e) => handleChange('fontSizeWbsSidebar', parseInt(e.target.value) || 14)}
                             className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
                           />
                        </td>

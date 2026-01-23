@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Ruler, CircleDot, Weight, Construction, Hash, Info, Layers } from 'lucide-react';
+import { X, Save, Ruler, Grid3X3, Weight, Construction, Hash, Info, Layers } from 'lucide-react';
 import { REBAR_WEIGHTS } from '../constants';
 
 interface RebarCalculatorModalProps {
@@ -59,7 +59,7 @@ const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({ isOpen, onC
         <div className="bg-slate-900 px-5 py-3 flex justify-between items-center text-white border-b border-slate-700">
           <div className="flex items-center gap-3">
             <div className="bg-orange-500 p-1.5 rounded-lg">
-              <CircleDot className="w-5 h-5 text-white" />
+              <Grid3X3 className="w-5 h-5 text-white" />
             </div>
             <div>
               <h2 className="text-sm font-black uppercase tracking-tight italic leading-none">Configuratore Armature B450C</h2>

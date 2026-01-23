@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, Info, Mail, MessageSquare, CheckCircle2, Sparkles, Phone, Users, TrendingUp, Handshake, ExternalLink } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, CheckCircle2, Sparkles, Phone, Users, TrendingUp, Handshake, ExternalLink, Mail } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
@@ -135,7 +135,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                   <button
                   type="submit"
                   disabled={loading}
@@ -143,35 +143,26 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                   >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Lock className="w-3.5 h-3.5" /> Accedi Pro</>}
                   </button>
-
-                  <button
-                  type="button"
-                  onClick={onVisitorLogin}
-                  className="w-full bg-white border-2 border-slate-100 hover:border-orange-500 hover:bg-orange-50 text-slate-600 font-black py-3 px-4 rounded-xl shadow-sm transform transition-all active:scale-95 flex items-center justify-center gap-2 uppercase text-[10px] tracking-widest group"
-                  >
-                  <UserCircle className="w-4 h-4 text-slate-400 group-hover:text-orange-500" /> 
-                  Visitatore-Demo
-                  </button>
               </div>
             </form>
           </div>
 
           {/* SPAZIO PUBBLICITARIO MAPEI - TUTTO LO SPAZIO IN BASSO */}
-          <div className="flex-1 mt-4 px-8 pb-8 flex flex-col">
+          <div className="flex-1 px-8 pb-8 flex flex-col min-h-0">
               <div className="flex-1 rounded-[2rem] border border-slate-200 bg-white shadow-2xl overflow-hidden group/ad relative flex flex-col border-b-4 border-b-orange-500">
                 <div className="px-6 py-3 bg-slate-900 text-white flex justify-between items-center z-30">
                     <div className="flex items-center gap-2">
                         <TrendingUp className="w-4 h-4 text-orange-500 animate-pulse" />
-                        <span className="text-[9px] font-black uppercase tracking-widest">Partner Tecnico Consigliato</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest italic">Sito del giorno consigliato</span>
                     </div>
-                    <span className="text-[8px] font-bold bg-white text-slate-900 px-2 py-0.5 rounded-full">LIVE PREVIEW</span>
+                    <span className="text-[8px] font-bold bg-white text-slate-900 px-2 py-0.5 rounded-full uppercase">Live View</span>
                 </div>
                 
-                <div className="flex-1 relative bg-slate-50">
+                <div className="flex-1 relative bg-slate-50 overflow-hidden">
                     <iframe 
                         src="https://www.mapei.com/it/it/home-page" 
-                        className="w-full h-full border-none scale-[0.65] origin-top-left w-[154%] h-[154%]"
-                        title="Partner Mapei Full"
+                        className="w-full h-full border-none scale-[0.8] origin-top-left w-[125%] h-[125%]"
+                        title="Sito Consigliato"
                         style={{ pointerEvents: 'none' }}
                     />
                     <a 
@@ -181,7 +172,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                         className="absolute inset-0 z-40 bg-transparent flex flex-col items-center justify-center opacity-0 group-hover/ad:opacity-100 transition-opacity bg-slate-900/40 backdrop-blur-[2px]"
                     >
                         <div className="bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-2xl transform translate-y-4 group-hover/ad:translate-y-0 transition-all duration-300 hover:scale-105 border-2 border-orange-500">
-                            Esplora Soluzioni Mapei <ExternalLink className="w-4 h-4 text-orange-500" />
+                            Visita Sito Consigliato <ExternalLink className="w-4 h-4 text-orange-500" />
                         </div>
                     </a>
                 </div>
@@ -256,6 +247,16 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     </div>
                 </div>
             </div>
+
+            {/* NUOVO PULSANTE VISITATORE LAMPEGGIANTE - SOTTO ANAGRAFICA */}
+            <button
+                type="button"
+                onClick={onVisitorLogin}
+                className="w-full mt-2 bg-orange-500 hover:bg-orange-600 text-white font-black py-4 px-4 rounded-2xl shadow-xl transform transition-all active:scale-95 flex items-center justify-center gap-3 uppercase text-xs tracking-widest border-2 border-orange-400 animate-blink-fast group"
+            >
+                <UserCircle className="w-5 h-5 text-white group-hover:rotate-12 transition-transform" /> 
+                ENTRA COME VISITATORE
+            </button>
         </div>
       </div>
     </div>
