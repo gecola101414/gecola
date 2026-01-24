@@ -14,7 +14,6 @@ export const COMMON_UNITS = [
     'cad', 'm', 'm²', 'm³', 'kg', 'q', 't', 'h', 'cm', 'mm', 'l', 'a corpo'
 ];
 
-// Cataloghi per Analisi Prezzi
 export const LABOR_CATALOG = [
   { description: "Operaio Specializzato", unit: "h", price: 35.50 },
   { description: "Operaio Qualificato", unit: "h", price: 32.15 },
@@ -122,7 +121,7 @@ export const SOA_CATEGORIES = [
 ];
 
 export const PROJECT_INFO: ProjectInfo = {
-  title: 'Ristrutturazione Integrale Attico Via Manzoni',
+  title: 'Nuovo Progetto Protetto',
   client: 'Dott.ssa Elisabetta Bianchi',
   designer: 'Ing. Domenico Gimondo',
   location: 'Milano (MI)',
@@ -135,18 +134,23 @@ export const PROJECT_INFO: ProjectInfo = {
   fontSizeTitle: 28,
   fontSizeClient: 15,
   fontSizeTotals: 22,
-  // Nuovi default richiesti
   tariffColumnWidth: 105,
   fontSizeMeasurements: 12,
   fontSizeWbsSidebar: 14,
 };
 
 export const CATEGORIES: Category[] = [
-  { code: 'WBS.01', name: 'Apprestamenti di Cantiere e Sicurezza', isEnabled: true, isLocked: false },
-  { code: 'WBS.02', name: 'Demolizioni e Rimozioni', isEnabled: true, isLocked: false },
-  { code: 'WBS.03', name: 'Opere Murarie e Sottofondi', isEnabled: true, isLocked: false },
-  { code: 'WBS.04', name: 'Impianto Idrico e Condizionamento', isEnabled: true, isLocked: false },
-  { code: 'WBS.05', name: 'Pavimenti e Finiture', isEnabled: true, isLocked: false },
+  { code: 'WBS.01', name: 'Apprestamenti di Cantiere e Sicurezza', isEnabled: true, isLocked: false, type: 'work' },
+  { code: 'WBS.02', name: 'Demolizioni e Rimozioni', isEnabled: true, isLocked: false, type: 'work' },
+  { code: 'WBS.03', name: 'Opere Murarie e Sottofondi', isEnabled: true, isLocked: false, type: 'work' },
+  { code: 'WBS.04', name: 'Impianto Idrico e Condizionamento', isEnabled: true, isLocked: false, type: 'work' },
+  { code: 'WBS.05', name: 'Pavimenti e Finiture', isEnabled: true, isLocked: false, type: 'work' },
+  // 5 WBS dedicate alla Sicurezza Progettuale
+  { code: 'S.01', name: 'Apprestamenti di Sicurezza PSC', isEnabled: true, isLocked: false, type: 'safety' },
+  { code: 'S.02', name: 'DPI e Dispositivi di Protezione Speciali', isEnabled: true, isLocked: false, type: 'safety' },
+  { code: 'S.03', name: 'Impiantistica di Cantiere (Messa a terra, etc)', isEnabled: true, isLocked: false, type: 'safety' },
+  { code: 'S.04', name: 'Misure di Prevenzione Rischio Rumore/Vibrazioni', isEnabled: true, isLocked: false, type: 'safety' },
+  { code: 'S.05', name: 'Servizi Igienico-Assistenziali di Cantiere', isEnabled: true, isLocked: false, type: 'safety' },
 ];
 
 export const INITIAL_ARTICLES: Article[] = [
@@ -164,54 +168,6 @@ export const INITIAL_ARTICLES: Article[] = [
     measurements: [
       { id: 'm1', description: 'Apprestamento per lavori in soggiorno', multiplier: 24, length: 1, type: 'positive' }
     ]
-  },
-  {
-    id: 'art-02',
-    categoryCode: 'WBS.02',
-    code: '2.B.10',
-    description: 'Demolizione di pavimentazione interna in ceramica o marmo, compreso lo smantellamento del massetto e il carico su automezzo.',
-    unit: 'm²',
-    unitPrice: 22.40,
-    laborRate: 90,
-    soaCategory: 'OG1',
-    priceListSource: 'Prezzario Lombardia 2025',
-    quantity: 0,
-    measurements: [
-      { id: 'm2', description: 'Zona Giorno', multiplier: 1, length: 8.50, width: 6.20, type: 'positive' },
-      { id: 'm3', description: 'Corridoio notte', multiplier: 1, length: 4.30, width: 1.20, type: 'positive' }
-    ]
-  },
-  {
-    id: 'art-03',
-    categoryCode: 'WBS.03',
-    code: '3.C.02',
-    description: 'Tramezzatura interna realizzata in blocchi di laterizio forato sp. 8 cm, compreso allettamento con malta cementizia M5.',
-    unit: 'm²',
-    unitPrice: 34.50,
-    laborRate: 55,
-    soaCategory: 'OG1',
-    priceListSource: 'Prezzario Lombardia 2025',
-    quantity: 0,
-    measurements: [
-      { id: 'm4', description: 'Nuova parete divisoria cucina', multiplier: 1, length: 3.50, height: 2.70, type: 'positive' },
-      { id: 'm5', description: 'A dedurre sfondato porta', multiplier: 1, length: 0.90, height: 2.10, type: 'deduction' }
-    ]
-  },
-  {
-    id: 'art-04',
-    categoryCode: 'WBS.05',
-    code: '5.F.15',
-    description: 'Fornitura e posa di parquet in rovere massello sp. 14mm, in listoni di varie lunghezze, incollato su massetto preesistente.',
-    unit: 'm²',
-    unitPrice: 85.00,
-    laborRate: 35,
-    soaCategory: 'OG1',
-    priceListSource: 'Prezzario Lombardia 2025',
-    quantity: 0,
-    measurements: [
-      { id: 'm6', description: 'Pavimentazione camere da letto', multiplier: 2, length: 4.00, width: 3.50, type: 'positive' },
-      { id: 'm7', description: 'Zona disimpegno', multiplier: 1, length: 2.50, width: 1.20, type: 'positive' }
-    ]
   }
 ];
 
@@ -226,9 +182,7 @@ export const INITIAL_ANALYSES: PriceAnalysis[] = [
     profitRate: 10,
     components: [
       { id: 'c1', type: 'material', description: 'Intonaco premiscelato base calce/cem', unit: 'kg', unitPrice: 0.32, quantity: 20 },
-      { id: 'c2', type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.50, quantity: 0.40 },
-      { id: 'c3', type: 'labor', description: 'Operaio Comune', unit: 'h', unitPrice: 28.30, quantity: 0.30 },
-      { id: 'c4', type: 'equipment', description: 'Trabattello in alluminio h 6m', unit: 'h', unitPrice: 3.50, quantity: 0.40 }
+      { id: 'c2', type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.50, quantity: 0.40 }
     ],
     totalMaterials: 6.4,
     totalLabor: 22.69,

@@ -1,12 +1,19 @@
-
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Plus, Trash2, Calculator, LayoutDashboard, FolderOpen, Minus, XCircle, ChevronRight, ArrowRight, Settings, PlusCircle, MinusCircle, Link as LinkIcon, ExternalLink, Undo2, Redo2, PenLine, MapPin, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, FolderPlus, GripVertical, Mic, Sigma, Save, FileSignature, CheckCircle2, Loader2, Cloud, Share2, FileText, ChevronDown, TestTubes, Search, Coins, ArrowRightLeft, Copy, Move, LogOut, AlertTriangle, ShieldAlert, Award, User, BookOpen, Edit3, Paperclip, MousePointerClick, AlignLeft, Layers, Sparkles, FileJson, Download, HelpCircle, FileSpreadsheet, Grid3X3, Paintbrush, Maximize2, Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus } from 'lucide-react';
+import { 
+  Plus, Trash2, Calculator, FolderOpen, XCircle, ArrowRight, Settings, 
+  PlusCircle, MinusCircle, HelpCircle, Sparkles, AlignLeft, Link as LinkIcon, 
+  Undo2, Redo2, PenLine, Lock, Unlock, Lightbulb, LightbulbOff, Edit2, 
+  GripVertical, Sigma, Save, Loader2, FileText, ChevronDown, TestTubes, 
+  Search, Coins, ArrowRightLeft, Copy, LogOut, Award, User, Maximize2, 
+  Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Paintbrush, 
+  Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat
+} from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
 import Login from './components/Login';
 import { CATEGORIES, INITIAL_ARTICLES, PROJECT_INFO, INITIAL_ANALYSES, SOA_CATEGORIES } from './constants';
-import { Article, Totals, ProjectInfo, Measurement, Category, PriceAnalysis, AnalysisComponent } from './types';
+import { Article, Totals, ProjectInfo, Measurement, Category, PriceAnalysis } from './types';
 import Summary from './components/Summary';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
 import LinkArticleModal from './components/LinkArticleModal';
@@ -19,11 +26,13 @@ import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOpti
 import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
-import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
+import { parseDroppedContent, parseVoiceMeasurement } from './services/geminiService';
 import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
 
-// --- Helper Functions con Separatore Migliaia ---
+const MIME_ARTICLE = 'application/gecola-article';
+const MIME_MEASUREMENT = 'application/gecola-measurement';
+
 const formatCurrency = (val: number) => {
   return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', useGrouping: true }).format(val);
 };
@@ -35,21 +44,22 @@ const formatNumber = (val: number | undefined) => {
 
 const getWbsNumber = (code: string) => {
     const match = code.match(/WBS\.(\d+)/);
-    return match ? parseInt(match[1], 10) : code;
+    if (match) return parseInt(match[1], 10);
+    const sMatch = code.match(/S\.(\d+)/);
+    if (sMatch) return parseInt(sMatch[1], 10);
+    return code;
 };
 
 const roundTwoDecimals = (num: number) => {
     return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
-// --- Sistema Audio Moderno (Sintesi Granulare UI 4.0) ---
 const playUISound = (type: 'confirm' | 'move' | 'newline') => {
     try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const masterGain = audioCtx.createGain();
         masterGain.connect(audioCtx.destination);
         masterGain.gain.setValueAtTime(0, audioCtx.currentTime);
-        
         if (type === 'confirm') {
             masterGain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.005);
             const osc = audioCtx.createOscillator();
@@ -92,7 +102,6 @@ const playUISound = (type: 'confirm' | 'move' | 'newline') => {
     }
 };
 
-// --- Core Calculation Engine ---
 const calculateRowValue = (m: Measurement, linkedValue: number = 0): number => {
   if (m.type === 'subtotal') return 0;
   if (m.linkedArticleId) {
@@ -155,7 +164,6 @@ const recalculateAllArticles = (articles: Article[]): Article[] => {
   });
 };
 
-// --- Components ---
 interface TableHeaderProps {
     activeColumn: string | null;
     tariffWidth?: number;
@@ -254,7 +262,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const syncAutomationPoint = (rowId: string, fieldName: string) => {
       if (!isVoiceActive) return;
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      
       setActiveAutomationRowId(rowId);
       const idx = automationFields.indexOf(fieldName);
       if (idx !== -1) {
@@ -267,7 +274,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
        const field = automationFields[activeAutomationFieldIndex];
        const targetId = activeAutomationRowId || (article.measurements.length > 0 ? article.measurements[article.measurements.length - 1].id : null);
        if (!targetId) return;
-
        if (field === 'description') {
            onUpdateMeasurement(article.id, targetId, 'description', text);
        } else {
@@ -280,7 +286,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const handleVoiceCommand = (cmd: string) => {
        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-
        if (cmd === 'next') {
            if (activeAutomationFieldIndex < 4) {
                setActiveAutomationFieldIndex(prev => prev + 1);
@@ -301,19 +306,15 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const startContinuousRecognition = () => {
       if (!('webkitSpeechRecognition' in window)) return;
       if (recognitionRef.current) return;
-
       const recognition = new (window as any).webkitSpeechRecognition();
       recognition.lang = 'it-IT';
       recognition.continuous = true;
       recognition.interimResults = true;
-
       recognition.onresult = async (event: any) => {
           if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          
           for (let i = event.resultIndex; i < event.results.length; ++i) {
              if (event.results[i].isFinal) {
                 const text = event.results[i][0].transcript.toLowerCase().trim();
-                
                 if (text === 'invio' || text === 'prossimo' || text === 'avanti') {
                     handleVoiceCommand('next');
                 } else if (text === 'indietro') {
@@ -327,11 +328,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              }
           }
       };
-
       recognition.onend = () => {
           if (isVoiceActive) recognition.start();
       };
-
       recognitionRef.current = recognition;
       recognition.start();
    };
@@ -415,6 +414,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            e.preventDefault();
            return;
        }
+       e.dataTransfer.setData(MIME_MEASUREMENT, 'true');
        e.dataTransfer.setData('type', 'MEASUREMENT');
        e.dataTransfer.setData('index', index.toString());
        e.dataTransfer.effectAllowed = "move";
@@ -455,14 +455,11 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const handleTbodyDragOver = (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      
-      const type = e.dataTransfer.getData('type');
-      const textData = e.dataTransfer.types.includes('text/plain');
-
-      if (type === 'ARTICLE' || textData) {
+      const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
+      const isExternalText = e.dataTransfer.types.includes('text/plain');
+      if (isInternal || isExternalText) {
           e.dataTransfer.dropEffect = 'copy';
           if (isCategoryLocked) return;
-          
           const rect = tbodyRef.current?.getBoundingClientRect();
           if (rect) {
             const midPoint = rect.top + rect.height / 2;
@@ -491,18 +488,15 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           setArticleDropPosition(null);
           return;
       }
-
-      const type = e.dataTransfer.getData('type');
-      const textData = e.dataTransfer.getData('text');
-      const isExternal = textData && (type !== 'ARTICLE' && type !== 'MEASUREMENT');
-
-      if (isExternal) {
+      const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
+      const articleId = e.dataTransfer.getData('articleId');
+      const textData = e.dataTransfer.getData('text/plain');
+      if (isInternal && articleId) {
+          onArticleDrop(e, article.id, articleDropPosition || 'bottom');
+      } else if (textData) {
           const insertionIndex = articleDropPosition === 'bottom' ? index + 1 : index;
           onInsertExternalArticle(insertionIndex, textData);
-      } else if (type === 'ARTICLE') {
-          onArticleDrop(e, article.id, articleDropPosition || 'bottom');
       }
-
       setIsArticleDragOver(false);
       setArticleDropPosition(null);
    };
@@ -677,7 +671,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             </td>
             <td colSpan={7} className="border-r border-gray-200 bg-white"></td>
          </tr>
-         
          {!isArticleLocked && (
            <>
             <tr className="bg-gray-50/50 border-b border-gray-100">
@@ -685,34 +678,10 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center gap-4">
                     <span>MISURE</span>
                     <div className="flex items-center gap-2">
-                        <button 
-                            onClick={() => onOpenPaintingCalculator(article.id)}
-                            className="text-gray-400 hover:text-blue-600 p-1 rounded transition-colors"
-                            title="Calcolo Automatico Pitturazioni"
-                        >
-                            <Paintbrush className="w-4 h-4" />
-                        </button>
-                        <button 
-                            onClick={() => onOpenRebarCalculator(article.id)}
-                            className="text-gray-400 hover:text-orange-600 p-1 rounded transition-colors"
-                            title="Calcolo Ferri d'Armatura"
-                        >
-                            <Grid3X3 className="w-4 h-4" />
-                        </button>
-                        <button 
-                            onClick={() => onToggleVoiceAutomation(article.id)}
-                            className={`p-1 rounded transition-all ${isVoiceActive ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 animate-pulse' : 'text-gray-400 hover:text-purple-600'}`}
-                            title="Sostegno Vocale Continuo (Mani Libere)"
-                        >
-                            <Headset className="w-4 h-4" />
-                        </button>
-                        <button 
-                            onClick={() => onToggleSmartRepeat(article.id)}
-                            className={`p-1 rounded transition-all ${isSmartRepeatActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:text-blue-600'}`}
-                            title="Smart Repeat (Clona rigo precedente)"
-                        >
-                            <CopyPlus className="w-4 h-4" />
-                        </button>
+                        <button onClick={() => onOpenPaintingCalculator(article.id)} className="text-gray-400 hover:text-blue-600 p-1 rounded transition-colors" title="Calcolo Automatico Pitturazioni"><Paintbrush className="w-4 h-4" /></button>
+                        <button onClick={() => onOpenRebarCalculator(article.id)} className="text-gray-400 hover:text-orange-600 p-1 rounded transition-colors" title="Calcolo Ferri d'Armatura"><Grid3X3 className="w-4 h-4" /></button>
+                        <button onClick={() => onToggleVoiceAutomation(article.id)} className={`p-1 rounded transition-all ${isVoiceActive ? 'bg-purple-600 text-white shadow-lg shadow-purple-200 animate-pulse' : 'text-gray-400 hover:text-purple-600'}`} title="Sostegno Vocale Continuo (Mani Libere)"><Headset className="w-4 h-4" /></button>
+                        <button onClick={() => onToggleSmartRepeat(article.id)} className={`p-1 rounded transition-all ${isSmartRepeatActive ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:text-blue-600'}`} title="Smart Repeat (Clona rigo precedente)"><CopyPlus className="w-4 h-4" /></button>
                     </div>
                 </td>
                 <td colSpan={8} className="border-r border-gray-200"></td>
@@ -722,7 +691,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 const linkedArt = getLinkedInfo(m);
                 const isSubtotal = m.type === 'subtotal';
                 const isVoiceFocused = isVoiceActive && activeAutomationRowId === m.id;
-                
                 return (
                 <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} onDragStart={(e) => handleMeasDragStart(e, idx)} onDragOver={(e) => handleMeasDragOver(e, m.id)} onDragLeave={() => setMeasurementDragOverId(null)} onDrop={(e) => handleMeasDrop(e, idx)} className={`group/row cursor-default transition-all ${m.type === 'deduction' ? 'text-red-600' : 'text-gray-800'} ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : 'bg-white')} ${isArticleLocked ? 'opacity-70' : ''}`} style={{ fontSize: `${mFontSize}px` }}>
                     <td className="border-r border-gray-200"></td>
@@ -745,7 +713,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 <div className="absolute left-0 top-1/2 w-4 h-[1px] bg-gray-300"></div>
                                 {m.linkedArticleId && linkedArt ? (
                                 <div className="flex items-center space-x-2">
-                                    {m.type === 'deduction' && <span className="text-red-600 font-black text-[10px] uppercase">A DEDURRE:</span>}
                                     <button onClick={() => onScrollToArticle(linkedArt.id, article.id)} className="flex items-center space-x-1 px-1 py-0.5 rounded hover:bg-blue-50 group/link transition-colors text-left">
                                         <span className="text-blue-600 font-bold hover:underline cursor-pointer" style={{ fontSize: `${mFontSize - 1}px` }}>Vedi voce n. {getLinkedArticleNumber(linkedArt)}</span>
                                         <span className="text-gray-500" style={{ fontSize: `${mFontSize - 2}px` }}>
@@ -796,7 +763,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 );})}
            </>
          )}
-
          <tr className="bg-white font-bold text-xs border-t border-gray-300 shadow-inner">
              <td className="border-r border-gray-300"></td><td className="border-r border-gray-200" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '105px' }}></td>
              <td className="px-2 py-3 text-left border-r border-gray-300 flex items-center gap-3">
@@ -824,54 +790,36 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    );
 };
 
-// Types ViewMode and Snapshot
-type ViewMode = 'COMPUTO' | 'ANALISI';
-
-interface Snapshot {
-  articles: Article[];
-  categories: Category[];
-  analyses: PriceAnalysis[];
-}
+type ViewMode = 'COMPUTO' | 'SICUREZZA' | 'ANALISI'; 
+interface Snapshot { articles: Article[]; categories: Category[]; analyses: PriceAnalysis[]; }
 
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [sessionError, setSessionError] = useState(false);
-  const [isAnalysisDragOver, setIsAnalysisDragOver] = useState(false);
   const [isWorkspaceDragOver, setIsWorkspaceDragOver] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
-  const [showAutoLoginAd, setShowAutoLoginAd] = useState(false); 
   const [isFocusMode, setIsFocusMode] = useState(false); 
   const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 50 }); 
   const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
   const [returnPath, setReturnPath] = useState<string | null>(null); 
   const dragOffset = useRef({ x: 0, y: 0 });
-
   const [isRebarModalOpen, setIsRebarModalOpen] = useState(false);
   const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
   const [shouldAutoReopenRebar, setShouldAutoReopenRebar] = useState(false);
-
   const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
   const [shouldAutoReopenPainting, setShouldAutoReopenPainting] = useState(false);
-
   const [voiceAutomationActiveId, setVoiceAutomationActiveId] = useState<string | null>(null);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
-
   const rebarTimerRef = useRef<any>(null);
   const paintingTimerRef = useRef<any>(null);
 
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => { 
-        setUser(prev => {
-            if (prev === 'visitor' && firebaseUser === null) return prev;
-            if (prev === null && firebaseUser !== null) {
-                setShowAutoLoginAd(true);
-            }
-            return firebaseUser;
-        });
+        setUser(firebaseUser);
         setAuthLoading(false); 
     });
     return () => unsubscribe();
@@ -894,10 +842,7 @@ const App: React.FC = () => {
     return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
 
-  // Centra inizialmente il toolbar
-  useEffect(() => {
-      setToolbarPos({ x: (window.innerWidth / 2) - 100, y: 30 });
-  }, []);
+  useEffect(() => { setToolbarPos({ x: (window.innerWidth / 2) - 100, y: 30 }); }, []);
 
   const stopAllAutomations = useCallback(() => {
     if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
@@ -906,25 +851,8 @@ const App: React.FC = () => {
     setShouldAutoReopenPainting(false);
   }, []);
 
-  const handleVisitorLogin = () => {
-    setUser('visitor');
-    setShowAutoLoginAd(true); 
-  };
-
-  const handleLogout = async () => {
-    setAuthLoading(true);
-    try {
-      if (user !== 'visitor' && auth) {
-        await signOut(auth);
-      }
-    } catch (err) {
-      console.error("Logout error:", err);
-    } finally {
-      setUser(null);
-      setAuthLoading(false);
-    }
-  };
-
+  const handleVisitorLogin = () => { setUser('visitor'); };
+  const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
@@ -952,23 +880,14 @@ const App: React.FC = () => {
   const [draggedCategoryCode, setDraggedCategoryCode] = useState<string | null>(null);
   const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
   const [activeSoaCategory, setActiveSoaCategory] = useState<string>('OG1');
-  const [wbsDropTarget, setWbsDropTarget] = useState<{ code: string, position: 'top' | 'bottom' } | null>(null);
+  const [wbsDropTarget, setWbsDropTarget] = useState<{ code: string, position: 'top' | 'bottom' | 'inside' } | null>(null);
   const [isDraggingArticle, setIsDraggingArticle] = useState(false);
   const [isAnalysisEditorOpen, setIsAnalysisEditorOpen] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState<PriceAnalysis | null>(null);
   const [analysisSearchTerm, setAnalysisSearchTerm] = useState('');
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
-  
-  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ 
-    type: 'import' | 'duplicate', 
-    sourceCode?: string, 
-    payload?: any, 
-    initialName?: string,
-    targetCode?: string,
-    position?: 'top' | 'bottom'
-  } | null>(null);
-
+  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'duplicate', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom' } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
@@ -980,6 +899,8 @@ const App: React.FC = () => {
     }
     return true;
   }, [isVisitor, articles.length]);
+
+  useEffect(() => { document.title = projectInfo.title ? `${projectInfo.title} - GeCoLa` : 'GeCoLa - Computo Metrico'; }, [projectInfo.title]);
 
   const updateState = (newArticles: Article[], newCategories: Category[] = categories, newAnalyses: PriceAnalysis[] = analyses, saveHistory: boolean = true) => {
       const recomputed = recalculateAllArticles(newArticles);
@@ -1024,22 +945,44 @@ const App: React.FC = () => {
   const totals: Totals = useMemo(() => {
     const totalWorks = articles.reduce((acc, art) => {
         const cat = categories.find(c => c.code === art.categoryCode);
-        if (cat && (cat.isEnabled === false)) return acc;
+        if (cat && (cat.isEnabled === false || cat.type === 'safety')) return acc;
         return acc + (art.quantity * art.unitPrice);
     }, 0);
+
+    const totalSafetyProgettuale = articles.reduce((acc, art) => {
+        const cat = categories.find(c => c.code === art.categoryCode);
+        if (cat && (cat.isEnabled === false || cat.type !== 'safety')) return acc;
+        return acc + (art.quantity * art.unitPrice);
+    }, 0);
+
     const safetyCosts = totalWorks * (projectInfo.safetyRate / 100);
-    const totalTaxable = totalWorks + safetyCosts;
+    const totalTaxable = totalWorks + safetyCosts + totalSafetyProgettuale;
     const vatAmount = totalTaxable * (projectInfo.vatRate / 100);
     const grandTotal = totalTaxable + vatAmount;
-    return { totalWorks, safetyCosts, totalTaxable, vatAmount, grandTotal };
+    
+    return { totalWorks, safetyCosts, totalSafetyProgettuale, totalTaxable, vatAmount, grandTotal };
   }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
 
-  const generateNextWbsCode = (currentCats: Category[]) => `WBS.${(currentCats.length + 1).toString().padStart(2, '0')}`;
+  const generateNextWbsCode = (currentCats: Category[]) => {
+      if (viewMode === 'SICUREZZA') {
+          return `S.${(currentCats.filter(c => c.type === 'safety').length + 1).toString().padStart(2, '0')}`;
+      }
+      return `WBS.${(currentCats.filter(c => c.type !== 'safety').length + 1).toString().padStart(2, '0')}`;
+  };
   
   const renumberCategories = (cats: Category[], currentArts: Article[]) => {
       const codeMap: Record<string, string> = {};
-      const newCategories = cats.map((cat, index) => {
-          const newCode = `WBS.${(index + 1).toString().padStart(2, '0')}`;
+      let workCount = 0;
+      let safetyCount = 0;
+      const newCategories = cats.map((cat) => {
+          let newCode = cat.code;
+          if (cat.type === 'safety') {
+              safetyCount++;
+              newCode = `S.${safetyCount.toString().padStart(2, '0')}`;
+          } else {
+              workCount++;
+              newCode = `WBS.${workCount.toString().padStart(2, '0')}`;
+          }
           codeMap[cat.code] = newCode;
           return { ...cat, code: newCode };
       });
@@ -1053,22 +996,7 @@ const App: React.FC = () => {
   const handleAddNewAnalysis = () => {
     const nextCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
     const newAnalysis: PriceAnalysis = {
-        id: Math.random().toString(36).substr(2, 9),
-        code: nextCode,
-        description: 'Nuova Analisi Prezzo',
-        unit: 'cad',
-        analysisQuantity: 0,
-        generalExpensesRate: 15,
-        profitRate: 10,
-        totalMaterials: 0,
-        totalLabor: 0,
-        totalEquipment: 0,
-        costoTecnico: 0,
-        valoreSpese: 0,
-        valoreUtile: 0,
-        totalBatchValue: 0,
-        totalUnitPrice: 0,
-        components: []
+        id: Math.random().toString(36).substr(2, 9), code: nextCode, description: 'Nuova Analisi Prezzo', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: []
     };
     const updatedAnalyses = [...analyses, newAnalysis];
     updateState(articles, categories, updatedAnalyses);
@@ -1092,7 +1020,7 @@ const App: React.FC = () => {
   };
 
   const handleToggleAnalysisLock = (id: string) => {
-      const newAnalyses = analyses.map(a => a.id === id ? { ...a, isLocked: !a.isLocked } : a);
+      const newAnalyses = analyses.map(an => an.id === id ? { ...an, isLocked: !an.isLocked } : an);
       updateState(articles, categories, newAnalyses);
   };
 
@@ -1112,22 +1040,11 @@ const App: React.FC = () => {
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
       const newMeasId = Math.random().toString(36).substr(2, 9);
       const newArticle: Article = {
-          id: Math.random().toString(36).substr(2, 9),
-          categoryCode: targetCode,
-          code: analysis.code,
-          description: analysis.description,
-          unit: analysis.unit,
-          unitPrice: roundTwoDecimals(analysis.totalUnitPrice),
-          laborRate: laborRate,
-          linkedAnalysisId: analysis.id,
-          priceListSource: `Da Analisi ${analysis.code}`,
-          soaCategory: activeSoaCategory,
-          measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }],
-          quantity: 0
+          id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0
       };
       setLastAddedMeasurementId(newMeasId); 
       updateState([...articles, newArticle], categories, analyses);
-      setViewMode('COMPUTO');
+      if (viewMode === 'ANALISI') setViewMode('COMPUTO');
       setIsImportAnalysisModalOpen(false); 
   };
 
@@ -1140,8 +1057,7 @@ const App: React.FC = () => {
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newAnalysisId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 0, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0,
-          components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
+          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
       };
       const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
       updateState(updatedArticles, categories, [...analyses, newAnalysis]);
@@ -1157,24 +1073,12 @@ const App: React.FC = () => {
       if (parsed) {
           const newMeasId = Math.random().toString(36).substr(2, 9);
           const newArticle: Article = {
-              id: Math.random().toString(36).substr(2, 9),
-              categoryCode: targetCode,
-              code: parsed.code || 'NP.001',
-              priceListSource: parsed.priceListSource,
-              description: parsed.description || 'Voce importata',
-              unit: parsed.unit || 'cad',
-              unitPrice: parsed.unitPrice || 0,
-              laborRate: parsed.laborRate || 0,
-              soaCategory: activeSoaCategory,
-              measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }],
-              quantity: 0
+              id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0
           };
-          
           setLastAddedMeasurementId(newMeasId); 
           const updatedArticles = [...articles];
           const categoryArticles = updatedArticles.filter(a => a.categoryCode === targetCode);
           const otherArticles = updatedArticles.filter(a => a.categoryCode !== targetCode);
-          
           categoryArticles.splice(insertIndex, 0, newArticle);
           updateState([...otherArticles, ...categoryArticles]);
       }
@@ -1196,7 +1100,7 @@ const App: React.FC = () => {
         updateState(articles, newCats);
     } else {
         const newCode = generateNextWbsCode(categories);
-        const newCat: Category = { code: newCode, name, isEnabled: true, isLocked: false };
+        const newCat: Category = { code: newCode, name, isEnabled: true, isLocked: false, type: viewMode === 'SICUREZZA' ? 'safety' : 'work' };
         const newCats = [...categories, newCat];
         updateState(articles, newCats);
     }
@@ -1231,9 +1135,7 @@ const App: React.FC = () => {
   };
 
   const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
-      e.preventDefault(); 
-      e.stopPropagation(); 
-      e.dataTransfer.dropEffect = 'copy'; 
+      e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; 
       if (isDraggingArticle) return;
       if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain')) {
           if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
@@ -1246,12 +1148,12 @@ const App: React.FC = () => {
   const handleWbsDragLeave = (e: React.DragEvent) => { e.preventDefault(); };
 
   const handleWbsDrop = (e: React.DragEvent, targetCode: string | null) => { 
-      e.preventDefault(); 
-      e.stopPropagation(); 
+      e.preventDefault(); e.stopPropagation(); 
       const pos = wbsDropTarget?.position || 'bottom';
       setWbsDropTarget(null);
+      const isInternalArticle = e.dataTransfer.types.includes(MIME_ARTICLE);
       const droppedArticleId = e.dataTransfer.getData('articleId');
-      if (droppedArticleId && targetCode) {
+      if (isInternalArticle && droppedArticleId && targetCode) {
           const targetCategory = categories.find(c => c.code === targetCode);
           if (targetCategory?.isLocked) { alert("WBS bloccata."); return; }
           const article = articles.find(a => a.id === droppedArticleId);
@@ -1268,21 +1170,15 @@ const App: React.FC = () => {
           return;
       }
       const textData = e.dataTransfer.getData('text/plain');
-      if (textData && !draggedCategoryCode) {
+      if (textData && !draggedCategoryCode && !isInternalArticle) {
           try {
               const payload = JSON.parse(textData);
               if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
                   const initialName = payload.category?.name || 'Capitolo Importato';
-                  setWbsOptionsContext({ 
-                    type: 'import', 
-                    payload, 
-                    initialName,
-                    targetCode: targetCode || undefined,
-                    position: pos as 'top' | 'bottom'
-                  });
+                  setWbsOptionsContext({ type: 'import', payload, initialName, targetCode: targetCode || undefined, position: pos as 'top' | 'bottom' });
                   return;
               }
-          } catch (e) { console.error("Import Error", e); }
+          } catch (e) { updateState(articles); }
           return;
       }
       if (draggedCategoryCode) {
@@ -1303,54 +1199,23 @@ const App: React.FC = () => {
   const handleWbsActionChoice = (mode: WbsActionMode, newName: string) => {
     if (!wbsOptionsContext) return;
     const { type, sourceCode, payload, targetCode, position } = wbsOptionsContext;
-    
-    const articlesToImportCount = (type === 'duplicate' && sourceCode) 
-      ? articles.filter(a => a.categoryCode === sourceCode).length 
-      : (payload?.articles?.length || 0);
-    
-    if (!canAddArticle(articlesToImportCount)) {
-      setWbsOptionsContext(null);
-      return;
-    }
-
+    const articlesToImportCount = (type === 'duplicate' && sourceCode) ? articles.filter(a => a.categoryCode === sourceCode).length : (payload?.articles?.length || 0);
+    if (!canAddArticle(articlesToImportCount)) { setWbsOptionsContext(null); return; }
     const processMeasurements = (meases: Measurement[]) => {
-      if (mode === 'full') {
-        return meases.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }));
-      }
-      if (mode === 'descriptions') {
-        return meases.map(m => ({ 
-          ...m, 
-          id: Math.random().toString(36).substr(2, 9), 
-          linkedArticleId: undefined,
-          length: undefined,
-          width: undefined,
-          height: undefined,
-          multiplier: undefined
-        }));
-      }
+      if (mode === 'full') return meases.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }));
+      if (mode === 'descriptions') return meases.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined }));
       return [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' as const }];
     };
-
     if (type === 'duplicate' && sourceCode) {
-      const sourceCat = categories.find(c => c.code === sourceCode); 
-      if (!sourceCat) return; 
+      const sourceCat = categories.find(c => c.code === sourceCode); if (!sourceCat) return; 
       const sourceArticles = articles.filter(a => a.categoryCode === sourceCode); 
       const newCategory = { ...sourceCat, name: newName }; 
-      const tempCode = `TEMP_CLONE_${Date.now()}`; 
-      newCategory.code = tempCode; 
-      
-      const newArticlesRaw = sourceArticles.map(art => ({ 
-          ...art, 
-          id: Math.random().toString(36).substr(2, 9), 
-          categoryCode: tempCode, 
-          measurements: processMeasurements(art.measurements)
-      })); 
-      
+      const tempCode = `TEMP_CLONE_${Date.now()}`; newCategory.code = tempCode; 
+      const newArticlesRaw = sourceArticles.map(art => ({ ...art, id: Math.random().toString(36).substr(2, 9), categoryCode: tempCode, measurements: processMeasurements(art.measurements) })); 
       const sourceIndex = categories.findIndex(c => c.code === sourceCode); 
-      const newCatsList = [...categories]; 
-      newCatsList.splice(sourceIndex + 1, 0, newCategory); 
-      const allArticles = [...articles, ...newArticlesRaw]; 
-      const result = renumberCategories(newCatsList, allArticles); 
+      const newCatsList = [...categories]; newCatsList.splice(sourceIndex + 1, 0, newCategory); 
+      const allArticlesList = [...articles, ...newArticlesRaw]; 
+      const result = renumberCategories(newCatsList, allArticlesList); 
       updateState(result.newArticles, result.newCategories);
     } 
     else if (type === 'import' && payload) {
@@ -1358,42 +1223,22 @@ const App: React.FC = () => {
       if (importedCat && Array.isArray(importedArticles)) {
           const uniqueTempId = `IMPORT_TEMP_${Date.now()}`;
           const newCategory: Category = { ...importedCat, name: newName, code: uniqueTempId, isImported: true };
-          
-          const newAnalysesList = [...analyses];
-          const analysisIdMap = new Map<string, string>();
+          const newAnalysesList = [...analyses]; const analysisIdMap = new Map<string, string>();
           if (Array.isArray(importedAnalyses)) {
               importedAnalyses.forEach((an: PriceAnalysis) => {
                   const newId = Math.random().toString(36).substr(2, 9);
-                  let newCode = an.code;
-                  if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; }
-                  analysisIdMap.set(an.id, newId);
-                  const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
+                  let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; }
+                  analysisIdMap.set(an.id, newId); const newComponents = an.components.map(comp => ({ ...comp, id: Math.random().toString(36).substr(2, 9) }));
                   newAnalysesList.push({ ...an, id: newId, code: newCode, components: newComponents });
               });
           }
-          
-          let insertionIdx = categories.length;
-          if (targetCode) {
-            insertionIdx = categories.findIndex(c => c.code === targetCode);
-            if (position === 'bottom') insertionIdx++;
-          }
-          
-          const newCatsList = [...categories];
-          newCatsList.splice(insertionIdx, 0, newCategory);
-          
+          let insertionIdx = categories.length; if (targetCode) { insertionIdx = categories.findIndex(c => c.code === targetCode); if (position === 'bottom') insertionIdx++; }
+          const newCatsList = [...categories]; newCatsList.splice(insertionIdx, 0, newCategory);
           const processedArticles = importedArticles.map((art: Article) => {
               const newArticleId = Math.random().toString(36).substr(2, 9);
-              let newLinkedAnalysisId = art.linkedAnalysisId;
-              if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId); }
-              return { 
-                ...art, 
-                id: newArticleId, 
-                categoryCode: uniqueTempId, 
-                linkedAnalysisId: newLinkedAnalysisId, 
-                measurements: processMeasurements(art.measurements)
-              };
+              let newLinkedAnalysisId = art.linkedAnalysisId; if (art.linkedAnalysisId && analysisIdMap.has(art.linkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(art.linkedAnalysisId); }
+              return { ...art, id: newArticleId, categoryCode: uniqueTempId, linkedAnalysisId: newLinkedAnalysisId, measurements: processMeasurements(art.measurements) };
           });
-
           const result = renumberCategories(newCatsList, [...articles, ...processedArticles]); 
           updateState(result.newArticles, result.newCategories, newAnalysesList);
       }
@@ -1402,338 +1247,250 @@ const App: React.FC = () => {
   };
 
   const handleUpdateArticle = (id: string, field: keyof Article, value: string | number) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
-  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { let finalUpdates = { ...updates }; const original = articles.find(a => a.id === id); if (original && original.priceListSource && !original.priceListSource.includes('NP')) { if (updates.unitPrice !== undefined && updates.unitPrice !== original.unitPrice) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; if (updates.description !== undefined && updates.description !== original.description) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; } const updated = articles.map(art => art.id === id ? { ...art, ...finalUpdates } : art); updateState(updated); };
+  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { let finalUpdates = { ...updates }; const original = articles.find(a => a.id === id); if (original && original.priceListSource && !original.priceListSource.includes('NP')) { if (updates.unitPrice !== undefined && updates.unitPrice !== original.unitPrice) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; if (updates.description !== undefined && updates.description !== original.description) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; } const updated = articles.map(art => id === art.id ? { ...art, ...finalUpdates } : art); updateState(updated); };
   const handleEditArticleDetails = (article: Article) => { setEditingArticle(article); setIsEditArticleModalOpen(true); };
   const handleDeleteArticle = (id: string) => { if (window.confirm("Seleziona Conferma per eliminare questo articolo dal computo?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
-  
   const handleAddMeasurement = (articleId: string) => { 
-      const newId = Math.random().toString(36).substr(2, 9); 
-      setLastAddedMeasurementId(newId); 
+      const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); 
       const updated = articles.map(art => { 
           if (art.id !== articleId) return art; 
-          
           const lastM = art.measurements.length > 0 ? art.measurements[art.measurements.length - 1] : null;
           let newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; 
-          
-          if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') {
-              newM = {
-                  ...newM,
-                  description: lastM.description,
-                  multiplier: lastM.multiplier,
-                  length: lastM.length,
-                  width: lastM.width,
-                  height: lastM.height,
-                  type: lastM.type
-              };
-          }
-          
+          if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') { newM = { ...newM, description: lastM.description, multiplier: lastM.multiplier, length: lastM.length, width: lastM.width, height: lastM.height, type: lastM.type }; }
           return { ...art, measurements: [...art.measurements, newM] }; 
       }); 
       updateState(updated); 
   };
-
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleToggleDeduction = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; if (m.type === 'subtotal') return m; const newType = m.type === 'positive' ? 'deduction' : 'positive'; let newDescription = m.description; if (newType === 'deduction') { if (!newDescription.toLowerCase().startsWith('a dedurre')) { newDescription = "A dedurre: " + newDescription; } } else { newDescription = newDescription.replace(/^a dedurre:\s*/i, ''); } return { ...m, type: newType, description: newDescription } as Measurement; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: value }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
-  const handleArticleDragStart = (e: React.DragEvent, article: Article) => { 
-      setIsDraggingArticle(true); 
-      const dummyUrl = 'https://gecola.it/transfer/article/' + article.id;
-      e.dataTransfer.setData('text/uri-list', dummyUrl);
-      e.dataTransfer.setData('URL', dummyUrl);
-      e.dataTransfer.setData('type', 'ARTICLE'); 
-      e.dataTransfer.setData('articleId', article.id); 
-      e.dataTransfer.effectAllowed = 'all'; 
-  };
+  const handleArticleDragStart = (e: React.DragEvent, article: Article) => { setIsDraggingArticle(true); e.dataTransfer.setData(MIME_ARTICLE, 'true'); e.dataTransfer.setData('type', 'ARTICLE'); e.dataTransfer.setData('articleId', article.id); e.dataTransfer.effectAllowed = 'all'; };
   const handleArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
-  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const type = e.dataTransfer.getData('type'); if (type !== 'ARTICLE') return; const draggingId = e.dataTransfer.getData('articleId'); if (!draggingId) return; const targetArticle = articles.find(a => a.id === draggingId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === draggingId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
+  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
-  
-  const handleScrollToArticle = (id: string, fromId?: string) => { 
-      const targetArt = articles.find(a => a.id === id);
-      if (!targetArt) return;
-
-      if (fromId) {
-          setReturnPath(fromId);
-      }
-
-      if (selectedCategoryCode !== targetArt.categoryCode) {
-          setSelectedCategoryCode(targetArt.categoryCode);
-      }
-
-      setTimeout(() => {
-          const element = document.getElementById(`article-${id}`);
-          if (element) {
-              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              element.classList.add('bg-yellow-50');
-              setTimeout(() => element.classList.remove('bg-yellow-50'), 2000);
-          }
-      }, 300);
-  };
-
-  const handleReturnToArticle = () => {
-      if (returnPath) {
-          const id = returnPath;
-          setReturnPath(null); 
-          handleScrollToArticle(id);
-      }
-  };
-  
-  const handleAddEmptyArticle = (categoryCode: string) => { 
-      if (!canAddArticle()) return;
-      const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
-      const newMeasId = Math.random().toString(36).substr(2, 9);
-      const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 0, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] };
-      const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; 
-      
-      setLastAddedMeasurementId(newMeasId); 
-      updateState([...articles, newArticle], categories, [...analyses, newAnalysis]);
-      setEditingAnalysis(newAnalysis);
-      setViewMode('ANALISI');
-      setIsAnalysisEditorOpen(true);
-  };
-
+  const handleScrollToArticle = (id: string, fromId?: string) => { const targetArt = articles.find(a => a.id === id); if (!targetArt) return; if (fromId) setReturnPath(fromId); if (selectedCategoryCode !== targetArt.categoryCode) setSelectedCategoryCode(targetArt.categoryCode); setTimeout(() => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'center' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } }, 300); };
+  const handleReturnToArticle = () => { if (returnPath) { const id = returnPath; setReturnPath(null); handleScrollToArticle(id); } };
+  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newMeasId = Math.random().toString(36).substr(2, 9); const newAnalysis: PriceAnalysis = { id: Math.random().toString(36).substr(2, 9), code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }] }; const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode, code: nextAnalysisCode, description: 'Nuova voce da analizzare', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: newAnalysis.id, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0 }; setLastAddedMeasurementId(newMeasId); updateState([...articles, newArticle], categories, [...analyses, newAnalysis]); setEditingAnalysis(newAnalysis); setViewMode('ANALISI'); setIsAnalysisEditorOpen(true); };
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
-
-  const handleOpenRebarCalculator = (articleId: string) => {
-    setRebarTargetArticleId(articleId);
-    setShouldAutoReopenRebar(true);
-    setIsRebarModalOpen(true);
+  const handleOpenRebarCalculator = (articleId: string) => { setRebarTargetArticleId(articleId); setShouldAutoReopenRebar(true); setIsRebarModalOpen(true); };
+  const handleOpenPaintingCalculator = (articleId: string) => { setPaintingTargetArticleId(articleId); setShouldAutoReopenPainting(true); setIsPaintingModalOpen(true); };
+  const handleToggleVoiceAutomation = (articleId: string) => { if (voiceAutomationActiveId === articleId) setVoiceAutomationActiveId(null); else setVoiceAutomationActiveId(articleId); };
+  const handleToggleSmartRepeat = (articleId: string) => { if (smartRepeatActiveId === articleId) setSmartRepeatActiveId(null); else setSmartRepeatActiveId(articleId); };
+  
+  const handleAddRebarMeasurement = (rebarData: { diameter: number; weight: number; multiplier: number; length: number; description: string }) => { 
+    if (!rebarTargetArticleId) return; 
+    const newId = Math.random().toString(36).substr(2, 9); 
+    setLastAddedMeasurementId(newId); 
+    const updated = articles.map(art => { 
+      if (art.id !== rebarTargetArticleId) return art; 
+      const newM: Measurement = { id: newId, description: rebarData.description, type: 'positive', multiplier: rebarData.multiplier, length: rebarData.length, width: undefined, height: rebarData.weight }; 
+      return { ...art, measurements: [...art.measurements, newM] }; 
+    }); 
+    updateState(updated); 
+    setIsRebarModalOpen(false); 
+    if (shouldAutoReopenRebar) { 
+      if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current); 
+      rebarTimerRef.current = setTimeout(() => setIsRebarModalOpen(true), 5000); 
+    } 
   };
-
-  const handleOpenPaintingCalculator = (articleId: string) => {
-    setPaintingTargetArticleId(articleId);
-    setShouldAutoReopenPainting(true);
-    setIsPaintingModalOpen(true);
+  
+  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { 
+    if (paintingTargetArticleId) { 
+      const updated = articles.map(art => { 
+        if (art.id !== paintingTargetArticleId) return art; 
+        const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); 
+        return { ...art, measurements: [...art.measurements, ...newMeasures] }; 
+      }); 
+      updateState(updated); 
+      setIsPaintingModalOpen(false); 
+      if (shouldAutoReopenPainting) { 
+        if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current); 
+        paintingTimerRef.current = setTimeout(() => setIsPaintingModalOpen(true), 5000); 
+      } 
+    } 
   };
-
-  const handleToggleVoiceAutomation = (articleId: string) => {
-    if (voiceAutomationActiveId === articleId) {
-        setVoiceAutomationActiveId(null);
-    } else {
-        setVoiceAutomationActiveId(articleId);
-    }
-  };
-
-  const handleToggleSmartRepeat = (articleId: string) => {
-    if (smartRepeatActiveId === articleId) {
-        setSmartRepeatActiveId(null);
-    } else {
-        setSmartRepeatActiveId(articleId);
-    }
-  };
-
-  const handleAddRebarMeasurement = (rebarData: { diameter: number; weight: number; multiplier: number; length: number; description: string }) => {
-    if (!rebarTargetArticleId) return;
-    const newId = Math.random().toString(36).substr(2, 9);
-    setLastAddedMeasurementId(newId);
-    const updated = articles.map(art => {
-      if (art.id !== rebarTargetArticleId) return art;
-      const newM: Measurement = {
-        id: newId,
-        description: rebarData.description,
-        type: 'positive',
-        multiplier: rebarData.multiplier,
-        length: rebarData.length,
-        width: undefined,
-        height: rebarData.weight, 
-      };
-      return { ...art, measurements: [...art.measurements, newM] };
-    });
-    updateState(updated);
-    
-    setIsRebarModalOpen(false);
-    if (shouldAutoReopenRebar) {
-        if (rebarTimerRef.current) clearTimeout(rebarTimerRef.current);
-        rebarTimerRef.current = setTimeout(() => {
-            setIsRebarModalOpen(true);
-        }, 5000); 
-    }
-  };
-
-  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => {
-    if (paintingTargetArticleId) {
-        const updated = articles.map(art => {
-            if (art.id !== paintingTargetArticleId) return art;
-            const newMeasures = paintRows.map(row => ({
-                ...row,
-                id: Math.random().toString(36).substr(2, 9)
-            }));
-            return { ...art, measurements: [...art.measurements, ...newMeasures] };
-        });
-        updateState(updated);
-        
-        setIsPaintingModalOpen(false);
-        if (shouldAutoReopenPainting) {
-            if (paintingTimerRef.current) clearTimeout(paintingTimerRef.current);
-            paintingTimerRef.current = setTimeout(() => {
-                setIsPaintingModalOpen(true);
-            }, 5000);
-        }
-    }
-  };
-
+  
   const handleDropContent = (rawText: string) => { 
-      if (!canAddArticle()) return;
-      const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
-      const currentCat = categories.find(c => c.code === targetCatCode);
-      if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; }
-      if (!rawText) return; 
-      setIsProcessingDrop(true); 
-      setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) {
-        const newMeasId = Math.random().toString(36).substr(2, 9);
-        const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; 
-        setLastAddedMeasurementId(newMeasId); 
-        updateState([...articles, newArticle]); 
-      } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
+    if (!canAddArticle()) return; 
+    const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); 
+    const currentCat = categories.find(c => c.code === targetCatCode); 
+    if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; } 
+    if (!rawText) return; 
+    setIsProcessingDrop(true); 
+    setTimeout(() => { 
+      try { 
+        const parsed = parseDroppedContent(rawText); 
+        if (parsed) { 
+          const newMeasId = Math.random().toString(36).substr(2, 9); 
+          const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; 
+          setLastAddedMeasurementId(newMeasId); 
+          updateState([...articles, newArticle]); 
+        } 
+      } catch (e) { 
+        console.error(e); 
+      } finally { 
+        setIsProcessingDrop(false); 
+      } 
+    }, 100); 
   };
-
-  const handleWorkspaceDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const isExternalText = e.dataTransfer.types.includes('text/plain');
-    const isInternalMove = e.dataTransfer.types.includes('type') && (e.dataTransfer.getData('type') === 'ARTICLE' || e.dataTransfer.getData('type') === 'MEASUREMENT');
-    
-    if (isExternalText && !isInternalMove) {
-      if (selectedCategoryCode !== 'SUMMARY') {
-        setIsWorkspaceDragOver(true);
-      }
-    }
+  
+  const handleWorkspaceDragOver = (e: React.DragEvent) => { 
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE) || e.dataTransfer.types.includes(MIME_MEASUREMENT); 
+    const isExternalText = e.dataTransfer.types.includes('text/plain'); 
+    if (isExternalText && !isInternal) { 
+      if (selectedCategoryCode !== 'SUMMARY') { 
+        setIsWorkspaceDragOver(true); 
+        e.dataTransfer.dropEffect = 'copy'; 
+      } 
+    } 
   };
-
-  const handleWorkspaceDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsWorkspaceDragOver(false);
-    
-    const textData = e.dataTransfer.getData('text');
-    if (textData) {
-      handleDropContent(textData);
-    }
+  
+  const handleWorkspaceDrop = (e: React.DragEvent) => { 
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    setIsWorkspaceDragOver(false); 
+    const textData = e.dataTransfer.getData('text/plain'); 
+    const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE) || e.dataTransfer.types.includes(MIME_MEASUREMENT); 
+    if (textData && !isInternal) handleDropContent(textData); 
   };
-
-  const handleToolbarMouseDown = (e: React.MouseEvent) => {
-      setIsDraggingToolbar(true);
-      dragOffset.current = {
-          x: e.clientX - toolbarPos.x,
-          y: e.clientY - toolbarPos.y
-      };
+  
+  const handleToolbarMouseDown = (e: React.MouseEvent) => { 
+    setIsDraggingToolbar(true); 
+    dragOffset.current = { x: e.clientX - toolbarPos.x, y: e.clientY - toolbarPos.y }; 
   };
-
-  useEffect(() => {
-      const handleGlobalMouseMove = (e: MouseEvent) => {
-          if (isDraggingToolbar) {
-              const menuWidth = 450; 
-              const menuHeight = 60; 
-              
-              let nextX = e.clientX - dragOffset.current.x;
-              let nextY = e.clientY - dragOffset.current.y;
-              
-              nextX = Math.max(10, Math.min(nextX, window.innerWidth - menuWidth - 10));
-              nextY = Math.max(10, Math.min(nextY, window.innerHeight - menuHeight - 10));
-
-              setToolbarPos({ x: nextX, y: nextY });
-          }
-      };
-      const handleGlobalMouseUp = () => setIsDraggingToolbar(false);
-      if (isDraggingToolbar) {
-          window.addEventListener('mousemove', handleGlobalMouseMove);
-          window.addEventListener('mouseup', handleGlobalMouseUp);
-      }
-      return () => {
-          window.removeEventListener('mousemove', handleGlobalMouseMove);
-          window.removeEventListener('mouseup', handleGlobalMouseUp);
-      };
+  
+  useEffect(() => { 
+    const handleGlobalMouseMove = (e: MouseEvent) => { 
+      if (isDraggingToolbar) { 
+        const menuWidth = 450; 
+        const menuHeight = 60; 
+        let nextX = e.clientX - dragOffset.current.x; 
+        let nextY = e.clientY - dragOffset.current.y; 
+        nextX = Math.max(10, Math.min(nextX, window.innerWidth - menuWidth - 10)); 
+        nextY = Math.max(10, Math.min(nextY, window.innerHeight - menuHeight - 10)); 
+        setToolbarPos({ x: nextX, y: nextY }); 
+      } 
+    }; 
+    const handleGlobalMouseUp = () => setIsDraggingToolbar(false); 
+    if (isDraggingToolbar) { 
+      window.addEventListener('mousemove', handleGlobalMouseMove); 
+      window.addEventListener('mouseup', handleGlobalMouseUp); 
+    } 
+    return () => { 
+      window.removeEventListener('mousemove', handleGlobalMouseMove); 
+      window.removeEventListener('mouseup', handleGlobalMouseUp); 
+    }; 
   }, [isDraggingToolbar]);
-
-  const getFullProjectExportData = () => { return JSON.stringify({ gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); };
+  
+  const getFullProjectExportData = () => { 
+    return JSON.stringify({ gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); 
+  };
   
   const handleSmartSave = async (silent: boolean = false) => { 
     const jsonString = getFullProjectExportData(); 
     if ('showSaveFilePicker' in window) { 
-        try { 
-            let handle = currentFileHandle; 
-            if (!handle) { 
-                if (silent) return; 
-                handle = await (window as any).showSaveFilePicker({ suggestedName: `${projectInfo.title || 'Progetto'}.json`, types: [{ description: 'JSON Project File', accept: { 'application/json': ['.json'] }, }], }); 
-                setCurrentFileHandle(handle); 
-            } 
-            setIsAutoSaving(true); 
-            const writable = await handle.createWritable(); 
-            await writable.write(jsonString); 
-            await writable.close(); 
-            setLastSaved(new Date()); 
-        } catch (err: any) { 
-            if (err.name !== 'AbortError' && !silent) { 
-                setIsSaveModalOpen(true); 
-            } 
-        } finally { 
-            setTimeout(() => setIsAutoSaving(false), 800); 
+      try { 
+        let handle = currentFileHandle; 
+        if (!handle) { 
+          if (silent) return; 
+          handle = await (window as any).showSaveFilePicker({ suggestedName: `${projectInfo.title || 'Progetto'}.json`, types: [{ description: 'JSON Project File', accept: { 'application/json': ['.json'] }, }], }); 
+          setCurrentFileHandle(handle); 
         } 
+        setIsAutoSaving(true); 
+        const writable = await handle.createWritable(); 
+        await writable.write(jsonString); 
+        await writable.close(); 
+        setLastSaved(new Date()); 
+      } catch (err: any) { 
+        if (err.name !== 'AbortError' && !silent) { 
+          setIsSaveModalOpen(true); 
+        } 
+      } finally { 
+        setTimeout(() => setIsAutoSaving(false), 800); 
+      } 
     } else { 
-        if (!silent) setIsSaveModalOpen(true); 
+      if (!silent) setIsSaveModalOpen(true); 
     } 
   };
   
   useEffect(() => { 
     if (!currentFileHandle) return; 
-    const timeoutId = setTimeout(() => { 
-        handleSmartSave(true); 
-    }, 3000); 
+    const timeoutId = setTimeout(() => { handleSmartSave(true); }, 3000); 
     return () => clearTimeout(timeoutId); 
   }, [articles, categories, projectInfo, analyses, currentFileHandle]);
-
-  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (event) => { try { const content = event.target?.result as string; const data = JSON.parse(content); if (data.gecolaData) { setProjectInfo(data.gecolaData.projectInfo); updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); } else { alert("Formato non valido."); } setCurrentFileHandle(null); } catch (error) { alert("Errore caricamento."); } }; reader.readAsText(file); e.target.value = ''; };
-
+  
+  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => { 
+    const file = e.target.files?.[0]; 
+    if (!file) return; 
+    const reader = new FileReader(); 
+    reader.onload = (event) => { 
+      try { 
+        const content = event.target?.result as string; 
+        const data = JSON.parse(content); 
+        if (data.gecolaData) { 
+          setProjectInfo(data.gecolaData.projectInfo); 
+          updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); 
+        } else { 
+          alert("Formato non valido."); 
+        } 
+        setCurrentFileHandle(null); 
+      } catch (error) { 
+        alert("Errore caricamento."); 
+      } 
+    }; 
+    reader.readAsText(file); 
+    e.target.value = ''; 
+  };
+  
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => { 
     if (e.key === 'Enter') { 
-        const target = e.target as HTMLElement; 
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') { 
-            if (target.tagName === 'TEXTAREA' && e.shiftKey) return; 
-            
-            const inputs = Array.from(document.querySelectorAll('input:not([disabled]), textarea:not([disabled])')); 
-            const index = inputs.indexOf(target as HTMLInputElement | HTMLTextAreaElement); 
-            
-            const isLastMeasField = target.getAttribute('data-last-meas-field') === 'true';
-            
-            if (isLastMeasField) {
-                const articleRow = target.closest('tbody');
-                if (articleRow) {
-                    const articleId = articleRow.id.replace('article-', '');
-                    handleAddMeasurement(articleId);
-                    e.preventDefault();
-                    return;
-                }
-            }
-
-            if (index > -1 && index < inputs.length - 1) {
-                e.preventDefault();
-                (inputs[index + 1] as HTMLElement).focus(); 
-            }
+      const target = e.target as HTMLElement; 
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') { 
+        if (target.tagName === 'TEXTAREA' && e.shiftKey) return; 
+        const inputs = Array.from(document.querySelectorAll('input:not([disabled]), textarea:not([disabled])')); 
+        const index = inputs.indexOf(target as HTMLInputElement | HTMLTextAreaElement); 
+        const isLastMeasField = target.getAttribute('data-last-meas-field') === 'true'; 
+        if (isLastMeasField) { 
+          const articleRow = target.closest('tbody'); 
+          if (articleRow) { 
+            const articleId = articleRow.id.replace('article-', ''); 
+            handleAddMeasurement(articleId); 
+            e.preventDefault(); 
+            return; 
+          } 
         } 
+        if (index > -1 && index < inputs.length - 1) { 
+          e.preventDefault(); 
+          (inputs[index + 1] as HTMLElement).focus(); 
+        } 
+      } 
     } 
   };
 
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
-  const filteredAnalyses = useMemo(() => analyses.filter(a => 
-    a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || 
-    a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase())
-  ), [analyses, analysisSearchTerm]);
+  const filteredAnalyses = useMemo(() => analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase())), [analyses, analysisSearchTerm]);
+
+  const filteredCategories = useMemo(() => {
+    if (viewMode === 'SICUREZZA') return categories.filter(c => c.type === 'safety');
+    if (viewMode === 'COMPUTO') return categories.filter(c => c.type !== 'safety');
+    return categories; 
+  }, [categories, viewMode]);
+
+  const sidebarFooterTotal = useMemo(() => {
+    if (viewMode === 'SICUREZZA') return totals.totalSafetyProgettuale;
+    return totals.totalWorks;
+  }, [viewMode, totals]);
 
   return (
-    <div 
-        className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} 
-        onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-        onClick={stopAllAutomations} 
-    >
+    <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={stopAllAutomations}>
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
-      
       {authLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 text-white">
            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
@@ -1743,35 +1500,6 @@ const App: React.FC = () => {
         <Login onVisitorLogin={handleVisitorLogin} />
       ) : (
         <>
-          {showAutoLoginAd && (
-            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-slate-900/95 backdrop-blur-xl animate-in fade-in duration-500">
-               <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 flex flex-col h-[80vh]">
-                  <div className="bg-[#2c3e50] p-6 flex justify-between items-center text-white border-b border-slate-600">
-                      <div className="flex items-center gap-3">
-                          <Award className="w-6 h-6 text-orange-400" />
-                          <h3 className="font-black uppercase tracking-tighter text-xl">Sito del giorno consigliato</h3>
-                      </div>
-                      <button 
-                        onClick={() => setShowAutoLoginAd(false)}
-                        className="bg-white/10 hover:bg-orange-600 text-white px-6 py-2 rounded-full font-black uppercase text-xs transition-all shadow-lg active:scale-90"
-                      >
-                        Prosegui al Progetto
-                      </button>
-                  </div>
-                  <div className="flex-1 relative bg-slate-50">
-                      <iframe 
-                        src="https://www.mapei.com/it/it/home-page" 
-                        className="w-full h-full border-none"
-                        title="Banner Mapei Interstiziale"
-                      />
-                  </div>
-                  <div className="p-4 bg-slate-100 border-t border-slate-200 text-center">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Questo spazio pubblicitario sostiene lo sviluppo gratuito di GeCoLa Cloud</p>
-                  </div>
-               </div>
-            </div>
-          )}
-
           {!isFocusMode && (
             <div className="bg-[#2c3e50] shadow-md z-50 h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
                 <div className="flex items-center space-x-3 w-72">
@@ -1792,9 +1520,7 @@ const App: React.FC = () => {
                                 {isAutoSaving && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></span>}
                                 <span className="truncate max-w-[200px]">{projectInfo.title}</span>
                             </div>
-                            <div className="bg-slate-900 px-3 py-0.5 rounded-b-lg border-x border-b border-slate-700 text-[8px] font-black uppercase text-slate-500 tracking-tighter">
-                                Operatore: {typeof user === 'object' ? user?.email : 'Visitatore'}
-                            </div>
+                            <div className="bg-slate-900 px-3 py-0.5 rounded-b-lg border-x border-b border-slate-700 text-[8px] font-black uppercase text-slate-500 tracking-tighter">Operatore: {typeof user === 'object' ? user?.email : 'Visitatore'}</div>
                         </div>
                     )}
                     <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
@@ -1809,7 +1535,7 @@ const App: React.FC = () => {
                         <button onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400" title="Salva con nome / Esporta"><Save className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isSaveMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                                <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><FileJson className="w-4 h-4 text-blue-600" /><b>Salva in JSON (.json)</b></button>
+                                <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><Coins className="w-4 h-4 text-blue-600" /><b>Salva in JSON (.json)</b></button>
                                 <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Esporta in Excel (.xls)</b></button>
                                 <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 flex items-center gap-3"><Coins className="w-4 h-4 text-orange-600" /><b>Esporta Altri Formati</b></button>
                             </div>
@@ -1831,64 +1557,59 @@ const App: React.FC = () => {
                 </div>
             </div>
           )}
-          
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
-                <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
-                <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
-                    <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Computo</button>
-                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:bg-slate-100'}`}>Analisi</button>
+                <div className="w-[28rem] bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
+                <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-2">
+                    <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg ring-1 ring-blue-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-600'}`}>
+                      <HardHat className="w-3.5 h-3.5" /> Lavori
+                    </button>
+                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-orange-50 hover:text-orange-600'}`}>
+                      <ShieldAlert className="w-3.5 h-3.5" /> Sicurezza
+                    </button>
+                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-purple-50 hover:text-purple-600'}`}>
+                      <TestTubes className="w-3.5 h-3.5" /> Analisi
+                    </button>
                 </div>
-
-                <div className="flex-1 overflow-y-auto" onDrop={(e) => handleWbsDrop(e, null)}>
-                    {viewMode === 'COMPUTO' ? (
+                <div className={`flex-1 overflow-y-auto transition-colors duration-500 ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20' : 'bg-white'}`} onDrop={(e) => handleWbsDrop(e, null)}>
+                    {viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' ? (
                         <>
-                        <div className="p-3 bg-slate-100 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center tracking-widest">
-                            <span>Indice WBS</span>
-                            <PlusCircle className="w-4 h-4 text-blue-600 cursor-pointer hover:scale-110 transition-transform" onClick={handleAddCategory}/>
+                        <div className={`p-3 border-b text-[10px] font-bold uppercase flex justify-between items-center tracking-widest ${viewMode === 'SICUREZZA' ? 'bg-orange-100/50 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                            <span>Indice {viewMode === 'SICUREZZA' ? 'Sicurezza' : 'WBS'}</span>
+                            <PlusCircle className={`w-4 h-4 cursor-pointer hover:scale-110 transition-transform ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`} onClick={handleAddCategory}/>
                         </div>
-                        <ul className="py-2">
-                            {categories.map(cat => (
-                            <li 
-                                key={cat.code} 
-                                className={`relative border-b border-gray-100 transition-all mb-3 group/wbsitem ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} 
-                                onDragOver={(e) => handleWbsDragOver(e, cat.code)} 
-                                onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
-                                onDragLeave={handleWbsDragLeave}
-                                onDrop={(e) => handleWbsDrop(e, cat.code)}
-                            >
+                        <ul className="p-3 space-y-3">
+                            {filteredCategories.map(cat => (
+                            <li key={cat.code} className={`relative transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDragLeave={handleWbsDragLeave} onDrop={(e) => handleWbsDrop(e, cat.code)}>
                                 {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
                                 <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(cat.code)}>
-                                    <div className={`w-full text-left pl-3 pr-2 py-3 border-l-4 transition-all flex flex-col relative ${cat.isImported ? 'border-green-500 bg-green-50/20' : (selectedCategoryCode === 'SUMMARY' ? 'border-transparent' : (selectedCategoryCode === cat.code ? 'bg-blue-50 border-blue-500 shadow-sm' : 'border-transparent hover:bg-slate-50'))}`}>
-                                        <div className="flex items-center gap-2 mb-0.5">
-                                            <GripVertical className="w-3 h-3 text-slate-300 opacity-0 group-hover/wbsrow:opacity-100" />
-                                            <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded transition-all ${selectedCategoryCode === cat.code ? 'bg-blue-200 text-blue-800' : 'bg-slate-200 text-slate-600'}`}>
-                                                {cat.code}
-                                            </span>
-                                            {cat.isImported && <span className="text-[8px] font-black bg-green-600 text-white px-1 rounded uppercase tracking-tighter">Import</span>}
-                                            {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                    <div className={`w-full text-left rounded-xl border-2 transition-all flex flex-col relative overflow-hidden ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-50/50 border-orange-800 shadow-md scale-[1.02]' : 'bg-blue-50/50 border-blue-900 shadow-md scale-[1.02]') : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm'}`}>
+                                        <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-1 opacity-0 group-hover/wbsrow:opacity-100 transition-all duration-200 bg-white/95 border-r border-slate-200 z-[100] shadow-sm">
+                                            <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
+                                            <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
+                                            <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 rounded transition-colors" title="Duplica"><Copy className="w-3.5 h-3.5" /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 rounded transition-colors" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
+                                            <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded transition-colors" title="Elimina">{cat.isLocked ? <Trash2 className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                                         </div>
-                                        <div className="pl-5">
-                                            <span className="font-black block truncate pr-8 uppercase" style={{ fontSize: `${(projectInfo.fontSizeWbsSidebar || 14)}px` }}>{cat.name}</span>
-                                            <span className="text-[10px] font-mono text-slate-400 block mt-0.5">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
-                                        </div>
-
-                                        {/* I comandi appaiono TUTTI A DESTRA rispetto alla riga WBS */}
-                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center space-x-1 opacity-0 group-hover/wbsitem:opacity-100 transition-all z-20 bg-white/80 backdrop-blur-sm p-1 rounded-full border border-gray-100 shadow-lg">
-                                            <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-full" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
-                                            <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5 text-red-500" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                                            <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-full" title="Duplica WBS"><Copy className="w-3.5 h-3.5" /></button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-full" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
-                                            <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded-full" title="Elimina">{cat.isLocked ? <XCircle className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
+                                        
+                                        <div className="p-4 pl-10">
+                                            <div className="flex items-center gap-2 mb-1.5">
+                                                <span className={`text-[12px] font-black font-mono px-2 py-0.5 rounded-md shadow-sm transition-all ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-800 text-white' : 'bg-blue-900 text-white') : 'bg-slate-100 text-slate-500'}`}>{cat.code}</span>
+                                                {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                            </div>
+                                            <span className={`font-black block whitespace-normal uppercase leading-tight tracking-tight ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900') : 'text-slate-700'}`} style={{ fontSize: `16px` }}>{cat.name}</span>
+                                            <div className="mt-3 flex items-baseline gap-1 pt-2 border-t border-slate-100">
+                                                <span className={`font-mono font-black ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700') : 'text-slate-400'}`} style={{ fontSize: `20px` }}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </li>
                             ))}
                         </ul>
-                        <div className="mt-auto p-3 border-t border-gray-300 bg-slate-50 sticky bottom-0 z-20">
-                            <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-2.5 rounded text-xs font-black uppercase transition-colors ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-600 hover:bg-white border border-transparent hover:border-slate-200'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo Generale</button>
-                            <div className="mt-2 px-2 py-1.5 bg-slate-100/50 rounded-lg border border-slate-200/50 text-center animate-in fade-in duration-500"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Valore Totale Progetto</span><span className="text-sm font-mono font-black text-blue-700" style={{ fontSize: projectInfo.fontSizeTotals ? `${projectInfo.fontSizeTotals}px` : undefined }}>{formatCurrency(totals.totalWorks + totals.safetyCosts)}</span></div>
+                        <div className="mt-auto p-4 border-t border-gray-300 bg-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                            <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-3 rounded-xl text-xs font-black uppercase transition-all mb-3 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo Generale</button>
+                            <div className="px-3 py-2.5 bg-white rounded-xl border-2 border-indigo-100 text-center"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{viewMode === 'SICUREZZA' ? 'Totale Sicurezza PSC' : 'Totale Lavori Netto'}</span><span className="font-mono font-black text-indigo-700" style={{ fontSize: `22px` }}>{formatCurrency(sidebarFooterTotal)}</span></div>
                         </div>
                         </>
                     ) : (
@@ -1913,83 +1634,49 @@ const App: React.FC = () => {
                 </div>
                 </div>
             )}
-
             <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'px-10 py-4' : 'p-5 gap-4'} relative`}>
                {isFocusMode && (
-                 <>
-                  <div 
-                    style={{ left: toolbarPos.x, top: toolbarPos.y }}
-                    className="fixed z-[300] flex items-center gap-3 bg-slate-900/10 hover:bg-slate-900/90 backdrop-blur-sm hover:backdrop-blur-md border border-slate-700/30 hover:border-slate-600 p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in slide-in-from-top-4 duration-500 group select-none opacity-20 hover:opacity-100 transition-all"
-                  >
-                    <div 
-                        onMouseDown={handleToolbarMouseDown}
-                        className="p-2 cursor-move text-slate-500 hover:text-blue-400 transition-colors"
-                        title="Trascina per spostare"
-                    >
-                        <GripHorizontal className="w-5 h-5" />
-                    </div>
+                  <div style={{ left: toolbarPos.x, top: toolbarPos.y }} className="fixed z-[300] flex items-center gap-3 bg-slate-900/10 hover:bg-slate-900/90 backdrop-blur-sm hover:backdrop-blur-md border border-slate-700/30 hover:border-slate-600 p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in slide-in-from-top-4 duration-500 group select-none opacity-20 hover:opacity-100 transition-all">
+                    <div onMouseDown={handleToolbarMouseDown} className="p-2 cursor-move text-slate-500 hover:text-blue-400 transition-colors" title="Trascina per spostare"><GripHorizontal className="w-5 h-5" /></div>
                     <div className="flex items-center gap-4 pr-3 mr-1 ml-1">
                         <div className="flex flex-col">
-                            <span className="text-[12px] font-black text-white/90 uppercase tracking-tighter max-w-[250px] truncate leading-none mb-1">{activeCategory?.code} - {activeCategory?.name}</span>
-                            <span className="text-[14px] font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
+                            <span className="text-[12px] font-black text-white/90 uppercase tracking-tighter max-w-[250px] whitespace-normal leading-tight mb-1">{activeCategory?.code} - {activeCategory?.name}</span>
+                            <span className="text-xl font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
                         </div>
                         <div className="h-6 w-[1.5px] bg-slate-700"></div>
-                        <button 
-                            onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }}
-                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg transition-all active:scale-95"
-                        >
-                            <Plus className="w-4 h-4" /> Aggiungi Voce
-                        </button>
+                        <button onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }} className={`px-4 py-2 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg transition-all active:scale-95 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 hover:bg-orange-500' : 'bg-blue-600 hover:bg-blue-500'} text-white`}><Plus className="w-4 h-4" /> Aggiungi Voce</button>
                     </div>
-                    <button onClick={() => setIsFocusMode(false)} className="bg-slate-800 hover:bg-orange-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-90" title="Esci Schermo Intero">
-                        <Minimize2 className="w-4 h-4" />
-                    </button>
+                    <button onClick={() => setIsFocusMode(false)} className="bg-slate-800 hover:bg-orange-600 text-white p-2.5 rounded-xl shadow-lg transition-all active:scale-90" title="Esci Schermo Intero"><Minimize2 className="w-4 h-4" /></button>
                   </div>
-                 </>
                )}
-
                {returnPath && (
-                 <button 
-                    onClick={handleReturnToArticle}
-                    className="fixed bottom-12 right-12 z-[250] flex items-center gap-3 bg-blue-600/30 hover:bg-blue-600 backdrop-blur-lg border border-blue-500/40 text-blue-100 px-6 py-4 rounded-[2rem] shadow-2xl transition-all hover:scale-105 active:scale-95 group animate-in slide-in-from-bottom-8 duration-500"
-                 >
-                    <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-                    <div className="text-left">
-                        <span className="block text-[8px] font-black uppercase tracking-widest opacity-60">Navigazione Circolare</span>
-                        <span className="block text-xs font-black uppercase">Torna alla voce di lavoro</span>
-                    </div>
-                 </button>
+                 <button onClick={handleReturnToArticle} className="fixed bottom-12 right-12 z-[250] flex items-center gap-3 bg-blue-600/30 hover:bg-blue-600 backdrop-blur-lg border border-blue-500/40 text-blue-100 px-6 py-4 rounded-[2rem] shadow-2xl transition-all hover:scale-105 active:scale-95 group animate-in slide-in-from-bottom-8 duration-500"><ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" /><div className="text-left"><span className="block text-[8px] font-black uppercase tracking-widest opacity-60">Navigazione Circolare</span><span className="block text-xs font-black uppercase">Torna alla voce di lavoro</span></div></button>
                )}
-
-               {activeCategory && selectedCategoryCode !== 'SUMMARY' && viewMode === 'COMPUTO' && !isFocusMode && (
-                   <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-300 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30">
-                        <div className="flex items-center gap-3">
-                             <button onClick={() => setIsFocusMode(true)} className="p-2.5 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
-                             <div className="bg-slate-100 text-slate-800 px-3 py-2.5 rounded-lg border border-slate-200 font-black text-xl shadow-inner">{activeCategory.code}</div>
-                             <div><h2 className="text-lg font-black text-slate-800 uppercase max-w-[400px] truncate tracking-tight">{activeCategory.name}</h2><span className="text-[10px] font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div>
+               {activeCategory && selectedCategoryCode !== 'SUMMARY' && (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && !isFocusMode && (
+                   <div className={`flex items-center justify-between p-5 bg-white rounded-2xl border-2 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 transition-all ${viewMode === 'SICUREZZA' ? 'border-orange-700' : 'border-blue-900'}`}>
+                        <div className="flex items-center gap-5">
+                             <button onClick={() => setIsFocusMode(true)} className="p-3 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
+                             <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-800 text-white border-orange-900' : 'bg-blue-900 text-white border-blue-950'}`}>{activeCategory.code}</div>
+                             <div className="flex flex-col">
+                                <h2 className={`text-xl font-black uppercase max-w-[500px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-950'}`}>{activeCategory.name}</h2>
+                                <div className="mt-2 flex items-baseline gap-2">
+                                    <span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
+                                </div>
+                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-4">
                            <div className="flex flex-col">
                                 <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1"><Award className="w-2.5 h-2.5" /> Preimposta SOA</span>
                                 <select value={activeSoaCategory} onChange={(e) => setActiveSoaCategory(e.target.value)} className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors">{SOA_CATEGORIES.map(soa => (<option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>))}</select>
                            </div>
-                           <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-blue-700 transition-all flex items-center gap-2 text-xs h-[38px] mt-3"><Plus className="w-4 h-4" /> Aggiungi Voce</button>
+                           <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className={`px-6 py-3 rounded-xl font-black shadow-md transition-all flex items-center gap-2 text-xs mt-3 text-white transform active:scale-95 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}><Plus className="w-5 h-5" /> Aggiungi Voce</button>
                         </div>
                    </div>
                )}
-
-           <div 
-             className={`flex-1 overflow-y-auto overflow-x-hidden bg-white shadow-[0_35px_60px_-15px_rgba(0,0,0,0.4)] border-x border-gray-400 flex flex-col relative scroll-smooth group/rotolo transition-all duration-500 ${isFocusMode ? 'rounded-xl' : 'rounded-xl'}`} 
-             style={{ backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.015) 0%, transparent 4%, transparent 96%, rgba(0,0,0,0.015) 100%)', backgroundAttachment: 'local' }}
-             onKeyDown={handleInputKeyDown}
-             onDragOver={handleWorkspaceDragOver}
-             onDragLeave={() => setIsWorkspaceDragOver(false)}
-             onDrop={handleWorkspaceDrop}
-           >
+           <div className={`flex-1 overflow-y-auto overflow-x-hidden shadow-[0_35px_60px_-15px_rgba(0,0,0,0.4)] border-x border-gray-400 flex flex-col relative scroll-smooth group/rotolo transition-all duration-500 rounded-xl ${viewMode === 'SICUREZZA' ? 'bg-orange-50/10' : 'bg-white'}`} style={{ backgroundImage: 'linear-gradient(to right, rgba(0,0,0,0.015) 0%, transparent 4%, transparent 96%, rgba(0,0,0,0.015) 100%)', backgroundAttachment: 'local' }} onKeyDown={handleInputKeyDown} onDragOver={handleWorkspaceDragOver} onDragLeave={() => setIsWorkspaceDragOver(false)} onDrop={handleWorkspaceDrop}>
               <div className="sticky top-0 left-0 right-0 h-10 bg-gradient-to-b from-white/95 via-white/40 to-transparent z-[100] pointer-events-none transition-opacity"></div>
-              
               <div className="flex-1 flex flex-col min-h-full px-6">
-                {viewMode === 'COMPUTO' && (
+                {(viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && (
                     selectedCategoryCode === 'SUMMARY' ? (
                         <div className="p-12"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
                     ) : activeCategory ? (
@@ -1997,58 +1684,34 @@ const App: React.FC = () => {
                             <table className="w-full text-left border-collapse table-fixed relative">
                                 <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
                                 {activeArticles.length === 0 ? (
-                                    <tbody><tr><td colSpan={11} className="p-32 text-center">
-                                        <div className="flex flex-col items-center gap-6 max-w-lg mx-auto">
-                                            <div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div>
-                                            <p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p>
-                                        </div>
-                                    </td></tr></tbody>
+                                    <tbody><tr><td colSpan={11} className="p-32 text-center"><div className="flex flex-col items-center gap-6 max-w-lg mx-auto"><div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div><p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
                                         <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
                                     ))
                                 )}
+                                <tbody>
+                                    <tr className="border-none"><td colSpan={11} className="p-0 border-none"><div className={`min-h-[85vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}><div className={`flex flex-col items-center gap-6 p-12 rounded-[4rem] border-4 border-dashed transition-all duration-500 ${isWorkspaceDragOver ? 'border-blue-500 bg-white shadow-2xl scale-110' : 'border-slate-100 opacity-20'}`}><div className={`p-6 rounded-full transition-colors ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-50 text-slate-300'}`}>{isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <PlusCircle className="w-12 h-12" />}</div><div className="text-center"><span className={`block text-2xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>{isWorkspaceDragOver ? 'Rilascia per caricare' : 'Computo in divenire'}</span><span className={`text-xs font-bold uppercase tracking-widest mt-2 block ${isWorkspaceDragOver ? 'text-blue-500' : 'text-slate-300'}`}>Trascina le voci qui per continuare lo srotolamento</span></div></div></div></td></tr>
+                                </tbody>
                             </table>
                         </div>
                     ) : <div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona un capitolo</div>
                 )}
-                
                 {viewMode === 'ANALISI' && (
                     <div className="p-12 bg-slate-50 min-h-full">
-                        <div className="flex justify-between items-center mb-10">
-                            <h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestione Analisi Prezzi</h2>
-                            <button 
-                                onClick={handleAddNewAnalysis}
-                                className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-600/20 flex items-center gap-3 transition-all hover:scale-105 active:scale-95"
-                            >
-                                <Plus className="w-5 h-5" /> Nuova Analisi
-                            </button>
-                        </div>
+                        <div className="flex justify-between items-center mb-10"><h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestione Analisi Prezzi</h2><button onClick={handleAddNewAnalysis} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-600/20 flex items-center gap-3 transition-all hover:scale-105 active:scale-95"><Plus className="w-5 h-5" /> Nuova Analisi</button></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
                             {analyses.map(analysis => (
-                                <div key={analysis.id} className={`bg-white rounded-3xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}>
-                                    <div className="p-6 flex-1">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <div className="flex flex-col"><span className="bg-purple-600 text-white font-black font-mono text-[10px] px-3 py-1 rounded-full w-fit flex items-center gap-1.5 shadow-sm">{analysis.isLocked && <Lock className="w-3 h-3" />}{analysis.code}</span><span className="text-[10px] text-gray-400 font-bold mt-2 uppercase tracking-tighter">{analysis.unit}</span></div>
-                                            <div className="text-right"><div className="text-2xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mt-1 block">Prezzo Unitario</span></div>
-                                        </div>
-                                        <h4 className="font-bold text-gray-800 text-sm leading-snug line-clamp-3 mb-6 min-h-[3em]">{analysis.description}</h4>
-                                        <div className="space-y-2.5 border-t border-slate-100 pt-5"><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Materiali</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalMaterials)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Manodopera</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalLabor)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Noli/Attr.</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalEquipment)}</span></div></div>
-                                    </div>
-                                    <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center rounded-b-3xl">
-                                        <div className="flex items-center gap-1"><button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-2 rounded-xl transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-gray-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 text-gray-400 hover:text-red-600 bg-red-50 rounded-xl"><Trash2 className="w-4 h-4" /></button></div>
-                                        <button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-2 bg-white text-purple-700 font-black text-[10px] px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase tracking-widest">Usa <ArrowRight className="w-4 h-4" /></button>
-                                    </div>
-                                </div>
+                                <div key={analysis.id} className={`bg-white rounded-3xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}><div className="p-6 flex-1"><div className="flex justify-between items-start mb-4"><div className="flex flex-col"><span className="bg-purple-600 text-white font-black font-mono text-[10px] px-3 py-1 rounded-full w-fit flex items-center gap-1.5 shadow-sm">{analysis.isLocked && <Lock className="w-3 h-3" />}{analysis.code}</span><span className="text-[10px] text-gray-400 font-bold mt-2 uppercase tracking-tighter">{analysis.unit}</span></div><div className="text-right"><div className="text-2xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mt-1 block">Prezzo Unitario</span></div></div><h4 className="font-bold text-gray-800 text-sm leading-snug line-clamp-3 mb-6 min-h-[3em]">{analysis.description}</h4><div className="space-y-2.5 border-t border-slate-100 pt-5"><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Materiali</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalMaterials)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Manodopera</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalLabor)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Noli/Attr.</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalEquipment)}</span></div></div></div><div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center rounded-b-3xl"><div className="flex items-center gap-1"><button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-2 rounded-xl transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-gray-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 text-gray-400 hover:text-red-600 bg-red-50 rounded-xl"><Trash2 className="w-4 h-4" /></button></div><button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-2 bg-white text-purple-700 font-black text-[10px] px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase tracking-widest">Usa <ArrowRight className="w-4 h-4" /></button></div></div>
                             ))}
                         </div>
                     </div>
                 )}
               </div>
+              <div className="sticky bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white/95 via-white/30 to-transparent z-40 pointer-events-none transition-all"></div>
            </div>
         </div>
       </div>
-      
       <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
       {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
       {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
@@ -2065,5 +1728,4 @@ const App: React.FC = () => {
     </div>
   );
 };
-
 export default App;
