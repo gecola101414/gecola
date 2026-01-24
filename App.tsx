@@ -414,7 +414,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            e.preventDefault();
            return;
        }
-       e.dataTransfer.setData(MIME_MEASUREMENT, 'true');
        e.dataTransfer.setData('type', 'MEASUREMENT');
        e.dataTransfer.setData('index', index.toString());
        e.dataTransfer.effectAllowed = "move";
@@ -1057,7 +1056,7 @@ const App: React.FC = () => {
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newAnalysisId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
+          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }]
       };
       const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
       updateState(updatedArticles, categories, [...analyses, newAnalysis]);
@@ -1483,6 +1482,11 @@ const App: React.FC = () => {
     return categories; 
   }, [categories, viewMode]);
 
+  const sidebarFooterLabel = useMemo(() => {
+    if (viewMode === 'SICUREZZA') return 'Totale Sicurezza PSC';
+    return 'Totale Lavori Netto';
+  }, [viewMode]);
+
   const sidebarFooterTotal = useMemo(() => {
     if (viewMode === 'SICUREZZA') return totals.totalSafetyProgettuale;
     return totals.totalWorks;
@@ -1609,7 +1613,7 @@ const App: React.FC = () => {
                         </ul>
                         <div className="mt-auto p-4 border-t border-gray-300 bg-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
                             <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-3 rounded-xl text-xs font-black uppercase transition-all mb-3 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo Generale</button>
-                            <div className="px-3 py-2.5 bg-white rounded-xl border-2 border-indigo-100 text-center"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{viewMode === 'SICUREZZA' ? 'Totale Sicurezza PSC' : 'Totale Lavori Netto'}</span><span className="font-mono font-black text-indigo-700" style={{ fontSize: `22px` }}>{formatCurrency(sidebarFooterTotal)}</span></div>
+                            <div className="px-3 py-2.5 bg-white rounded-xl border-2 border-indigo-100 text-center"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{sidebarFooterLabel}</span><span className="font-mono font-black text-indigo-700" style={{ fontSize: `22px` }}>{formatCurrency(sidebarFooterTotal)}</span></div>
                         </div>
                         </>
                     ) : (
@@ -1680,19 +1684,49 @@ const App: React.FC = () => {
                     selectedCategoryCode === 'SUMMARY' ? (
                         <div className="p-12"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
                     ) : activeCategory ? (
-                        <div key={activeCategory.code} className="flex-1 flex flex-col">
-                            <table className="w-full text-left border-collapse table-fixed relative">
+                        <div key={activeCategory.code} className="flex-1 flex flex-col h-full">
+                            <table className="w-full text-left border-collapse table-fixed relative min-h-full">
                                 <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
                                 {activeArticles.length === 0 ? (
-                                    <tbody><tr><td colSpan={11} className="p-32 text-center"><div className="flex flex-col items-center gap-6 max-w-lg mx-auto"><div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div><p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p></div></td></tr></tbody>
+                                    <tbody className="flex-1">
+                                      <tr className="h-full">
+                                        <td colSpan={11} className="p-0 border-none h-full align-top">
+                                          <div 
+                                            className={`min-h-[70vh] w-full flex flex-col items-center justify-center border-2 border-dashed transition-all duration-500 rounded-3xl mt-10 ${isWorkspaceDragOver ? 'bg-blue-50 border-blue-600 scale-[1.02] shadow-2xl' : 'bg-white border-slate-200 opacity-60'}`}
+                                            onDragOver={(e) => { e.preventDefault(); setIsWorkspaceDragOver(true); }}
+                                            onDragLeave={() => setIsWorkspaceDragOver(false)}
+                                            onDrop={handleWorkspaceDrop}
+                                          >
+                                            <div className={`p-8 rounded-full mb-6 transition-all ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-bounce' : 'bg-slate-50 text-slate-300'}`}>
+                                              {isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <MousePointerClick className="w-16 h-16" />}
+                                            </div>
+                                            <div className="text-center px-10">
+                                              <span className={`block text-3xl font-black uppercase tracking-tighter mb-4 ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>
+                                                {isWorkspaceDragOver ? 'Rilascia per caricare rigo' : 'Nessuna voce presente'}
+                                              </span>
+                                              <p className={`text-sm font-medium leading-relaxed max-w-md mx-auto ${isWorkspaceDragOver ? 'text-blue-600' : 'text-slate-400'}`}>
+                                                Trascina qui un articolo da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline font-black">gecola.it</a> o incolla un testo per iniziare lo srotolamento.
+                                              </p>
+                                              {!isWorkspaceDragOver && (
+                                                <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="mt-8 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-lg transition-all active:scale-95 flex items-center gap-3 mx-auto">
+                                                  <Plus className="w-4 h-4" /> Inserisci manuale
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    </tbody>
                                 ) : (
-                                    activeArticles.map((article, artIndex) => (
-                                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
-                                    ))
+                                    <>
+                                      {activeArticles.map((article, artIndex) => (
+                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
+                                      ))}
+                                      <tbody>
+                                          <tr className="border-none"><td colSpan={11} className="p-0 border-none"><div className={`min-h-[50vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}><div className={`flex flex-col items-center gap-6 p-12 rounded-[4rem] border-4 border-dashed transition-all duration-500 ${isWorkspaceDragOver ? 'border-blue-500 bg-white shadow-2xl scale-110' : 'border-slate-100 opacity-20'}`}><div className={`p-6 rounded-full transition-colors ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-50 text-slate-300'}`}>{isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <PlusCircle className="w-12 h-12" />}</div><div className="text-center"><span className={`block text-2xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>{isWorkspaceDragOver ? 'Rilascia per caricare' : 'Computo in divenire'}</span><span className={`text-xs font-bold uppercase tracking-widest mt-2 block ${isWorkspaceDragOver ? 'text-blue-500' : 'text-slate-300'}`}>Trascina le voci qui per continuare lo srotolamento</span></div></div></div></td></tr>
+                                      </tbody>
+                                    </>
                                 )}
-                                <tbody>
-                                    <tr className="border-none"><td colSpan={11} className="p-0 border-none"><div className={`min-h-[85vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}><div className={`flex flex-col items-center gap-6 p-12 rounded-[4rem] border-4 border-dashed transition-all duration-500 ${isWorkspaceDragOver ? 'border-blue-500 bg-white shadow-2xl scale-110' : 'border-slate-100 opacity-20'}`}><div className={`p-6 rounded-full transition-colors ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-50 text-slate-300'}`}>{isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <PlusCircle className="w-12 h-12" />}</div><div className="text-center"><span className={`block text-2xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>{isWorkspaceDragOver ? 'Rilascia per caricare' : 'Computo in divenire'}</span><span className={`text-xs font-bold uppercase tracking-widest mt-2 block ${isWorkspaceDragOver ? 'text-blue-500' : 'text-slate-300'}`}>Trascina le voci qui per continuare lo srotolamento</span></div></div></div></td></tr>
-                                </tbody>
                             </table>
                         </div>
                     ) : <div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona un capitolo</div>
