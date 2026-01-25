@@ -95,11 +95,8 @@ const playUISound = (type: 'confirm' | 'move' | 'newline') => {
                 osc.start(audioCtx.currentTime + (i * 0.08));
                 osc.stop(audioCtx.currentTime + 0.5);
             });
-            masterGain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
         }
-    } catch (e) {
-        console.debug("Audio play failed", e);
-    }
+    } catch (e) {}
 };
 
 const calculateRowValue = (m: Measurement, linkedValue: number = 0): number => {
@@ -172,7 +169,7 @@ interface TableHeaderProps {
 const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn, tariffWidth }) => (
   <thead className="bg-[#f8f9fa] border-b-2 border-black text-[9px] uppercase font-black text-gray-800 sticky top-0 z-[70] shadow-md">
     <tr>
-      <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N.</th>
+      <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N..</th>
       <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '105px' }}>Tariffa</th>
       <th className={`py-2.5 px-1 text-left min-w-[200px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
@@ -246,6 +243,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const [activeAutomationRowId, setActiveAutomationRowId] = useState<string | null>(null);
    const [activeAutomationFieldIndex, setActiveAutomationFieldIndex] = useState(0); 
    const automationFields = ['description', 'multiplier', 'length', 'width', 'height'];
+
+   const isSafetyCategory = article.categoryCode.startsWith('S.');
 
    useEffect(() => {
      if (isVoiceActive && !activeAutomationRowId && article.measurements.length > 0) {
@@ -414,6 +413,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            e.preventDefault();
            return;
        }
+       e.dataTransfer.setData(MIME_MEASUREMENT, 'true');
        e.dataTransfer.setData('type', 'MEASUREMENT');
        e.dataTransfer.setData('index', index.toString());
        e.dataTransfer.effectAllowed = "move";
@@ -562,7 +562,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       if (recognitionRef.current) recognitionRef.current.stop(); 
    };
 
-   const mFontSize = projectSettings.fontSizeMeasurements || 12;
+   const mFontSize = (projectSettings.fontSizeMeasurements || 12) * 1.1; // +10% increment
+   const numFontSize = 13.5; // +10% approx
+   const descFontSize = 15.5; // +10% approx
 
    return (
       <tbody 
@@ -616,13 +618,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             </td>
             <td className="p-2 border-r border-gray-200 bg-white">
                {isPrintMode ? (
-                 <p className="text-sm text-gray-900 leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap">{article.description}</p>
+                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
                ) : (
                  <textarea 
                     readOnly
                     value={article.description}
                     rows={isArticleLocked ? 2 : 4}
-                    className={`w-full text-sm text-gray-900 font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'}`}
+                    className={`w-full font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`}
+                    style={{ fontSize: `${descFontSize}px` }}
                     placeholder="Descrizione..."
                     disabled={true}
                  />
@@ -691,7 +694,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 const isSubtotal = m.type === 'subtotal';
                 const isVoiceFocused = isVoiceActive && activeAutomationRowId === m.id;
                 return (
-                <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} onDragStart={(e) => handleMeasDragStart(e, idx)} onDragOver={(e) => handleMeasDragOver(e, m.id)} onDragLeave={() => setMeasurementDragOverId(null)} onDrop={(e) => handleMeasDrop(e, idx)} className={`group/row cursor-default transition-all ${m.type === 'deduction' ? 'text-red-600' : 'text-gray-800'} ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : 'bg-white')} ${isArticleLocked ? 'opacity-70' : ''}`} style={{ fontSize: `${mFontSize}px` }}>
+                <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} onDragStart={(e) => handleMeasDragStart(e, idx)} onDragOver={(e) => handleMeasDragOver(e, m.id)} onDragLeave={() => setMeasurementDragOverId(null)} onDrop={(e) => handleMeasDrop(e, idx)} className={`group/row cursor-default transition-all ${m.type === 'deduction' ? 'text-red-600' : 'text-gray-800'} ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : 'bg-white')} ${isArticleLocked ? 'opacity-70' : ''}`} style={{ fontSize: `${numFontSize}px` }}>
                     <td className="border-r border-gray-200"></td>
                     <td className="p-0 border-r border-gray-200 bg-gray-50/30 text-center relative align-middle">
                         {!isPrintMode && !areControlsDisabled && (
@@ -713,8 +716,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 {m.linkedArticleId && linkedArt ? (
                                 <div className="flex items-center space-x-2">
                                     <button onClick={() => onScrollToArticle(linkedArt.id, article.id)} className="flex items-center space-x-1 px-1 py-0.5 rounded hover:bg-blue-50 group/link transition-colors text-left">
-                                        <span className="text-blue-600 font-bold hover:underline cursor-pointer" style={{ fontSize: `${mFontSize - 1}px` }}>Vedi voce n. {getLinkedArticleNumber(linkedArt)}</span>
-                                        <span className="text-gray-500" style={{ fontSize: `${mFontSize - 2}px` }}>
+                                        <span className="text-blue-600 font-bold hover:underline cursor-pointer" style={{ fontSize: `${numFontSize - 1}px` }}>Vedi voce n. {getLinkedArticleNumber(linkedArt)}</span>
+                                        <span className="text-gray-500" style={{ fontSize: `${numFontSize - 2}px` }}>
                                             ({m.linkedType === 'amount' ? formatCurrency(linkedArt.quantity * linkedArt.unitPrice) : `${formatNumber(linkedArt.quantity)} ${linkedArt.unit}`})
                                         </span>
                                         <LinkIcon className="w-4 h-4 text-blue-400 opacity-0 group-hover/link:opacity-100 transition-opacity" />
@@ -730,7 +733,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                           onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} 
                                           onKeyDown={handleArrowNavigation}
                                           className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300 font-black' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id || (isVoiceFocused && activeAutomationFieldIndex === 0) ? 'recording-feedback bg-purple-50 ring-2 ring-purple-600' : ''}`} 
-                                          style={{ fontSize: `${mFontSize}px` }}
+                                          style={{ fontSize: `${numFontSize}px` }}
                                           placeholder={m.type === 'deduction' ? "A dedurre..." : "Descrizione misura..."} 
                                           disabled={areControlsDisabled}
                                           onMouseDown={() => handleLongPressStart(m.id)}
@@ -745,18 +748,18 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationFieldIndex === 1 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 'bg-gray-50'}`}>
-                        {!isPrintMode && !isSubtotal ? <input type="number" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); syncAutomationPoint(m.id, 'multiplier'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white placeholder-gray-300 disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 1 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${mFontSize}px` }} value={m.multiplier === undefined ? '' : m.multiplier} placeholder="1" onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : (m.multiplier && <div className="text-center">{m.multiplier}</div>)}
+                        {!isPrintMode && !isSubtotal ? <input type="number" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); syncAutomationPoint(m.id, 'multiplier'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white placeholder-gray-300 disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 1 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${numFontSize}px` }} value={m.multiplier === undefined ? '' : m.multiplier} placeholder="1" onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : (m.multiplier && <div className="text-center">{m.multiplier}</div>)}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationFieldIndex === 2 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 'bg-gray-50'}`}>
-                        {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('len'); syncAutomationPoint(m.id, 'length'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 2 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${mFontSize}px` }} value={m.length === undefined ? '' : m.length} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'length', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.length)}</div>)}
+                        {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('len'); syncAutomationPoint(m.id, 'length'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 2 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${numFontSize}px` }} value={m.length === undefined ? '' : m.length} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'length', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.length)}</div>)}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationFieldIndex === 3 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 'bg-gray-50'}`}>
-                        {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('wid'); syncAutomationPoint(m.id, 'width'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 3 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${mFontSize}px` }} value={m.width === undefined ? '' : m.width} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'width', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.width)}</div>)}
+                        {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('wid'); syncAutomationPoint(m.id, 'width'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 3 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${numFontSize}px` }} value={m.width === undefined ? '' : m.width} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'width', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.width)}</div>)}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 'bg-gray-50'}`}>
-                        {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" data-last-meas-field="true" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('h'); syncAutomationPoint(m.id, 'height'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${mFontSize}px` }} value={m.height === undefined ? '' : m.height} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.height)}</div>)}
+                        {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" data-last-meas-field="true" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('h'); syncAutomationPoint(m.id, 'height'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${numFontSize}px` }} value={m.height === undefined ? '' : m.height} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.height)}</div>)}
                     </td>
-                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white'} ${m.type === 'deduction' ? 'text-red-600 font-black' : (m.linkedArticleId ? 'text-blue-700 font-bold' : 'text-gray-600')}`} style={{ fontSize: `${mFontSize}px` }}>{formatNumber(m.displayValue)}</td>
+                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white'} ${m.type === 'deduction' ? 'text-red-600 font-black' : (m.linkedArticleId ? 'text-blue-700 font-bold' : 'text-gray-600')}`} style={{ fontSize: `${numFontSize}px` }}>{formatNumber(m.displayValue)}</td>
                     <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
                 </tr>
                 );})}
@@ -776,7 +779,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              <td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td><td className="border-r border-gray-300"></td>
              <td className="text-right pr-1 font-mono border-r border-gray-200 bg-gray-50 font-black">{formatNumber(article.quantity)}</td>
              <td className="border-l border-r border-gray-300 text-right pr-1 font-mono">{isPrintMode ? formatNumber(article.unitPrice) : <input readOnly type="number" value={article.unitPrice} className="w-full text-right bg-transparent border-none focus:ring-0 disabled:cursor-not-allowed cursor-default" disabled={true} />}</td>
-             <td className="border-r border-gray-300 text-right pr-1 font-mono text-blue-900 font-black">{formatNumber(totalAmount)}</td>
+             <td className="border-r border-gray-300 text-right pr-1 font-mono text-blue-900 font-black" style={{ fontSize: `${numFontSize}px` }}>{formatNumber(totalAmount)}</td>
              <td className="border-r border-gray-200 text-right pr-1 font-mono text-gray-500 font-normal">
                  <div className="flex flex-col items-end leading-none py-1"><span>{formatCurrency(laborValue)}</span><span className="text-[9px] text-gray-400">({article.laborRate}%)</span></div>
              </td>
@@ -1056,7 +1059,7 @@ const App: React.FC = () => {
       const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
       const newAnalysisId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo (da dettagliare)', unit: 'cad', unitPrice: 0, quantity: 1 }]
+          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Materiale/Lavorazione a corpo (Prezzo Base)', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
       };
       const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
       updateState(updatedArticles, categories, [...analyses, newAnalysis]);
@@ -1482,16 +1485,6 @@ const App: React.FC = () => {
     return categories; 
   }, [categories, viewMode]);
 
-  const sidebarFooterLabel = useMemo(() => {
-    if (viewMode === 'SICUREZZA') return 'Totale Sicurezza PSC';
-    return 'Totale Lavori Netto';
-  }, [viewMode]);
-
-  const sidebarFooterTotal = useMemo(() => {
-    if (viewMode === 'SICUREZZA') return totals.totalSafetyProgettuale;
-    return totals.totalWorks;
-  }, [viewMode, totals]);
-
   return (
     <div className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={stopAllAutomations}>
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
@@ -1563,31 +1556,31 @@ const App: React.FC = () => {
           )}
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
-                <div className="w-[28rem] bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
-                <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-2">
-                    <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg ring-1 ring-blue-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-600'}`}>
+                <div className="w-[17rem] bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
+                <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
+                    <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg ring-1 ring-blue-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-600'}`}>
                       <HardHat className="w-3.5 h-3.5" /> Lavori
                     </button>
-                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-orange-50 hover:text-orange-600'}`}>
+                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-orange-50 hover:text-orange-600'}`}>
                       <ShieldAlert className="w-3.5 h-3.5" /> Sicurezza
                     </button>
-                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1.5 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-purple-50 hover:text-purple-600'}`}>
+                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-purple-50 hover:text-purple-600'}`}>
                       <TestTubes className="w-3.5 h-3.5" /> Analisi
                     </button>
                 </div>
                 <div className={`flex-1 overflow-y-auto transition-colors duration-500 ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20' : 'bg-white'}`} onDrop={(e) => handleWbsDrop(e, null)}>
                     {viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' ? (
                         <>
-                        <div className={`p-3 border-b text-[10px] font-bold uppercase flex justify-between items-center tracking-widest ${viewMode === 'SICUREZZA' ? 'bg-orange-100/50 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                        <div className={`p-3 border-b text-[9px] font-bold uppercase flex justify-between items-center tracking-widest ${viewMode === 'SICUREZZA' ? 'bg-orange-100/50 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
                             <span>Indice {viewMode === 'SICUREZZA' ? 'Sicurezza' : 'WBS'}</span>
                             <PlusCircle className={`w-4 h-4 cursor-pointer hover:scale-110 transition-transform ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`} onClick={handleAddCategory}/>
                         </div>
-                        <ul className="p-3 space-y-3">
+                        <ul className="p-2 space-y-2">
                             {filteredCategories.map(cat => (
                             <li key={cat.code} className={`relative transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDragLeave={handleWbsDragLeave} onDrop={(e) => handleWbsDrop(e, cat.code)}>
                                 {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
                                 <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(cat.code)}>
-                                    <div className={`w-full text-left rounded-xl border-2 transition-all flex flex-col relative overflow-hidden ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-50/50 border-orange-800 shadow-md scale-[1.02]' : 'bg-blue-50/50 border-blue-900 shadow-md scale-[1.02]') : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm'}`}>
+                                    <div className={`w-full text-left rounded-xl border-2 transition-all flex flex-col relative overflow-hidden min-h-[120px] ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-50 border-orange-600 shadow-md scale-[1.02]' : 'bg-blue-50 border-blue-700 shadow-md scale-[1.02]') : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm'}`}>
                                         <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-1 opacity-0 group-hover/wbsrow:opacity-100 transition-all duration-200 bg-white/95 border-r border-slate-200 z-[100] shadow-sm">
                                             <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
                                             <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
@@ -1596,14 +1589,16 @@ const App: React.FC = () => {
                                             <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded transition-colors" title="Elimina">{cat.isLocked ? <Trash2 className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                                         </div>
                                         
-                                        <div className="p-4 pl-10">
-                                            <div className="flex items-center gap-2 mb-1.5">
-                                                <span className={`text-[12px] font-black font-mono px-2 py-0.5 rounded-md shadow-sm transition-all ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-800 text-white' : 'bg-blue-900 text-white') : 'bg-slate-100 text-slate-500'}`}>{cat.code}</span>
-                                                {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                        <div className="p-3 pl-10 h-full flex flex-col justify-between">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className={`text-[10px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm transition-all ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white' : 'bg-blue-700 text-white') : 'bg-slate-100 text-slate-500'}`}>{cat.code}</span>
+                                                    {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                                </div>
+                                                <span className={`font-black block whitespace-normal uppercase leading-tight tracking-tight text-[11px] ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900') : 'text-slate-700'}`}>{cat.name}</span>
                                             </div>
-                                            <span className={`font-black block whitespace-normal uppercase leading-tight tracking-tight ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900') : 'text-slate-700'}`} style={{ fontSize: `16px` }}>{cat.name}</span>
-                                            <div className="mt-3 flex items-baseline gap-1 pt-2 border-t border-slate-100">
-                                                <span className={`font-mono font-black ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700') : 'text-slate-400'}`} style={{ fontSize: `20px` }}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+                                            <div className="mt-auto pt-2">
+                                                <span className={`font-mono font-black text-base ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700') : 'text-slate-400'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1611,16 +1606,16 @@ const App: React.FC = () => {
                             </li>
                             ))}
                         </ul>
-                        <div className="mt-auto p-4 border-t border-gray-300 bg-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-                            <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-3 rounded-xl text-xs font-black uppercase transition-all mb-3 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo Generale</button>
-                            <div className="px-3 py-2.5 bg-white rounded-xl border-2 border-indigo-100 text-center"><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{sidebarFooterLabel}</span><span className="font-mono font-black text-indigo-700" style={{ fontSize: `22px` }}>{formatCurrency(sidebarFooterTotal)}</span></div>
+                        <div className="mt-auto p-3 border-t border-gray-300 bg-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                            <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-2.5 rounded-xl text-[9px] font-black uppercase transition-all mb-2 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm'}`}><Layers className="w-3.5 h-3.5 mr-1.5" /> Riepilogo</button>
+                            <div className="px-2 py-2 bg-white rounded-xl border border-indigo-100 text-center"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Valore Netto</span><span className="font-mono font-black text-indigo-700 text-lg">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span></div>
                         </div>
                         </>
                     ) : (
                         <div className="p-2 space-y-2">
                             <div className="p-1 bg-white border-b border-gray-200"><input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" /></div>
                             {filteredAnalyses.map(analysis => (
-                                <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 bg-gray-50/50' : 'border-gray-200 hover:border-purple-300'}`}>
+                                <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}>
                                     <div className="flex justify-between mb-1"><span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">{analysis.isLocked && <Lock className="w-2.5 h-2.5" />}{analysis.code}</span><span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span></div>
                                     <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
                                     <div className="flex justify-between items-center mt-2 border-t pt-2">
@@ -1645,7 +1640,7 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-4 pr-3 mr-1 ml-1">
                         <div className="flex flex-col">
                             <span className="text-[12px] font-black text-white/90 uppercase tracking-tighter max-w-[250px] whitespace-normal leading-tight mb-1">{activeCategory?.code} - {activeCategory?.name}</span>
-                            <span className="text-xl font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
+                            <span className="text-lg font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
                         </div>
                         <div className="h-6 w-[1.5px] bg-slate-700"></div>
                         <button onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }} className={`px-4 py-2 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg transition-all active:scale-95 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 hover:bg-orange-500' : 'bg-blue-600 hover:bg-blue-500'} text-white`}><Plus className="w-4 h-4" /> Aggiungi Voce</button>
@@ -1657,23 +1652,25 @@ const App: React.FC = () => {
                  <button onClick={handleReturnToArticle} className="fixed bottom-12 right-12 z-[250] flex items-center gap-3 bg-blue-600/30 hover:bg-blue-600 backdrop-blur-lg border border-blue-500/40 text-blue-100 px-6 py-4 rounded-[2rem] shadow-2xl transition-all hover:scale-105 active:scale-95 group animate-in slide-in-from-bottom-8 duration-500"><ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" /><div className="text-left"><span className="block text-[8px] font-black uppercase tracking-widest opacity-60">Navigazione Circolare</span><span className="block text-xs font-black uppercase">Torna alla voce di lavoro</span></div></button>
                )}
                {activeCategory && selectedCategoryCode !== 'SUMMARY' && (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && !isFocusMode && (
-                   <div className={`flex items-center justify-between p-5 bg-white rounded-2xl border-2 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 transition-all ${viewMode === 'SICUREZZA' ? 'border-orange-700' : 'border-blue-900'}`}>
+                   <div className={`flex items-center justify-between p-5 bg-white rounded-2xl border-2 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 transition-all ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
                         <div className="flex items-center gap-5">
                              <button onClick={() => setIsFocusMode(true)} className="p-3 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
-                             <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-800 text-white border-orange-900' : 'bg-blue-900 text-white border-blue-950'}`}>{activeCategory.code}</div>
+                             <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white border-orange-700' : 'bg-blue-700 text-white border-blue-800'}`}>{activeCategory.code}</div>
                              <div className="flex flex-col">
-                                <h2 className={`text-xl font-black uppercase max-w-[500px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-950'}`}>{activeCategory.name}</h2>
+                                <h2 className={`text-xl font-black uppercase max-w-[500px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900'}`}>{activeCategory.name}</h2>
                                 <div className="mt-2 flex items-baseline gap-2">
-                                    <span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
+                                    <span className={`text-2xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
                                 </div>
                              </div>
                         </div>
                         <div className="flex items-center gap-4">
-                           <div className="flex flex-col">
-                                <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1"><Award className="w-2.5 h-2.5" /> Preimposta SOA</span>
-                                <select value={activeSoaCategory} onChange={(e) => setActiveSoaCategory(e.target.value)} className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors">{SOA_CATEGORIES.map(soa => (<option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>))}</select>
+                           <div className="flex items-center gap-4">
+                                <div className="flex flex-col">
+                                    <span className="text-[8px] font-black text-purple-600 uppercase mb-0.5 ml-1 flex items-center gap-1"><Award className="w-2.5 h-2.5" /> Preimposta SOA</span>
+                                    <select value={activeSoaCategory} onChange={(e) => setActiveSoaCategory(e.target.value)} className="bg-purple-50 border border-purple-200 text-purple-900 text-xs font-bold rounded-lg px-2 py-2 min-w-[200px] shadow-sm hover:border-purple-300 transition-colors">{SOA_CATEGORIES.map(soa => (<option key={soa.code} value={soa.code}>{soa.code} - {soa.desc}</option>))}</select>
+                                </div>
+                                <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className={`px-6 py-3 rounded-xl font-black shadow-md transition-all flex items-center gap-2 text-xs mt-3 text-white transform active:scale-95 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-700 hover:bg-blue-800'}`}><Plus className="w-5 h-5" /> Aggiungi Voce</button>
                            </div>
-                           <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className={`px-6 py-3 rounded-xl font-black shadow-md transition-all flex items-center gap-2 text-xs mt-3 text-white transform active:scale-95 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-blue-600 hover:bg-blue-700'}`}><Plus className="w-5 h-5" /> Aggiungi Voce</button>
                         </div>
                    </div>
                )}
@@ -1684,49 +1681,19 @@ const App: React.FC = () => {
                     selectedCategoryCode === 'SUMMARY' ? (
                         <div className="p-12"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
                     ) : activeCategory ? (
-                        <div key={activeCategory.code} className="flex-1 flex flex-col h-full">
-                            <table className="w-full text-left border-collapse table-fixed relative min-h-full">
+                        <div key={activeCategory.code} className="flex-1 flex flex-col">
+                            <table className="w-full text-left border-collapse table-fixed relative">
                                 <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
                                 {activeArticles.length === 0 ? (
-                                    <tbody className="flex-1">
-                                      <tr className="h-full">
-                                        <td colSpan={11} className="p-0 border-none h-full align-top">
-                                          <div 
-                                            className={`min-h-[70vh] w-full flex flex-col items-center justify-center border-2 border-dashed transition-all duration-500 rounded-3xl mt-10 ${isWorkspaceDragOver ? 'bg-blue-50 border-blue-600 scale-[1.02] shadow-2xl' : 'bg-white border-slate-200 opacity-60'}`}
-                                            onDragOver={(e) => { e.preventDefault(); setIsWorkspaceDragOver(true); }}
-                                            onDragLeave={() => setIsWorkspaceDragOver(false)}
-                                            onDrop={handleWorkspaceDrop}
-                                          >
-                                            <div className={`p-8 rounded-full mb-6 transition-all ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-bounce' : 'bg-slate-50 text-slate-300'}`}>
-                                              {isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <MousePointerClick className="w-16 h-16" />}
-                                            </div>
-                                            <div className="text-center px-10">
-                                              <span className={`block text-3xl font-black uppercase tracking-tighter mb-4 ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>
-                                                {isWorkspaceDragOver ? 'Rilascia per caricare rigo' : 'Nessuna voce presente'}
-                                              </span>
-                                              <p className={`text-sm font-medium leading-relaxed max-w-md mx-auto ${isWorkspaceDragOver ? 'text-blue-600' : 'text-slate-400'}`}>
-                                                Trascina qui un articolo da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline font-black">gecola.it</a> o incolla un testo per iniziare lo srotolamento.
-                                              </p>
-                                              {!isWorkspaceDragOver && (
-                                                <button onClick={() => { setActiveCategoryForAi(activeCategory.code); setIsImportAnalysisModalOpen(true); }} className="mt-8 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-lg transition-all active:scale-95 flex items-center gap-3 mx-auto">
-                                                  <Plus className="w-4 h-4" /> Inserisci manuale
-                                                </button>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    </tbody>
+                                    <tbody><tr><td colSpan={11} className="p-32 text-center"><div className="flex flex-col items-center gap-6 max-w-lg mx-auto"><div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div><p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p></div></td></tr></tbody>
                                 ) : (
-                                    <>
-                                      {activeArticles.map((article, artIndex) => (
-                                          <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
-                                      ))}
-                                      <tbody>
-                                          <tr className="border-none"><td colSpan={11} className="p-0 border-none"><div className={`min-h-[50vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}><div className={`flex flex-col items-center gap-6 p-12 rounded-[4rem] border-4 border-dashed transition-all duration-500 ${isWorkspaceDragOver ? 'border-blue-500 bg-white shadow-2xl scale-110' : 'border-slate-100 opacity-20'}`}><div className={`p-6 rounded-full transition-colors ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-50 text-slate-300'}`}>{isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <PlusCircle className="w-12 h-12" />}</div><div className="text-center"><span className={`block text-2xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>{isWorkspaceDragOver ? 'Rilascia per caricare' : 'Computo in divenire'}</span><span className={`text-xs font-bold uppercase tracking-widest mt-2 block ${isWorkspaceDragOver ? 'text-blue-500' : 'text-slate-300'}`}>Trascina le voci qui per continuare lo srotolamento</span></div></div></div></td></tr>
-                                      </tbody>
-                                    </>
+                                    activeArticles.map((article, artIndex) => (
+                                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
+                                    ))
                                 )}
+                                <tbody>
+                                    <tr className="border-none"><td colSpan={11} className="p-0 border-none"><div className={`min-h-[85vh] w-full flex flex-col items-center justify-start pt-24 border-t-4 border-dashed border-slate-100 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/70 border-blue-400 scale-[0.99]' : 'bg-white'}`}><div className={`flex flex-col items-center gap-6 p-12 rounded-[4rem] border-4 border-dashed transition-all duration-500 ${isWorkspaceDragOver ? 'border-blue-500 bg-white shadow-2xl scale-110' : 'border-slate-100 opacity-20'}`}><div className={`p-6 rounded-full transition-colors ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-slate-50 text-slate-300'}`}>{isWorkspaceDragOver ? <ArrowRightLeft className="w-16 h-16" /> : <PlusCircle className="w-12 h-12" />}</div><div className="text-center"><span className={`block text-2xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>{isWorkspaceDragOver ? 'Rilascia per caricare' : 'Computo in divenire'}</span><span className={`text-xs font-bold uppercase tracking-widest mt-2 block ${isWorkspaceDragOver ? 'text-blue-500' : 'text-slate-300'}`}>Trascina le voci qui per continuare lo srotolamento</span></div></div></div></td></tr>
+                                </tbody>
                             </table>
                         </div>
                     ) : <div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona un capitolo</div>
@@ -1736,7 +1703,7 @@ const App: React.FC = () => {
                         <div className="flex justify-between items-center mb-10"><h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Gestione Analisi Prezzi</h2><button onClick={handleAddNewAnalysis} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-600/20 flex items-center gap-3 transition-all hover:scale-105 active:scale-95"><Plus className="w-5 h-5" /> Nuova Analisi</button></div>
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
                             {analyses.map(analysis => (
-                                <div key={analysis.id} className={`bg-white rounded-3xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}><div className="p-6 flex-1"><div className="flex justify-between items-start mb-4"><div className="flex flex-col"><span className="bg-purple-600 text-white font-black font-mono text-[10px] px-3 py-1 rounded-full w-fit flex items-center gap-1.5 shadow-sm">{analysis.isLocked && <Lock className="w-3 h-3" />}{analysis.code}</span><span className="text-[10px] text-gray-400 font-bold mt-2 uppercase tracking-tighter">{analysis.unit}</span></div><div className="text-right"><div className="text-2xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mt-1 block">Prezzo Unitario</span></div></div><h4 className="font-bold text-gray-800 text-sm leading-snug line-clamp-3 mb-6 min-h-[3em]">{analysis.description}</h4><div className="space-y-2.5 border-t border-slate-100 pt-5"><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Materiali</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalMaterials)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Manodopera</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalLabor)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Noli/Attr.</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalEquipment)}</span></div></div></div><div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center rounded-b-3xl"><div className="flex items-center gap-1"><button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-2 rounded-xl transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-gray-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 text-gray-400 hover:text-red-600 bg-red-50 rounded-xl"><Trash2 className="w-4 h-4" /></button></div><button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-2 bg-white text-purple-700 font-black text-[10px] px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase tracking-widest">Usa <ArrowRight className="w-4 h-4" /></button></div></div>
+                                <div key={analysis.id} className={`bg-white rounded-3xl shadow-md border-2 transition-all flex flex-col group ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}><div className="p-6 flex-1"><div className="flex justify-between items-start mb-4"><div className="flex flex-col"><span className="bg-purple-600 text-white font-black font-mono text-[10px] px-3 py-1 rounded-full w-fit flex items-center gap-1.5 shadow-sm">{analysis.isLocked && <Lock className="w-3 h-3" />}{analysis.code}</span><span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{analysis.unit}</span></div><div className="text-right"><div className="text-2xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div><span className="text-[9px] text-gray-400 uppercase font-bold tracking-widest mt-1 block">Prezzo Unitario</span></div></div><h4 className="font-bold text-gray-800 text-sm leading-snug line-clamp-3 mb-6 min-h-[3em]">{analysis.description}</h4><div className="space-y-2.5 border-t border-slate-100 pt-5"><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Materiali</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalMaterials)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Manodopera</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalLabor)}</span></div><div className="flex justify-between text-[10px]"><span className="text-gray-400 font-bold uppercase tracking-widest">Noli/Attr.</span><span className="font-mono text-gray-700 font-bold">{formatCurrency(analysis.totalEquipment)}</span></div></div></div><div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center rounded-b-3xl"><div className="flex items-center gap-1"><button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-2 rounded-xl transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`} title={analysis.isLocked ? "Sblocca" : "Blocca"}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-gray-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 text-gray-400 hover:text-red-600 bg-red-50 rounded-xl"><Trash2 className="w-4 h-4" /></button></div><button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-2 bg-white text-purple-700 font-black text-[10px] px-4 py-2 rounded-xl border border-purple-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase tracking-widest">Usa <ArrowRight className="w-4 h-4" /></button></div></div>
                             ))}
                         </div>
                     </div>

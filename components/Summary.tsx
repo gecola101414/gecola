@@ -1,4 +1,3 @@
-
 import React, { useMemo } from 'react';
 import { Totals, ProjectInfo, Category, Article } from '../types';
 import { SOA_CATEGORIES } from '../constants';
@@ -14,10 +13,6 @@ interface SummaryProps {
 const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles }) => {
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
-  };
-
-  const formatPercent = (val: number) => {
-      return new Intl.NumberFormat('it-IT', { style: 'percent', minimumFractionDigits: 2 }).format(val);
   };
 
   const wbsBreakdown = useMemo(() => {
@@ -37,7 +32,6 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
       articles.forEach(art => {
           const cat = categories.find(c => c.code === art.categoryCode);
           if (cat && cat.isEnabled === false) return;
-          
           const amount = art.quantity * art.unitPrice;
           if (art.soaCategory) soaMap[art.soaCategory] = (soaMap[art.soaCategory] || 0) + amount;
           else untaggedTotal += amount;
@@ -76,17 +70,14 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-              <div className="p-3 bg-slate-50 border-b font-bold text-blue-800 flex items-center gap-2"><Layers className="w-4 h-4" /> Riepilogo WBS</div>
+              <div className="p-3 bg-slate-50 border-b font-bold text-blue-800 flex items-center gap-2"><Layers className="w-4 h-4" /> Riepilogo WBS (Lavori netti)</div>
               <table className="w-full text-sm">
-                  <thead className="bg-gray-50"><tr><th className="p-3 text-left">Codice</th><th className="p-3 text-left">Capitolo</th><th className="p-3 text-right">Importo</th></tr></thead>
+                  <thead className="bg-gray-50"><tr><th className="p-3 text-left">Codice</th><th className="p-3 text-left">Capitolo</th><th className="p-3 text-right">Importo Netto</th></tr></thead>
                   <tbody>
                       {wbsBreakdown.map(cat => (
                           <tr key={cat.code} className={`border-t ${cat.type === 'safety' ? 'bg-orange-50/30' : ''}`}>
                               <td className="p-3 font-mono text-xs">{cat.code}</td>
-                              <td className={`p-3 flex items-center gap-2 ${cat.type === 'safety' ? 'text-orange-900' : 'text-blue-900'} font-medium`}>
-                                {cat.name}
-                                {cat.type === 'safety' && <ShieldAlert className="w-3.5 h-3.5 text-orange-500" />}
-                              </td>
+                              <td className={`p-3 flex items-center gap-2 ${cat.type === 'safety' ? 'text-orange-900' : 'text-blue-900'} font-medium`}>{cat.name} {cat.type === 'safety' && <ShieldAlert className="w-3.5 h-3.5 text-orange-500" />}</td>
                               <td className="p-3 text-right font-bold text-base">{formatCurrency(cat.total)}</td>
                           </tr>
                       ))}
@@ -113,14 +104,10 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
 
       <div className="bg-white p-8 shadow-lg rounded-xl border border-blue-100 mt-8 flex flex-col items-end">
           <div className="w-full max-w-md space-y-3">
-              <div className="flex justify-between text-gray-600"><span>Totale Lavori (A)</span><span className="font-mono">{formatCurrency(totals.totalWorks)}</span></div>
-              <div className="flex justify-between text-gray-600"><span>Oneri Sicurezza PSC (Analitici) (B)</span><span className="font-mono text-orange-600 font-bold">{formatCurrency(totals.totalSafetyProgettuale)}</span></div>
-              <div className="flex justify-between text-gray-400 text-xs italic"><span>Quota Sicurezza su Lavori ({info.safetyRate}%) (C)</span><span className="font-mono">{formatCurrency(totals.safetyCosts)}</span></div>
-              <div className="pt-4 flex justify-between items-center border-t-2 border-blue-600 text-blue-900 font-black text-2xl">
-                  <span>TOTALE (A+B+C)</span>
-                  <span className="font-mono">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale + totals.safetyCosts)}</span>
+              <div className="flex justify-between text-gray-600 font-bold"><span>Totale Opere (Solo Lavori)</span><span className="font-mono text-blue-700 text-xl">{formatCurrency(totals.totalWorks)}</span></div>
+              <div className="pt-4 flex flex-col items-end border-t border-slate-100">
+                  <p className="text-[10px] text-gray-400 text-right uppercase tracking-tighter italic">La quota sicurezza di cantiere (analitica o percentuale) verrà esposta separatamente nel Quadro Economico finale.</p>
               </div>
-              <p className="text-[10px] text-gray-400 text-right mt-2 uppercase tracking-tighter">* Importi netti esclusi di IVA di legge</p>
           </div>
       </div>
 
@@ -133,5 +120,4 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
     </div>
   );
 };
-
 export default Summary;
