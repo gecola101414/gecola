@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Trash2, Calculator, FolderOpen, XCircle, ArrowRight, Settings, 
@@ -6,7 +7,8 @@ import {
   GripVertical, Sigma, Save, Loader2, FileText, ChevronDown, TestTubes, 
   Search, Coins, ArrowRightLeft, Copy, LogOut, Award, User, Maximize2, 
   Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Paintbrush, 
-  Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat
+  Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
+  Zap, CornerRightDown
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -1685,7 +1687,41 @@ const App: React.FC = () => {
                             <table className="w-full text-left border-collapse table-fixed relative">
                                 <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
                                 {activeArticles.length === 0 ? (
-                                    <tbody><tr><td colSpan={11} className="p-32 text-center"><div className="flex flex-col items-center gap-6 max-w-lg mx-auto"><div className="bg-slate-50 p-8 rounded-[2.5rem] border border-slate-100 shadow-inner"><MousePointerClick className="w-12 h-12 text-slate-300" /></div><p className="text-slate-400 font-medium uppercase tracking-widest leading-relaxed text-sm text-center">Trascina qui una voce da <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 hover:underline font-black">gecola.it</a> <br/><span className="text-[10px] mt-2 block opacity-60 italic">Pronto per lo srotolamento del foglio</span></p></div></td></tr></tbody>
+                                    <tbody>
+                                        <tr>
+                                            <td colSpan={11} className="p-0">
+                                                <div className={`min-h-[70vh] w-full flex flex-col items-center justify-center p-20 transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-50/80' : 'bg-white'}`}>
+                                                    <div 
+                                                        className={`flex flex-col items-center gap-8 max-w-2xl w-full p-12 rounded-[3.5rem] border-4 border-dashed transition-all duration-500 group/dropzone ${isWorkspaceDragOver ? 'border-blue-600 bg-white shadow-2xl scale-105' : 'border-blue-100 hover:border-blue-300 bg-slate-50/30'}`}
+                                                    >
+                                                        <div className={`p-8 rounded-[2.5rem] shadow-inner transition-all duration-500 ${isWorkspaceDragOver ? 'bg-blue-600 text-white ring-8 ring-blue-100 animate-bounce' : 'bg-white text-blue-200 border border-blue-50'}`}>
+                                                            {isWorkspaceDragOver ? <CornerRightDown className="w-16 h-16" /> : <Zap className="w-16 h-16 text-blue-500/40" />}
+                                                        </div>
+                                                        <div className="text-center space-y-4">
+                                                            <h3 className={`text-3xl font-black uppercase tracking-tighter ${isWorkspaceDragOver ? 'text-blue-900' : 'text-slate-400'}`}>
+                                                                {isWorkspaceDragOver ? 'Rilascia per agganciare' : 'Aggancio Rapido Attivo'}
+                                                            </h3>
+                                                            <p className="text-slate-400 font-medium leading-relaxed max-w-md mx-auto">
+                                                                Srotola il computo trascinando la prima voce professionale direttamente da 
+                                                                <a 
+                                                                    href="https://www.gecola.it/home/listini" 
+                                                                    target="_blank" 
+                                                                    rel="noopener noreferrer" 
+                                                                    className="inline-flex items-center gap-1.5 ml-2 px-3 py-1 bg-blue-600 text-white hover:bg-blue-700 rounded-full transition-all font-black shadow-lg shadow-blue-600/20 active:scale-95"
+                                                                    onClick={e => e.stopPropagation()}
+                                                                >
+                                                                    gecola.it <ExternalLink className="w-3.5 h-3.5" />
+                                                                </a>
+                                                            </p>
+                                                            <div className={`mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${isWorkspaceDragOver ? 'bg-blue-600 text-white animate-pulse' : 'bg-blue-50 text-blue-400'}`}>
+                                                                <MousePointerClick className="w-4 h-4" /> Rilevamento automatico parametri tecnici
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
                                         <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
