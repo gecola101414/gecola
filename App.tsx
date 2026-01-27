@@ -8,7 +8,7 @@ import {
   Search, Coins, ArrowRightLeft, Copy, LogOut, Award, User, Maximize2, 
   Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Paintbrush, 
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
-  Zap, CornerRightDown
+  Zap, CornerRightDown, ListFilter
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -192,6 +192,7 @@ interface ArticleGroupProps {
   allArticles: Article[];
   isPrintMode: boolean;
   isCategoryLocked?: boolean;
+  isCompactView?: boolean;
   projectSettings: ProjectInfo;
   onUpdateArticle: (id: string, field: keyof Article, value: string | number) => void;
   onEditArticleDetails: (article: Article) => void;
@@ -224,7 +225,7 @@ interface ArticleGroupProps {
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, allArticles, isPrintMode, isCategoryLocked, projectSettings, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, onToggleVoiceAutomation, onToggleSmartRepeat, voiceAutomationActiveId, smartRepeatActiveId, isPaintingAutomationActive, isRebarAutomationActive } = props;
+   const { article, index, allArticles, isPrintMode, isCategoryLocked, isCompactView, projectSettings, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, onToggleVoiceAutomation, onToggleSmartRepeat, voiceAutomationActiveId, smartRepeatActiveId, isPaintingAutomationActive, isRebarAutomationActive } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -619,8 +620,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                )}
             </td>
             <td className="p-2 border-r border-gray-200 bg-white">
-               {isPrintMode ? (
-                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
+               {isPrintMode || isCompactView ? (
+                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isCompactView ? 'line-clamp-3' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
                ) : (
                  <textarea 
                     readOnly
@@ -819,6 +820,9 @@ const App: React.FC = () => {
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
   const rebarTimerRef = useRef<any>(null);
   const paintingTimerRef = useRef<any>(null);
+  
+  // STATO PER VISTA COMPATTA (3 RIGHE)
+  const [isCompactView, setIsCompactView] = useState(false);
 
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
@@ -1033,7 +1037,7 @@ const App: React.FC = () => {
       if (analysis?.isLocked) { alert("Analisi bloccata. Sblocca per eliminare."); return; }
       if (window.confirm("Eliminare definitivamente questa analisi? Le voci di computo collegate rimarranno ma diventeranno indipendenti.")) {
           const newAnalyses = analyses.filter(a => a.id !== id);
-          const newArticles = articles.map(art => art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: undefined } : art);
+          const newArticles = articles.map(art => art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: id } : art);
           updateState(newArticles, categories, newAnalyses);
       }
   };
@@ -1110,6 +1114,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handleToggleAllCategories = () => {
+    const anyEnabled = categories.some(c => c.isEnabled !== false);
+    const newCats = categories.map(c => ({ ...c, isEnabled: !anyEnabled }));
+    updateState(articles, newCats);
+    playUISound('confirm');
+  };
+
   const handleDeleteCategory = (code: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`Sei sicuro di voler eliminare la WBS ${code} e tutte le sue voci?`)) {
@@ -1139,8 +1150,22 @@ const App: React.FC = () => {
   };
 
   const handleWbsDragOver = (e: React.DragEvent, targetCode: string) => { 
-      e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; 
-      if (isDraggingArticle) return;
+      e.preventDefault(); 
+      e.stopPropagation(); 
+      e.dataTransfer.dropEffect = 'copy'; 
+      
+      // ATTIVAZIONE AUTOMATICA SUL TRASCINAMENTO DELLE VOCI
+      if (isDraggingArticle) {
+          if (selectedCategoryCode !== targetCode) {
+              setSelectedCategoryCode(targetCode);
+              playUISound('move'); // Feedback sonoro attivazione
+          }
+          if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') {
+              setWbsDropTarget({ code: targetCode, position: 'inside' });
+          }
+          return;
+      }
+
       if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain')) {
           if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -1163,6 +1188,9 @@ const App: React.FC = () => {
           const article = articles.find(a => a.id === droppedArticleId);
           if (!article) return;
           if (article.categoryCode === targetCode) return;
+          
+          setSelectedCategoryCode(targetCode);
+
           if (e.ctrlKey) {
               const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
               updateState([...articles, newArticle]);
@@ -1477,6 +1505,16 @@ const App: React.FC = () => {
     } 
   };
 
+  const handleToggleLockAllInWbs = () => {
+    const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
+    const anyUnlocked = activeArticles.some(a => !a.isLocked);
+    const updated = articles.map(art => 
+      art.categoryCode === selectedCategoryCode ? { ...art, isLocked: anyUnlocked } : art
+    );
+    updateState(updated);
+    playUISound('confirm');
+  };
+
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
   const filteredAnalyses = useMemo(() => analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase())), [analyses, analysisSearchTerm]);
@@ -1563,7 +1601,7 @@ const App: React.FC = () => {
                     <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg ring-1 ring-blue-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-600'}`}>
                       <HardHat className="w-3.5 h-3.5" /> Lavori
                     </button>
-                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-orange-50 hover:text-orange-600'}`}>
+                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-blue-50 hover:text-orange-600'}`}>
                       <ShieldAlert className="w-3.5 h-3.5" /> Sicurezza
                     </button>
                     <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-purple-50 hover:text-purple-600'}`}>
@@ -1573,16 +1611,27 @@ const App: React.FC = () => {
                 <div className={`flex-1 overflow-y-auto transition-colors duration-500 ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20' : 'bg-white'}`} onDrop={(e) => handleWbsDrop(e, null)}>
                     {viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' ? (
                         <>
-                        <div className={`p-3 border-b text-[9px] font-bold uppercase flex justify-between items-center tracking-widest ${viewMode === 'SICUREZZA' ? 'bg-orange-100/50 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                            <span>Indice {viewMode === 'SICUREZZA' ? 'Sicurezza' : 'WBS'}</span>
+                        <div className={`p-3 border-b text-[9px] font-bold uppercase flex justify-between items-center tracking-widest sticky top-0 z-30 shadow-sm ${viewMode === 'SICUREZZA' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                            <div className="flex items-center gap-2">
+                                <span>Indice {viewMode === 'SICUREZZA' ? 'Sicurezza' : 'WBS'}</span>
+                                <button 
+                                    onClick={handleToggleAllCategories} 
+                                    className={`p-1 rounded-lg transition-all ${categories.some(c => c.isEnabled !== false) ? 'text-yellow-500 hover:bg-yellow-50' : 'text-gray-300 hover:bg-gray-200'}`}
+                                    title="Attiva/Disattiva tutto (Master Switch)"
+                                >
+                                    {categories.some(c => c.isEnabled !== false) ? <Lightbulb className="w-5 h-5" /> : <LightbulbOff className="w-5 h-5" />}
+                                </button>
+                            </div>
                             <PlusCircle className={`w-4 h-4 cursor-pointer hover:scale-110 transition-transform ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`} onClick={handleAddCategory}/>
                         </div>
                         <ul className="p-2 space-y-2">
-                            {filteredCategories.map(cat => (
+                            {filteredCategories.map(cat => {
+                            const isInsideDropTarget = wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside';
+                            return (
                             <li key={cat.code} className={`relative transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDragLeave={handleWbsDragLeave} onDrop={(e) => handleWbsDrop(e, cat.code)}>
-                                {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
+                                {wbsDropTarget?.code === cat.code && wbsDropTarget.position !== 'inside' && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
                                 <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(cat.code)}>
-                                    <div className={`w-full text-left rounded-xl border-2 transition-all flex flex-col relative overflow-hidden min-h-[120px] ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-50 border-orange-600 shadow-md scale-[1.02]' : 'bg-blue-50 border-blue-700 shadow-md scale-[1.02]') : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm'}`}>
+                                    <div className={`w-full text-left rounded-xl border-2 transition-all flex flex-col relative overflow-hidden min-h-[120px] ${isInsideDropTarget ? 'border-green-500 ring-4 ring-green-100 bg-green-50 shadow-xl scale-[1.05]' : (selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-50 border-orange-600 shadow-md scale-[1.02]' : 'bg-blue-50 border-blue-700 shadow-md scale-[1.02]') : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm')}`}>
                                         <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-1 opacity-0 group-hover/wbsrow:opacity-100 transition-all duration-200 bg-white/95 border-r border-slate-200 z-[100] shadow-sm">
                                             <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
                                             <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
@@ -1606,7 +1655,7 @@ const App: React.FC = () => {
                                     </div>
                                 </div>
                             </li>
-                            ))}
+                            )})}
                         </ul>
                         <div className="mt-auto p-3 border-t border-gray-300 bg-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
                             <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-2.5 rounded-xl text-[9px] font-black uppercase transition-all mb-2 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm'}`}><Layers className="w-3.5 h-3.5 mr-1.5" /> Riepilogo</button>
@@ -1660,8 +1709,25 @@ const App: React.FC = () => {
                              <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white border-orange-700' : 'bg-blue-700 text-white border-blue-800'}`}>{activeCategory.code}</div>
                              <div className="flex flex-col">
                                 <h2 className={`text-xl font-black uppercase max-w-[500px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900'}`}>{activeCategory.name}</h2>
-                                <div className="mt-2 flex items-baseline gap-2">
+                                <div className="mt-2 flex items-center gap-3">
                                     <span className={`text-2xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
+                                    <div className="h-4 w-px bg-gray-300 mx-1"></div>
+                                    <button 
+                                        onClick={handleToggleLockAllInWbs}
+                                        className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all border border-gray-200 flex items-center gap-1.5 shadow-sm group"
+                                        title="Blocca Tutte le Voci del Capitolo"
+                                    >
+                                        <Lock className="w-3.5 h-3.5 group-hover:scale-110" />
+                                        <span className="text-[9px] font-black uppercase">Master Lock</span>
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsCompactView(!isCompactView)}
+                                        className={`p-1.5 rounded-lg transition-all border flex items-center gap-1.5 shadow-sm ${isCompactView ? 'bg-blue-600 text-white border-blue-700' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-blue-50'}`}
+                                        title="Vista Compatta (3 Righe)"
+                                    >
+                                        <ListFilter className="w-3.5 h-3.5" />
+                                        <span className="text-[9px] font-black uppercase">Schor</span>
+                                    </button>
                                 </div>
                              </div>
                         </div>
@@ -1724,7 +1790,7 @@ const App: React.FC = () => {
                                     </tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
+                                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isCompactView={isCompactView} projectSettings={projectInfo} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={shouldAutoReopenPainting} isRebarAutomationActive={shouldAutoReopenRebar} />
                                     ))
                                 )}
                                 <tbody>
