@@ -8,7 +8,7 @@ import {
   Search, Coins, ArrowRightLeft, Copy, LogOut, Award, User, Maximize2, 
   Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Paintbrush, 
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
-  Zap, CornerRightDown, ListFilter, EyeOff
+  Zap, CornerRightDown, ListFilter, EyeOff, Image as ImageIcon, Camera, X, Move
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -156,7 +156,7 @@ const resolveArticleQuantity = (
 };
 
 const recalculateAllArticles = (articles: Article[]): Article[] => {
-  const articleMap = new Map(articles.map(a => [a.id, a]));
+  const articleMap = new Map<string, Article>(articles.map(a => [a.id, a]));
   return articles.map(art => {
     const calculatedQty = resolveArticleQuantity(art.id, articleMap);
     return { ...art, quantity: calculatedQty };
@@ -172,7 +172,7 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn, tariffWidth }) 
   <thead className="bg-[#f8f9fa] border-b-2 border-black text-[9px] uppercase font-black text-gray-800 sticky top-0 z-[70] shadow-md">
     <tr>
       <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N..</th>
-      <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '135px' }}>Tariffa</th>
+      <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '155px' }}>Tariffa</th>
       <th className={`py-2.5 px-1 text-left min-w-[200px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
@@ -194,7 +194,7 @@ interface ArticleGroupProps {
   isCategoryLocked?: boolean;
   isCompactView?: boolean;
   projectSettings: ProjectInfo;
-  onUpdateArticle: (id: string, field: keyof Article, value: string | number) => void;
+  onUpdateArticle: (id: string, updates: Partial<Article>) => void;
   onEditArticleDetails: (article: Article) => void;
   onUpdateMeasurement: (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => void;
   onDeleteMeasurement: (articleId: string, mId: string) => void;
@@ -237,6 +237,11 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const silenceTimerRef = useRef<any>(null); 
    const tbodyRef = useRef<HTMLTableSectionElement>(null);
    const longPressTimer = useRef<any>(null);
+   const fileInputRef = useRef<HTMLInputElement>(null);
+
+   const [isResizingImage, setIsResizingImage] = useState(false);
+   const [isMovingImage, setIsMovingImage] = useState(false);
+   const [isImageDragOver, setIsImageDragOver] = useState(false);
 
    const isArticleLocked = article.isLocked || false;
    const areControlsDisabled = isCategoryLocked || isArticleLocked;
@@ -260,6 +265,88 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
          addBtnRef.current?.focus();
      }
    }, [lastAddedMeasurementId, article.id]);
+
+   const handleImageUpload = (file: File) => {
+       if (areControlsDisabled) return;
+       const reader = new FileReader();
+       reader.onload = (e) => {
+           const result = e.target?.result as string;
+           if (result) {
+               // Aggiornamento atomico per garantire che React applichi tutti i parametri tecnici insieme
+               onUpdateArticle(article.id, {
+                   imageUrl: result,
+                   imageWidth: article.imageWidth || 220,
+                   imageHeight: article.imageHeight || 140,
+                   imagePosX: article.imagePosX ?? 0,
+                   imagePosY: article.imagePosY ?? 0
+               });
+           }
+       };
+       reader.readAsDataURL(file);
+   };
+
+   const handleImageDrop = (e: React.DragEvent) => {
+       e.preventDefault();
+       e.stopPropagation();
+       setIsImageDragOver(false);
+       if (areControlsDisabled) return;
+       const file = e.dataTransfer.files[0];
+       if (file && file.type.startsWith('image/')) {
+           handleImageUpload(file);
+       }
+   };
+
+   const handleResizeMouseDown = (e: React.MouseEvent) => {
+       e.preventDefault();
+       e.stopPropagation();
+       if (areControlsDisabled) return;
+       setIsResizingImage(true);
+       const startX = e.clientX;
+       const startY = e.clientY;
+       const startW = article.imageWidth || 220;
+       const startH = article.imageHeight || 140;
+
+       const handleMouseMove = (moveEvent: MouseEvent) => {
+           const newWidth = Math.max(50, Math.min(800, startW + (moveEvent.clientX - startX)));
+           const newHeight = Math.max(30, Math.min(600, startH + (moveEvent.clientY - startY)));
+           onUpdateArticle(article.id, { imageWidth: newWidth, imageHeight: newHeight });
+       };
+
+       const handleMouseUp = () => {
+           setIsResizingImage(false);
+           window.removeEventListener('mousemove', handleMouseMove);
+           window.removeEventListener('mouseup', handleMouseUp);
+       };
+
+       window.addEventListener('mousemove', handleMouseMove);
+       window.addEventListener('mouseup', handleMouseUp);
+   };
+
+   const handleMoveMouseDown = (e: React.MouseEvent) => {
+       e.preventDefault();
+       e.stopPropagation();
+       if (areControlsDisabled || isResizingImage) return;
+       setIsMovingImage(true);
+       const startX = e.clientX;
+       const startY = e.clientY;
+       const startPosX = article.imagePosX || 0;
+       const startPosY = article.imagePosY || 0;
+
+       const handleMouseMove = (moveEvent: MouseEvent) => {
+           const newPosX = startPosX + (moveEvent.clientX - startX);
+           const newPosY = startPosY + (moveEvent.clientY - startY);
+           onUpdateArticle(article.id, { imagePosX: newPosX, imagePosY: newPosY });
+       };
+
+       const handleMouseUp = () => {
+           setIsMovingImage(false);
+           window.removeEventListener('mousemove', handleMouseMove);
+           window.removeEventListener('mouseup', handleMouseUp);
+       };
+
+       window.addEventListener('mousemove', handleMouseMove);
+       window.addEventListener('mouseup', handleMouseUp);
+   };
 
    const syncAutomationPoint = (rowId: string, fieldName: string) => {
       if (!isVoiceActive) return;
@@ -459,7 +546,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       e.stopPropagation();
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
       const isExternalText = e.dataTransfer.types.includes('text/plain');
-      if (isInternal || isExternalText) {
+      const isExternalFile = e.dataTransfer.types.includes('Files');
+      if (isInternal || isExternalText || isExternalFile) {
           e.dataTransfer.dropEffect = 'copy';
           if (isCategoryLocked) return;
           const rect = tbodyRef.current?.getBoundingClientRect();
@@ -493,6 +581,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
       const articleId = e.dataTransfer.getData('articleId');
       const textData = e.dataTransfer.getData('text/plain');
+      
+      const files = e.dataTransfer.files;
+      if (files && files[0] && files[0].type.startsWith('image/')) {
+          handleImageUpload(files[0]);
+          setIsArticleDragOver(false);
+          return;
+      }
+
       if (isInternal && articleId) {
           onArticleDrop(e, article.id, articleDropPosition || 'bottom');
       } else if (textData) {
@@ -565,9 +661,10 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       if (recognitionRef.current) recognitionRef.current.stop(); 
    };
 
-   const mFontSize = (projectSettings.fontSizeMeasurements || 12) * 1.1; // +10% increment
-   const numFontSize = 13.5; // +10% approx
-   const descFontSize = 15.5; // +10% approx
+   const mFontSize = (projectSettings.fontSizeMeasurements || 12) * 1.1; 
+   const numFontSize = 13.5; 
+   const descFontSize = 15.5; 
+   const tariffWidth = projectSettings.tariffColumnWidth || 155;
 
    return (
       <tbody 
@@ -578,6 +675,19 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
         onDragLeave={handleTbodyDragLeave}
         onDrop={handleTbodyDrop}
       >
+         <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept="image/*" 
+            onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                    handleImageUpload(file);
+                    e.target.value = ''; 
+                }
+            }} 
+         />
          {isArticleDragOver && articleDropPosition === 'top' && (
              <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-green-500 -top-0.5 z-50 shadow-[0_0_8px_rgba(34,197,94,0.8)] pointer-events-none"></div></td></tr>
          )}
@@ -588,24 +698,28 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             onDragEnd={handleArticleHeaderDragEnd}
          >
             <td className="text-center py-2 text-xs font-bold text-gray-500 border-r border-gray-200 select-none bg-white font-mono">{hierarchicalNumber}</td>
-            <td className="p-1 border-r border-gray-200 align-top bg-white" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}>
+            <td className="p-1 border-r border-gray-200 align-top bg-white" style={{ width: `${tariffWidth}px` }}>
                {isPrintMode ? (
                    <div className="font-mono font-bold text-xs pt-1 whitespace-pre-wrap">{article.code}</div>
                ) : (
-                  <div className="flex flex-col relative">
+                  <div className="flex flex-col relative overflow-hidden">
                     <textarea 
                         readOnly
                         value={article.code}
-                        className={`font-mono font-bold text-xs w-full bg-transparent border-none px-1 resize-y overflow-hidden leading-tight disabled:text-gray-400 cursor-default focus:ring-0 ${isAnalysisLinked ? 'text-purple-700' : ''} ${isArticleLocked ? 'text-gray-400' : ''}`}
-                        rows={2}
+                        className={`font-mono font-bold text-xs w-full bg-transparent border-none px-1 overflow-hidden leading-tight disabled:text-gray-400 cursor-default focus:ring-0 ${isAnalysisLinked ? 'text-purple-700' : ''} ${isArticleLocked ? 'text-gray-400' : ''} resize-none ${isCompactView ? 'line-clamp-1 truncate h-5' : 'h-10'}`}
+                        rows={isCompactView ? 1 : 2}
                         placeholder="Codice"
                         disabled={true}
                     />
-                    {article.priceListSource && <div className="text-[9px] text-gray-400 px-1 mt-1 leading-tight truncate max-w-full" title={article.priceListSource}>{article.priceListSource}</div>}
-                    {article.soaCategory && (
-                        <div className="text-[9px] text-gray-400 px-1 italic leading-tight" title={`Categoria SOA: ${article.soaCategory}`}>
-                            ({article.soaCategory})
-                        </div>
+                    {!isCompactView && (
+                        <>
+                            {article.priceListSource && <div className="text-[9px] text-gray-400 px-1 mt-1 leading-tight truncate max-w-full" title={article.priceListSource}>{article.priceListSource}</div>}
+                            {article.soaCategory && (
+                                <div className="text-[9px] text-gray-400 px-1 italic leading-tight" title={`Categoria SOA: ${article.soaCategory}`}>
+                                    ({article.soaCategory})
+                                </div>
+                            )}
+                        </>
                     )}
                     {isAnalysisLinked && (
                         <button 
@@ -619,47 +733,25 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                   </div>
                )}
             </td>
-            <td className="p-2 border-r border-gray-200 bg-white">
-               {isPrintMode || isCompactView ? (
-                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isCompactView ? 'line-clamp-2' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
-               ) : (
-                 <textarea 
-                    readOnly
-                    value={article.description}
-                    rows={isArticleLocked ? 2 : 4}
-                    className={`w-full font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`}
-                    style={{ fontSize: `${descFontSize}px` }}
-                    placeholder="Descrizione..."
-                    disabled={true}
-                 />
-               )}
-               {article.groundingUrls && article.groundingUrls.length > 0 && !isArticleLocked && (
-                 <div className="mt-3 px-1 border-t border-gray-100 pt-2 animate-in fade-in slide-in-from-bottom-1 duration-500">
-                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 uppercase tracking-tight mb-1">
-                     <Search className="w-3 h-3" /> Fonti consultate:
-                   </div>
-                   <div className="flex flex-wrap gap-2">
-                     {article.groundingUrls.map((chunk: any, i: number) => {
-                       const source = chunk.web || chunk.maps;
-                       if (!source) return null;
-                       return (
-                         <a 
-                           key={i} 
-                           href={source.uri} 
-                           target="_blank" 
-                           rel="noopener noreferrer"
-                           className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-100 hover:bg-blue-100 transition-colors text-[9px] font-medium max-w-[200px]"
-                         >
-                           <ExternalLink className="w-2.5 h-2.5 flex-shrink-0" />
-                           <span className="truncate">{source.title || 'Link'}</span>
-                         </a>
-                       );
-                     })}
-                   </div>
-                 </div>
-               )}
+            <td className="p-2 border-r border-gray-200 bg-white relative group/desc">
+                <div className="flex flex-col">
+                    {isPrintMode || isCompactView ? (
+                        <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isCompactView ? 'line-clamp-2' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
+                    ) : (
+                        <textarea 
+                            readOnly
+                            value={article.description}
+                            rows={isArticleLocked ? 2 : 4}
+                            className={`w-full font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`}
+                            style={{ fontSize: `${descFontSize}px` }}
+                            placeholder="Descrizione..."
+                            disabled={true}
+                        />
+                    )}
+                </div>
             </td>
-            <td className="border-r border-gray-200 bg-white p-1 text-center align-top">
+            
+            <td className="border-r border-gray-200 bg-white p-1 text-center align-top relative">
                 {!isPrintMode && !isCategoryLocked && (
                    <div className="flex flex-col items-center gap-1 opacity-0 group-hover/article:opacity-100 transition-opacity mt-1">
                       <button onClick={() => onToggleArticleLock(article.id)} className={`transition-colors p-0.5 rounded ${isArticleLocked ? 'text-red-500 hover:text-red-700 bg-red-50' : 'text-gray-400 hover:text-blue-500'}`} title={isArticleLocked ? "Sblocca Voce" : "Blocca Voce (Lavoro Fatto)"}>
@@ -674,12 +766,75 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                    </div>
                 )}
             </td>
-            <td colSpan={7} className="border-r border-gray-200 bg-white"></td>
+
+            {/* AREA FOTO POTENZIATA: DRAG TO MOVE & RESIZE */}
+            <td colSpan={6} className="border-r border-gray-200 bg-white relative p-0 overflow-visible">
+               {!isCompactView && (
+                    <div 
+                        className={`absolute inset-0 z-20 flex items-center justify-center transition-all duration-300 group/photo ${isImageDragOver ? 'ring-4 ring-blue-400 bg-blue-50/50 scale-[1.01]' : ''}`}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsImageDragOver(true); }}
+                        onDragLeave={() => setIsImageDragOver(false)}
+                        onDrop={handleImageDrop}
+                    >
+                        {article.imageUrl ? (
+                            <div 
+                                className="relative group/image-container shadow-xl rounded-xl border-4 border-white overflow-visible ring-1 ring-slate-200 bg-white" 
+                                style={{ 
+                                    width: `${article.imageWidth || 220}px`, 
+                                    height: `${article.imageHeight || 140}px`,
+                                    transform: `translate(${article.imagePosX || 0}px, ${article.imagePosY || 0}px)`,
+                                    cursor: isMovingImage ? 'grabbing' : (isResizingImage ? 'nwse-resize' : 'grab')
+                                }}
+                                onMouseDown={handleMoveMouseDown}
+                            >
+                                <img 
+                                    src={article.imageUrl} 
+                                    alt="Foto Lavoro" 
+                                    className="w-full h-full object-cover block rounded-lg pointer-events-none"
+                                />
+                                {!isPrintMode && !areControlsDisabled && (
+                                    <>
+                                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white p-1 rounded-full shadow-lg opacity-0 group-hover/image-container:opacity-100 transition-opacity z-40 pointer-events-none">
+                                            <Move className="w-3 h-3" />
+                                        </div>
+                                        <div 
+                                            className="absolute -right-2 -bottom-2 w-7 h-7 bg-blue-600 text-white rounded-full flex items-center justify-center cursor-nwse-resize shadow-xl hover:bg-blue-700 transition-all z-40 ring-2 ring-white hover:scale-110 opacity-0 group-hover/image-container:opacity-100"
+                                            onMouseDown={handleResizeMouseDown}
+                                            title="Ridimensiona"
+                                        >
+                                            <ImageIcon className="w-3.5 h-3.5" />
+                                        </div>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); onUpdateArticle(article.id, { imageUrl: undefined }); }}
+                                            className="absolute -top-3 -right-3 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-red-600 transition-all opacity-0 group-hover/image-container:opacity-100 z-40 ring-2 ring-white"
+                                            title="Rimuovi Foto"
+                                        >
+                                            <X className="w-4 h-4" />
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        ) : (
+                            !isPrintMode && !areControlsDisabled && (
+                                <div 
+                                    className="w-[90%] h-[90%] border-2 border-dashed border-slate-300 bg-slate-50/50 rounded-2xl relative flex flex-col items-center justify-center text-slate-400 cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all group/empty-photo"
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <Camera className="w-10 h-10 mb-1 opacity-30 group-hover/empty-photo:opacity-80 group-hover/empty-photo:scale-110 transition-all" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest opacity-60">CARICA FOTOGRAFIA</span>
+                                </div>
+                            )
+                        )}
+                    </div>
+               )}
+            </td>
+
+            <td className="border-r border-gray-200 bg-white"></td>
          </tr>
          {!isArticleLocked && (
            <>
             <tr className="bg-gray-50/50 border-b border-gray-100">
-                <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
+                <td className="border-r border-gray-200"></td><td className="border-r border-gray-200" style={{ width: `${tariffWidth}px` }}></td>
                 <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center gap-4">
                     <span>MISURE</span>
                     <div className="flex items-center gap-2">
@@ -699,7 +854,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 return (
                 <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} onDragStart={(e) => handleMeasDragStart(e, idx)} onDragOver={(e) => handleMeasDragOver(e, m.id)} onDragLeave={() => setMeasurementDragOverId(null)} onDrop={(e) => handleMeasDrop(e, idx)} className={`group/row cursor-default transition-all ${m.type === 'deduction' ? 'text-red-600' : 'text-gray-800'} ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : 'bg-white')} ${isArticleLocked ? 'opacity-70' : ''}`} style={{ fontSize: `${numFontSize}px` }}>
                     <td className="border-r border-gray-200"></td>
-                    <td className="p-0 border-r border-gray-200 bg-gray-50/30 text-center relative align-middle">
+                    <td className="p-0 border-r border-gray-200 bg-gray-50/30 text-center relative align-middle" style={{ width: `${tariffWidth}px` }}>
                         {!isPrintMode && !areControlsDisabled && (
                             <div className="flex justify-center items-center gap-1.5 opacity-0 group-hover/row:opacity-100 transition-opacity px-1 h-full py-1.5">
                                 {!isSubtotal ? (
@@ -712,7 +867,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                             </div>
                         )}
                     </td>
-                    <td className="pl-6 pr-2 py-1 border-r border-gray-200 relative">
+                    <td className={`pl-6 pr-2 border-r border-gray-200 relative ${isCompactView ? 'py-0.5' : 'py-1'}`}>
                         {isSubtotal ? <div className="italic text-gray-600 text-right pr-2">Sommano parziale</div> : (
                             <>
                                 <div className="absolute left-0 top-1/2 w-4 h-[1px] bg-gray-300"></div>
@@ -769,7 +924,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            </>
          )}
          <tr className="bg-white font-bold text-xs border-t border-gray-300 shadow-inner">
-             <td className="border-r border-gray-300"></td><td className="border-r border-gray-200" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}></td>
+             <td className="border-r border-gray-300"></td><td className="border-r border-gray-200" style={{ width: `${tariffWidth}px` }}></td>
              <td className="px-2 py-3 text-left border-r border-gray-300 flex items-center gap-3">
                 {!isPrintMode && !isArticleLocked && (
                    <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1036,7 +1191,7 @@ const App: React.FC = () => {
       if (analysis?.isLocked) { alert("Analisi bloccata. Sblocca per eliminare."); return; }
       if (window.confirm("Eliminare definitivamente questa analisi? Le voci di computo collegate rimarranno ma diventeranno indipendenti.")) {
           const newAnalyses = analyses.filter(a => a.id !== id);
-          const newArticles = articles.map(art => art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: id } : art);
+          const newArticles = articles.map(art => art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: undefined } : art);
           updateState(newArticles, categories, newAnalyses);
       }
   };
@@ -1154,14 +1309,13 @@ const App: React.FC = () => {
       e.dataTransfer.dropEffect = 'copy'; 
       
       if (isDraggingArticle) {
-          // Mantieni attiva la WBS origine
           if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') {
               setWbsDropTarget({ code: targetCode, position: 'inside' });
           }
           return;
       }
 
-      if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain')) {
+      if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain') || e.dataTransfer.types.includes('Files')) {
           if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
           const isTop = e.clientY < (rect.top + rect.height / 2);
@@ -1175,6 +1329,12 @@ const App: React.FC = () => {
       e.preventDefault(); e.stopPropagation(); 
       const pos = wbsDropTarget?.position || 'bottom';
       setWbsDropTarget(null);
+      
+      const files = e.dataTransfer.files;
+      if (files && files[0] && files[0].type.startsWith('image/') && targetCode) {
+          return;
+      }
+
       const isInternalArticle = e.dataTransfer.types.includes(MIME_ARTICLE);
       const droppedArticleId = e.dataTransfer.getData('articleId');
       if (isInternalArticle && droppedArticleId && targetCode) {
@@ -1271,10 +1431,32 @@ const App: React.FC = () => {
     setWbsOptionsContext(null);
   };
 
-  const handleUpdateArticle = (id: string, field: keyof Article, value: string | number) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
-  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { let finalUpdates = { ...updates }; const original = articles.find(a => a.id === id); if (original && original.priceListSource && !original.priceListSource.includes('NP')) { if (updates.unitPrice !== undefined && updates.unitPrice !== original.unitPrice) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; if (updates.description !== undefined && updates.description !== original.description) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; } const updated = articles.map(art => id === art.id ? { ...art, ...finalUpdates } : art); updateState(updated); };
+  const handleUpdateArticle = (id: string, updates: Partial<Article>) => {
+      setArticles(prevArticles => {
+          const updated = prevArticles.map(art => {
+              if (art.id !== id) return art;
+              return { ...art, ...updates };
+          });
+          // Ricalcolo immediato per consistenza dati
+          const articleMap = new Map<string, Article>(updated.map(a => [a.id, a]));
+          return updated.map(art => ({ ...art, quantity: resolveArticleQuantity(art.id, articleMap) }));
+      });
+  };
+
+  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { 
+      let finalUpdates = { ...updates }; 
+      const original = articles.find(a => a.id === id); 
+      if (original && original.priceListSource && !original.priceListSource.includes('NP')) { 
+          if (updates.unitPrice !== undefined && updates.unitPrice !== original.unitPrice) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; 
+          if (updates.description !== undefined && updates.description !== original.description) finalUpdates.priceListSource = 'Analisi NP (Modificato)'; 
+      } 
+      const updated = articles.map(art => id === art.id ? { ...art, ...finalUpdates } : art); 
+      updateState(updated); 
+  };
+
   const handleEditArticleDetails = (article: Article) => { setEditingArticle(article); setIsEditArticleModalOpen(true); };
   const handleDeleteArticle = (id: string) => { if (window.confirm("Seleziona Conferma per eliminare questo articolo dal computo?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
+  
   const handleAddMeasurement = (articleId: string) => { 
       const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); 
       const updated = articles.map(art => { 
@@ -1286,6 +1468,7 @@ const App: React.FC = () => {
       }); 
       updateState(updated); 
   };
+
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleToggleDeduction = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; if (m.type === 'subtotal') return m; const newType = m.type === 'positive' ? 'deduction' : 'positive'; let newDescription = m.description; if (newType === 'deduction') { if (!newDescription.toLowerCase().startsWith('a dedurre')) { newDescription = "A dedurre: " + newDescription; } } else { newDescription = newDescription.replace(/^a dedurre:\s*/i, ''); } return { ...m, type: newType, description: newDescription } as Measurement; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
@@ -1313,9 +1496,7 @@ const App: React.FC = () => {
       art.categoryCode === selectedCategoryCode ? { ...art, isLocked: anyUnlocked } : art
     );
     updateState(updated);
-    if (anyUnlocked) {
-        setIsCompactView(true); 
-    }
+    if (anyUnlocked) setIsCompactView(true); 
     playUISound('confirm');
   };
 
@@ -1386,7 +1567,8 @@ const App: React.FC = () => {
     e.stopPropagation(); 
     const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE) || e.dataTransfer.types.includes(MIME_MEASUREMENT); 
     const isExternalText = e.dataTransfer.types.includes('text/plain'); 
-    if (isExternalText && !isInternal) { 
+    const isExternalFile = e.dataTransfer.types.includes('Files');
+    if ((isExternalText || isExternalFile) && !isInternal) { 
       if (selectedCategoryCode !== 'SUMMARY') { 
         setIsWorkspaceDragOver(true); 
         e.dataTransfer.dropEffect = 'copy'; 
@@ -1398,6 +1580,12 @@ const App: React.FC = () => {
     e.preventDefault(); 
     e.stopPropagation(); 
     setIsWorkspaceDragOver(false); 
+
+    const files = e.dataTransfer.files;
+    if (files && files[0] && files[0].type.startsWith('image/')) {
+        return;
+    }
+
     const textData = e.dataTransfer.getData('text/plain'); 
     const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE) || e.dataTransfer.types.includes(MIME_MEASUREMENT); 
     if (textData && !isInternal) handleDropContent(textData); 
@@ -1451,9 +1639,7 @@ const App: React.FC = () => {
         await writable.close(); 
         setLastSaved(new Date()); 
       } catch (err: any) { 
-        if (err.name !== 'AbortError' && !silent) { 
-          setIsSaveModalOpen(true); 
-        } 
+        if (err.name !== 'AbortError' && !silent) setIsSaveModalOpen(true); 
       } finally { 
         setTimeout(() => setIsAutoSaving(false), 800); 
       } 
@@ -1479,13 +1665,9 @@ const App: React.FC = () => {
         if (data.gecolaData) { 
           setProjectInfo(data.gecolaData.projectInfo); 
           updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); 
-        } else { 
-          alert("Formato non valido."); 
-        } 
+        } else { alert("Formato non valido."); } 
         setCurrentFileHandle(null); 
-      } catch (error) { 
-        alert("Errore caricamento."); 
-      } 
+      } catch (error) { alert("Errore caricamento."); } 
     }; 
     reader.readAsText(file); 
     e.target.value = ''; 
@@ -1709,8 +1891,6 @@ const App: React.FC = () => {
                              <button onClick={() => setIsFocusMode(true)} className="p-3 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
                              <div className="flex flex-col items-center">
                                 <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white border-orange-700' : 'bg-blue-700 text-white border-blue-800'}`}>{activeCategory.code}</div>
-                                
-                                {/* NUOVI CONTROLLI WBS SOTTO IL CODICE */}
                                 <div className="mt-2 flex flex-col items-center">
                                   <div className="flex items-center gap-2">
                                       <button 
