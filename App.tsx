@@ -8,7 +8,7 @@ import {
   Search, Coins, ArrowRightLeft, Copy, LogOut, Award, User, Maximize2, 
   Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Paintbrush, 
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
-  Zap, CornerRightDown, ListFilter
+  Zap, CornerRightDown, ListFilter, EyeOff
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -172,7 +172,7 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn, tariffWidth }) 
   <thead className="bg-[#f8f9fa] border-b-2 border-black text-[9px] uppercase font-black text-gray-800 sticky top-0 z-[70] shadow-md">
     <tr>
       <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N..</th>
-      <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '105px' }}>Tariffa</th>
+      <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '135px' }}>Tariffa</th>
       <th className={`py-2.5 px-1 text-left min-w-[200px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
@@ -588,7 +588,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             onDragEnd={handleArticleHeaderDragEnd}
          >
             <td className="text-center py-2 text-xs font-bold text-gray-500 border-r border-gray-200 select-none bg-white font-mono">{hierarchicalNumber}</td>
-            <td className="p-1 border-r border-gray-200 align-top bg-white" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '105px' }}>
+            <td className="p-1 border-r border-gray-200 align-top bg-white" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}>
                {isPrintMode ? (
                    <div className="font-mono font-bold text-xs pt-1 whitespace-pre-wrap">{article.code}</div>
                ) : (
@@ -621,7 +621,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             </td>
             <td className="p-2 border-r border-gray-200 bg-white">
                {isPrintMode || isCompactView ? (
-                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isCompactView ? 'line-clamp-3' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
+                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isCompactView ? 'line-clamp-2' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
                ) : (
                  <textarea 
                     readOnly
@@ -663,7 +663,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 {!isPrintMode && !isCategoryLocked && (
                    <div className="flex flex-col items-center gap-1 opacity-0 group-hover/article:opacity-100 transition-opacity mt-1">
                       <button onClick={() => onToggleArticleLock(article.id)} className={`transition-colors p-0.5 rounded ${isArticleLocked ? 'text-red-500 hover:text-red-700 bg-red-50' : 'text-gray-400 hover:text-blue-500'}`} title={isArticleLocked ? "Sblocca Voce" : "Blocca Voce (Lavoro Fatto)"}>
-                          {isArticleLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          {isArticleLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
                       </button>
                       {!isArticleLocked && (
                           <>
@@ -762,16 +762,16 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 'bg-gray-50'}`}>
                         {m.linkedArticleId || isSubtotal ? <div className="text-center text-gray-300">-</div> : (!isPrintMode ? <input type="number" data-last-meas-field="true" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('h'); syncAutomationPoint(m.id, 'height'); }} onBlur={() => onColumnFocus(null)} onKeyDown={handleArrowNavigation} className={`w-full text-center bg-transparent border-none focus:bg-white disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'font-black text-purple-900' : ''}`} style={{ fontSize: `${numFontSize}px` }} value={m.height === undefined ? '' : m.height} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : <div className="text-center">{formatNumber(m.height)}</div>)}
                     </td>
-                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white'} ${m.type === 'deduction' ? 'text-red-600 font-black' : (m.linkedArticleId ? 'text-blue-700 font-bold' : 'text-gray-600')}`} style={{ fontSize: `${numFontSize}px` }}>{formatNumber(m.displayValue)}</td>
+                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400' : 'bg-white text-gray-600'} ${m.linkedArticleId ? 'font-bold text-blue-700' : ''}`} style={{ fontSize: `${numFontSize}px` }}>{formatNumber(m.displayValue)}</td>
                     <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
                 </tr>
                 );})}
            </>
          )}
          <tr className="bg-white font-bold text-xs border-t border-gray-300 shadow-inner">
-             <td className="border-r border-gray-300"></td><td className="border-r border-gray-200" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '105px' }}></td>
+             <td className="border-r border-gray-300"></td><td className="border-r border-gray-200" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}></td>
              <td className="px-2 py-3 text-left border-r border-gray-300 flex items-center gap-3">
-                {!isPrintMode && !areControlsDisabled && (
+                {!isPrintMode && !isArticleLocked && (
                    <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button ref={addBtnRef} onClick={() => onAddMeasurement(article.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-blue-600 hover:text-white hover:bg-blue-600 transition-all border border-blue-200 hover:border-blue-600 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" title="Aggiungi rigo misura"><Plus className="w-4 h-4" /></button>
                         <button onClick={() => onAddSubtotal(article.id)} className="w-6 h-6 rounded-full flex items-center justify-center text-orange-400 hover:text-white hover:bg-orange-500 transition-all border border-orange-200 hover:border-orange-500 shadow-sm" title="Inserisci Sommano Parziale"><Sigma className="w-3.5 h-3.5" /></button>
@@ -821,7 +821,6 @@ const App: React.FC = () => {
   const rebarTimerRef = useRef<any>(null);
   const paintingTimerRef = useRef<any>(null);
   
-  // STATO PER VISTA COMPATTA (3 RIGHE)
   const [isCompactView, setIsCompactView] = useState(false);
 
   useEffect(() => {
@@ -1154,12 +1153,8 @@ const App: React.FC = () => {
       e.stopPropagation(); 
       e.dataTransfer.dropEffect = 'copy'; 
       
-      // ATTIVAZIONE AUTOMATICA SUL TRASCINAMENTO DELLE VOCI
       if (isDraggingArticle) {
-          if (selectedCategoryCode !== targetCode) {
-              setSelectedCategoryCode(targetCode);
-              playUISound('move'); // Feedback sonoro attivazione
-          }
+          // Mantieni attiva la WBS origine
           if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') {
               setWbsDropTarget({ code: targetCode, position: 'inside' });
           }
@@ -1189,8 +1184,6 @@ const App: React.FC = () => {
           if (!article) return;
           if (article.categoryCode === targetCode) return;
           
-          setSelectedCategoryCode(targetCode);
-
           if (e.ctrlKey) {
               const newArticle: Article = { ...article, id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, measurements: article.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9) })) };
               updateState([...articles, newArticle]);
@@ -1313,6 +1306,24 @@ const App: React.FC = () => {
   const handleToggleVoiceAutomation = (articleId: string) => { if (voiceAutomationActiveId === articleId) setVoiceAutomationActiveId(null); else setVoiceAutomationActiveId(articleId); };
   const handleToggleSmartRepeat = (articleId: string) => { if (smartRepeatActiveId === articleId) setSmartRepeatActiveId(null); else setSmartRepeatActiveId(articleId); };
   
+  const handleToggleLockAllInWbs = () => {
+    const activeArticlesInWbs = articles.filter(a => a.categoryCode === selectedCategoryCode);
+    const anyUnlocked = activeArticlesInWbs.some(a => !a.isLocked);
+    const updated = articles.map(art => 
+      art.categoryCode === selectedCategoryCode ? { ...art, isLocked: anyUnlocked } : art
+    );
+    updateState(updated);
+    if (anyUnlocked) {
+        setIsCompactView(true); 
+    }
+    playUISound('confirm');
+  };
+
+  const handleToggleCompactInWbs = () => {
+      setIsCompactView(!isCompactView);
+      playUISound('confirm');
+  };
+
   const handleAddRebarMeasurement = (rebarData: { diameter: number; weight: number; multiplier: number; length: number; description: string }) => { 
     if (!rebarTargetArticleId) return; 
     const newId = Math.random().toString(36).substr(2, 9); 
@@ -1505,16 +1516,6 @@ const App: React.FC = () => {
     } 
   };
 
-  const handleToggleLockAllInWbs = () => {
-    const activeArticles = articles.filter(a => a.categoryCode === selectedCategoryCode);
-    const anyUnlocked = activeArticles.some(a => !a.isLocked);
-    const updated = articles.map(art => 
-      art.categoryCode === selectedCategoryCode ? { ...art, isLocked: anyUnlocked } : art
-    );
-    updateState(updated);
-    playUISound('confirm');
-  };
-
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
   const filteredAnalyses = useMemo(() => analyses.filter(a => a.code.toLowerCase().includes(analysisSearchTerm.toLowerCase()) || a.description.toLowerCase().includes(analysisSearchTerm.toLowerCase())), [analyses, analysisSearchTerm]);
@@ -1604,7 +1605,7 @@ const App: React.FC = () => {
                     <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-blue-50 hover:text-orange-600'}`}>
                       <ShieldAlert className="w-3.5 h-3.5" /> Sicurezza
                     </button>
-                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-purple-50 hover:text-purple-600'}`}>
+                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-blue-50 hover:text-purple-600'}`}>
                       <TestTubes className="w-3.5 h-3.5" /> Analisi
                     </button>
                 </div>
@@ -1706,28 +1707,34 @@ const App: React.FC = () => {
                    <div className={`flex items-center justify-between p-5 bg-white rounded-2xl border-2 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 transition-all ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
                         <div className="flex items-center gap-5">
                              <button onClick={() => setIsFocusMode(true)} className="p-3 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
-                             <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white border-orange-700' : 'bg-blue-700 text-white border-blue-800'}`}>{activeCategory.code}</div>
-                             <div className="flex flex-col">
+                             <div className="flex flex-col items-center">
+                                <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white border-orange-700' : 'bg-blue-700 text-white border-blue-800'}`}>{activeCategory.code}</div>
+                                
+                                {/* NUOVI CONTROLLI WBS SOTTO IL CODICE */}
+                                <div className="mt-2 flex flex-col items-center">
+                                  <div className="flex items-center gap-2">
+                                      <button 
+                                          onClick={handleToggleLockAllInWbs}
+                                          className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all shadow-sm group ${articles.filter(a => a.categoryCode === selectedCategoryCode).every(a => a.isLocked) ? 'bg-red-600 text-white border-red-700' : 'bg-gray-50 border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600'}`}
+                                          title="Blocca tutto e Compatta"
+                                      >
+                                          <Lock className="w-3.5 h-3.5 group-hover:scale-110" />
+                                      </button>
+                                      <button 
+                                          onClick={handleToggleCompactInWbs}
+                                          className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all shadow-sm ${isCompactView ? 'bg-blue-600 text-white border-blue-700' : 'bg-gray-50 text-slate-500 border-slate-200 hover:bg-blue-50'}`}
+                                          title="Schor (Vista Compatta a 2 righe)"
+                                      >
+                                          <EyeOff className="w-3.5 h-3.5" />
+                                      </button>
+                                  </div>
+                                  <span className="text-[7px] font-black uppercase text-slate-400 mt-1 tracking-widest">CONTROLLI WBS</span>
+                                </div>
+                             </div>
+                             <div className="flex flex-col ml-2">
                                 <h2 className={`text-xl font-black uppercase max-w-[500px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900'}`}>{activeCategory.name}</h2>
-                                <div className="mt-2 flex items-center gap-3">
+                                <div className="mt-2 flex items-center gap-4">
                                     <span className={`text-2xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>
-                                    <div className="h-4 w-px bg-gray-300 mx-1"></div>
-                                    <button 
-                                        onClick={handleToggleLockAllInWbs}
-                                        className="p-1.5 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all border border-gray-200 flex items-center gap-1.5 shadow-sm group"
-                                        title="Blocca Tutte le Voci del Capitolo"
-                                    >
-                                        <Lock className="w-3.5 h-3.5 group-hover:scale-110" />
-                                        <span className="text-[9px] font-black uppercase">Master Lock</span>
-                                    </button>
-                                    <button 
-                                        onClick={() => setIsCompactView(!isCompactView)}
-                                        className={`p-1.5 rounded-lg transition-all border flex items-center gap-1.5 shadow-sm ${isCompactView ? 'bg-blue-600 text-white border-blue-700' : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-blue-50'}`}
-                                        title="Vista Compatta (3 Righe)"
-                                    >
-                                        <ListFilter className="w-3.5 h-3.5" />
-                                        <span className="text-[9px] font-black uppercase">Schor</span>
-                                    </button>
                                 </div>
                              </div>
                         </div>

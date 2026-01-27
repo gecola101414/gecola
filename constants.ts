@@ -134,7 +134,7 @@ export const PROJECT_INFO: ProjectInfo = {
   fontSizeTitle: 28,
   fontSizeClient: 15,
   fontSizeTotals: 22,
-  tariffColumnWidth: 105,
+  tariffColumnWidth: 135, // Aumentata del 30% da 105
   fontSizeMeasurements: 12,
   fontSizeWbsSidebar: 14,
 };
@@ -145,7 +145,6 @@ export const CATEGORIES: Category[] = [
   { code: 'WBS.03', name: 'Opere Murarie e Sottofondi', isEnabled: true, isLocked: false, type: 'work' },
   { code: 'WBS.04', name: 'Impianto Idrico e Condizionamento', isEnabled: true, isLocked: false, type: 'work' },
   { code: 'WBS.05', name: 'Pavimenti e Finiture', isEnabled: true, isLocked: false, type: 'work' },
-  // 5 WBS dedicate alla Sicurezza Progettuale
   { code: 'S.01', name: 'Apprestamenti di Sicurezza PSC', isEnabled: true, isLocked: false, type: 'safety' },
   { code: 'S.02', name: 'DPI e Dispositivi di Protezione Speciali', isEnabled: true, isLocked: false, type: 'safety' },
   { code: 'S.03', name: 'Impiantistica di Cantiere (Messa a terra, etc)', isEnabled: true, isLocked: false, type: 'safety' },
