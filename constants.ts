@@ -134,7 +134,7 @@ export const PROJECT_INFO: ProjectInfo = {
   fontSizeTitle: 28,
   fontSizeClient: 15,
   fontSizeTotals: 22,
-  tariffColumnWidth: 155, // Aumentata di 20px (da 135 a 155)
+  tariffColumnWidth: 135, // Aumentata del 30% da 105
   fontSizeMeasurements: 12,
   fontSizeWbsSidebar: 14,
 };

@@ -1,6 +1,6 @@
-
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
 
+// --- HELPER: Number to Text (Italian Simple Implementation) ---
 const units = ['', 'uno', 'due', 'tre', 'quattro', 'cinque', 'sei', 'sette', 'otto', 'nove'];
 const teens = ['dieci', 'undici', 'dodici', 'tredici', 'quattordici', 'quindici', 'sedici', 'diciassette', 'diciotto', 'diciannove'];
 const tens = ['', '', 'venti', 'trenta', 'quaranta', 'cinquanta', 'sessanta', 'settanta', 'ottanta', 'novanta'];
@@ -75,9 +75,11 @@ const getLibs = async () => {
     return { jsPDF, autoTable };
 };
 
+// Coordinate griglia millimetrica professionale
+const COL_BOUNDARY_X = [10, 20, 42, 102, 112, 124, 136, 148, 166, 184, 200];
+
 const drawGridLines = (doc: any, startY: number, endY: number) => {
     doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.1);
-    const COL_BOUNDARY_X = [10, 20, 42, 102, 112, 124, 136, 148, 166, 184, 200];
     for (let i = 1; i < COL_BOUNDARY_X.length - 1; i++) { doc.line(COL_BOUNDARY_X[i], startY, COL_BOUNDARY_X[i], endY); }
 };
 
@@ -131,6 +133,9 @@ const drawSignature = (doc: any, projectInfo: ProjectInfo, yPos: number) => {
     return finalY + 30;
 };
 
+// --------------------------------------------------------------------------------
+// 1. COMPUTO METRICO ESTIMATIVO PROFESSIONALE (FOGLIO SROTOLATO)
+// --------------------------------------------------------------------------------
 export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
   try {
     const { jsPDF, autoTable } = await getLibs();
@@ -143,6 +148,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         const catArticles = articles.filter(a => a.categoryCode === cat.code);
         if (catArticles.length === 0) return;
 
+        // WBS header
         tableBody.push([
             { content: '', styles: { isWbs: true } }, 
             { content: '', styles: { isWbs: true } }, 
@@ -155,26 +161,11 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
             const artNum = `${wbsN}.${artIndex + 1}`;
             const isSafety = cat.type === 'safety';
 
-            const imgH_px = art.imageHeight || 140;
-            const imgH_mm = imgH_px / 3.78; 
-            const minRowHeight = art.imageUrl ? Math.max(25, imgH_mm + 15) : 15;
-
             tableBody.push([
-                { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', minCellHeight: minRowHeight } },
-                { content: art.code, styles: { isArt: true, fontStyle: 'bold' } },
-                { content: art.description, styles: { isArt: true, halign: 'justify', fontSize: 8.5, textColor: isSafety ? [220, 100, 0] : [0, 80, 180] } },
-                { 
-                  content: '', 
-                  colSpan: 6, 
-                  styles: { 
-                    imageToDraw: art.imageUrl, 
-                    imgW: art.imageWidth, 
-                    imgH: art.imageHeight, 
-                    offX: art.imagePosX, 
-                    offY: art.imagePosY 
-                  } 
-                },
-                '', '', '', '', '' 
+                { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', cellPadding: { top: 3, bottom: 1 } } },
+                { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
+                { content: art.description, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 4, right: 4, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [220, 100, 0] : [0, 80, 180] } },
+                '', '', '', '', '', '', ''
             ]);
 
             tableBody.push([ '', '', { content: 'ELENCO MISURE:', styles: { fontStyle: 'bold', fontSize: 6.5, textColor: [100, 100, 100], cellPadding: { top: 2, bottom: 1, left: 4 } } }, '', '', '', '', '', '', '' ]);
@@ -230,30 +221,9 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
       },
       headStyles: { fillColor: [245, 245, 245], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.2 }, lineColor: [0,0,0] },
       didDrawCell: (data: any) => {
-          const cellStyles = data.cell.styles as any;
-          if (data.section === 'body' && data.column.index === 3 && cellStyles?.imageToDraw) {
-              const imgUrl = cellStyles.imageToDraw;
-              const userW = cellStyles.imgW || 220;
-              const userH = cellStyles.imgH || 140;
-              const offX_user = cellStyles.offX || 0;
-              const offY_user = cellStyles.offY || 0;
-              
-              const finalW_mm = userW / 3.78;
-              const finalH_mm = userH / 3.78;
-              const offX_mm = offX_user / 3.78;
-              const offY_mm = offY_user / 3.78;
-
-              const posX = data.cell.x + offX_mm;
-              const posY = data.cell.y + 2 + offY_mm;
-              
-              try {
-                doc.addImage(imgUrl, 'JPEG', posX, posY, finalW_mm, finalH_mm, undefined, 'FAST'); 
-                doc.setDrawColor(200, 200, 200); doc.setLineWidth(0.05);
-                doc.rect(posX, posY, finalW_mm, finalH_mm);
-              } catch(e) { console.error("PDF Image Error", e); }
-          }
           if (data.section === 'body' && data.cell.styles.isTotalRow && data.column.index >= 7) {
               doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(data.cell.x, data.cell.y, data.cell.x + data.cell.width, data.cell.y);
+              doc.setLineWidth(0.1); doc.line(data.cell.x, data.cell.y + 0.6, data.cell.x + data.cell.width, data.cell.y + 0.6);
           }
           if (data.section === 'body' && data.column.index === 9) {
               const raw = data.cell.raw;
@@ -278,6 +248,52 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
 
     const afterComputoY = (doc as any).lastAutoTable.finalY;
     drawSignature(doc, projectInfo, afterComputoY);
+
+    // PAGINA RIEPILOGO TECNICO-ECONOMICO
+    doc.addPage();
+    drawHeader(doc, projectInfo, "RIEPILOGO TECNICO-ECONOMICO E DELLA MANODOPERA", 1);
+    
+    const summaryBody: any[] = [];
+    let totNet = 0; let totLab = 0; let totManDays = 0; let totCorpSafe = 0;
+
+    categories.forEach((cat) => {
+        if (!cat.isEnabled) return;
+        const catArts = articles.filter(a => a.categoryCode === cat.code);
+        if (catArts.length === 0) return;
+
+        const net = catArts.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
+        const lab = catArts.reduce((s, a) => s + ((a.quantity * a.unitPrice) * (a.laborRate / 100)), 0);
+        const manDays = lab / 250;
+        const corpSafe = net * 0.15 * 0.04;
+
+        totNet += net; totLab += lab; totManDays += manDays; totCorpSafe += corpSafe;
+
+        summaryBody.push([
+            cat.code, cat.name, formatCurrency(net), formatCurrency(lab), 
+            manDays.toFixed(2), formatCurrency(corpSafe)
+        ]);
+    });
+
+    summaryBody.push([
+        { content: 'TOTALI GENERALI DI PROGETTO', colSpan: 2, styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } },
+        { content: formatCurrency(totNet), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } },
+        { content: formatCurrency(totLab), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } },
+        { content: totManDays.toFixed(2), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } },
+        { content: formatCurrency(totCorpSafe), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }
+    ]);
+
+    autoTable(doc, {
+        head: [['WBS', 'CAPITOLO', 'IMPORTO NETTO', 'MANODOPERA', 'UOMINI G. (250€)', 'SIC. AZIENDALE']],
+        body: summaryBody,
+        startY: 50,
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 3 },
+        headStyles: { fillColor: [40, 60, 100], textColor: [255, 255, 255], fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 15 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'center' }, 5: { halign: 'right' } }
+    });
+
+    drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
+
     const pdfBlob = doc.output('blob'); window.open(URL.createObjectURL(pdfBlob), '_blank');
   } catch (error) { console.error(error); alert("Errore PDF."); }
 };

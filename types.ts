@@ -5,7 +5,7 @@ export interface Category {
   isLocked?: boolean;
   isEnabled?: boolean;
   isImported?: boolean;
-  type?: 'work' | 'safety';
+  type?: 'work' | 'safety'; // Distingue tra capitoli di lavoro e di sicurezza
 }
 
 export interface Measurement {
@@ -35,11 +35,6 @@ export interface Article {
   isLocked?: boolean;
   soaCategory?: string;
   groundingUrls?: any[];
-  imageUrl?: string;
-  imageWidth?: number;
-  imageHeight?: number;
-  imagePosX?: number; // Offset X relativo
-  imagePosY?: number; // Offset Y relativo
 }
 
 export interface AnalysisComponent {
@@ -93,7 +88,7 @@ export interface ProjectInfo {
 export interface Totals {
   totalWorks: number;
   safetyCosts: number;
-  totalSafetyProgettuale: number;
+  totalSafetyProgettuale: number; // Somma analitica dei capitoli sicurezza (S.xx)
   totalTaxable: number;
   vatAmount: number;
   grandTotal: number;
