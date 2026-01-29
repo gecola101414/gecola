@@ -1,5 +1,3 @@
-
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { 
   Plus, Trash2, Calculator, FolderOpen, XCircle, ArrowRight, Settings, 
   PlusCircle, MinusCircle, HelpCircle, Sparkles, AlignLeft, Link as LinkIcon, 
@@ -10,6 +8,7 @@ import {
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
   Zap, CornerRightDown, ListFilter, EyeOff
 } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
 import { auth, db } from './firebase';
@@ -173,7 +172,7 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn, tariffWidth }) 
     <tr>
       <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N..</th>
       <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '135px' }}>Tariffa</th>
-      <th className={`py-2.5 px-1 text-left min-w-[200px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
+      <th className={`py-2.5 px-1 text-left min-w-[170px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung.</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Larg.</th>
@@ -619,15 +618,15 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                   </div>
                )}
             </td>
-            <td className="p-2 border-r border-gray-200 bg-white">
+            <td className="p-1 border-r border-gray-200 bg-white">
                {isPrintMode || isCompactView ? (
-                 <p className={`leading-relaxed font-serif text-justify px-1 whitespace-pre-wrap ${isCompactView ? 'line-clamp-2' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
+                 <p className={`leading-relaxed font-serif text-justify px-0.5 whitespace-pre-wrap ${isCompactView ? 'line-clamp-2' : ''} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}</p>
                ) : (
                  <textarea 
                     readOnly
                     value={article.description}
                     rows={isArticleLocked ? 2 : 4}
-                    className={`w-full font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-1 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`}
+                    className={`w-full font-serif text-justify border-none focus:ring-0 bg-transparent resize-y p-0.5 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-600' : 'text-blue-700'}`}
                     style={{ fontSize: `${descFontSize}px` }}
                     placeholder="Descrizione..."
                     disabled={true}
@@ -680,8 +679,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            <>
             <tr className="bg-gray-50/50 border-b border-gray-100">
                 <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
-                <td className="px-3 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center gap-4">
-                    <span>MISURE</span>
+                <td className="px-1.5 py-1 text-[9px] font-black text-blue-600 uppercase tracking-widest border-r border-gray-200 bg-white/50 flex items-center gap-2">
+                    <span className="font-black">ELENCO MISURE:</span>
                     <div className="flex items-center gap-2">
                         <button onClick={() => onOpenPaintingCalculator(article.id)} className="text-gray-400 hover:text-blue-600 p-1 rounded transition-colors" title="Calcolo Automatico Pitturazioni"><Paintbrush className="w-4 h-4" /></button>
                         <button onClick={() => onOpenRebarCalculator(article.id)} className="text-gray-400 hover:text-orange-600 p-1 rounded transition-colors" title="Calcolo Ferri d'Armatura"><Grid3X3 className="w-4 h-4" /></button>
@@ -712,7 +711,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                             </div>
                         )}
                     </td>
-                    <td className="pl-6 pr-2 py-1 border-r border-gray-200 relative">
+                    <td className="pl-3 pr-1 py-1 border-r border-gray-200 relative">
                         {isSubtotal ? <div className="italic text-gray-600 text-right pr-2">Sommano parziale</div> : (
                             <>
                                 <div className="absolute left-0 top-1/2 w-4 h-[1px] bg-gray-300"></div>
@@ -735,7 +734,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                           onBlur={() => onColumnFocus(null)} 
                                           onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} 
                                           onKeyDown={handleArrowNavigation}
-                                          className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300 font-black' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id || (isVoiceFocused && activeAutomationFieldIndex === 0) ? 'recording-feedback bg-purple-50 ring-2 ring-purple-600' : ''}`} 
+                                          className={`w-full bg-transparent border-none p-0 focus:ring-0 ${m.type === 'deduction' ? 'text-red-600 placeholder-red-300' : 'placeholder-gray-300'} disabled:cursor-not-allowed ${recordingMeasId === m.id || (isVoiceFocused && activeAutomationFieldIndex === 0) ? 'recording-feedback bg-purple-50 ring-2 ring-purple-600' : ''}`} 
                                           style={{ fontSize: `${numFontSize}px` }}
                                           placeholder={m.type === 'deduction' ? "A dedurre..." : "Descrizione misura..."} 
                                           disabled={areControlsDisabled}
@@ -956,6 +955,12 @@ const App: React.FC = () => {
         return acc + (art.quantity * art.unitPrice);
     }, 0);
 
+    const totalLabor = articles.reduce((acc, art) => {
+        const cat = categories.find(c => c.code === art.categoryCode);
+        if (cat && cat.isEnabled === false) return acc;
+        return acc + ((art.quantity * art.unitPrice) * (art.laborRate / 100));
+    }, 0);
+
     const totalSafetyProgettuale = articles.reduce((acc, art) => {
         const cat = categories.find(c => c.code === art.categoryCode);
         if (cat && (cat.isEnabled === false || cat.type !== 'safety')) return acc;
@@ -967,7 +972,7 @@ const App: React.FC = () => {
     const vatAmount = totalTaxable * (projectInfo.vatRate / 100);
     const grandTotal = totalTaxable + vatAmount;
     
-    return { totalWorks, safetyCosts, totalSafetyProgettuale, totalTaxable, vatAmount, grandTotal };
+    return { totalWorks, totalLabor, safetyCosts, totalSafetyProgettuale, totalTaxable, vatAmount, grandTotal };
   }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
 
   const generateNextWbsCode = (currentCats: Category[]) => {
@@ -1154,7 +1159,6 @@ const App: React.FC = () => {
       e.dataTransfer.dropEffect = 'copy'; 
       
       if (isDraggingArticle) {
-          // Mantieni attiva la WBS origine
           if (wbsDropTarget?.code !== targetCode || wbsDropTarget?.position !== 'inside') {
               setWbsDropTarget({ code: targetCode, position: 'inside' });
           }
@@ -1553,12 +1557,9 @@ const App: React.FC = () => {
                         </div>
                     )}
                     {!isVisitor && (
-                        <div className="flex flex-col items-center">
-                            <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1 rounded-t-xl border border-slate-700 text-white font-bold text-xs cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
-                                {isAutoSaving && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></span>}
-                                <span className="truncate max-w-[200px]">{projectInfo.title}</span>
-                            </div>
-                            <div className="bg-slate-900 px-3 py-0.5 rounded-b-lg border-x border-b border-slate-700 text-[8px] font-black uppercase text-slate-500 tracking-tighter">Operatore: {typeof user === 'object' ? user?.email : 'Visitatore'}</div>
+                        <div className="flex items-center gap-2 bg-slate-800/50 px-4 py-1 rounded-t-xl border border-slate-700 text-white font-bold text-xs cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setIsSettingsModalOpen(true)}>
+                            {isAutoSaving && <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse mr-1"></span>}
+                            <span className="truncate max-w-[200px]">{projectInfo.title}</span>
                         </div>
                     )}
                     <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
@@ -1597,22 +1598,22 @@ const App: React.FC = () => {
           )}
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
-                <div className="w-[17rem] bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
-                <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
-                    <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg ring-1 ring-blue-700' : 'text-slate-500 hover:bg-blue-50 hover:text-blue-600'}`}>
+                <div className="w-[17rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-lg">
+                <div className="p-3 bg-slate-300/40 border-b border-slate-400 flex gap-1">
+                    <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg ring-1 ring-blue-700' : 'text-slate-600 hover:bg-white hover:text-blue-600 shadow-sm border border-slate-300'}`}>
                       <HardHat className="w-3.5 h-3.5" /> Lavori
                     </button>
-                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-500 hover:bg-blue-50 hover:text-orange-600'}`}>
+                    <button onClick={() => setViewMode('SICUREZZA')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg ring-1 ring-orange-600' : 'text-slate-600 hover:bg-white hover:text-orange-600 shadow-sm border border-slate-300'}`}>
                       <ShieldAlert className="w-3.5 h-3.5" /> Sicurezza
                     </button>
-                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-500 hover:bg-blue-50 hover:text-purple-600'}`}>
+                    <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg ring-1 ring-purple-700' : 'text-slate-600 hover:bg-white hover:text-purple-600 shadow-sm border border-slate-300'}`}>
                       <TestTubes className="w-3.5 h-3.5" /> Analisi
                     </button>
                 </div>
-                <div className={`flex-1 overflow-y-auto transition-colors duration-500 ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20' : 'bg-white'}`} onDrop={(e) => handleWbsDrop(e, null)}>
+                <div className={`flex-1 overflow-y-auto transition-colors duration-500 ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20' : 'bg-transparent'}`} onDrop={(e) => handleWbsDrop(e, null)}>
                     {viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' ? (
                         <>
-                        <div className={`p-3 border-b text-[9px] font-bold uppercase flex justify-between items-center tracking-widest sticky top-0 z-30 shadow-sm ${viewMode === 'SICUREZZA' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                        <div className={`p-3 border-b text-[9px] font-bold uppercase flex justify-between items-center tracking-widest sticky top-0 z-30 shadow-sm backdrop-blur-md ${viewMode === 'SICUREZZA' ? 'bg-orange-50 border-orange-200 text-orange-800' : 'bg-white border-slate-200 text-slate-500'}`}>
                             <div className="flex items-center gap-2">
                                 <span>Indice {viewMode === 'SICUREZZA' ? 'Sicurezza' : 'WBS'}</span>
                                 <button 
@@ -1623,34 +1624,38 @@ const App: React.FC = () => {
                                     {categories.some(c => c.isEnabled !== false) ? <Lightbulb className="w-5 h-5" /> : <LightbulbOff className="w-5 h-5" />}
                                 </button>
                             </div>
-                            <PlusCircle className={`w-4 h-4 cursor-pointer hover:scale-110 transition-transform ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`} onClick={handleAddCategory}/>
+                            <PlusCircle className={`w-6 h-6 cursor-pointer hover:scale-110 transition-transform ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`} onClick={handleAddCategory}/>
                         </div>
-                        <ul className="p-2 space-y-2">
+                        
+                        <div className="h-[30px] w-full pointer-events-none"></div>
+
+                        <ul className="p-3 space-y-4">
                             {filteredCategories.map(cat => {
+                            const isSelected = selectedCategoryCode === cat.code;
                             const isInsideDropTarget = wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside';
                             return (
                             <li key={cat.code} className={`relative transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDragLeave={handleWbsDragLeave} onDrop={(e) => handleWbsDrop(e, cat.code)}>
                                 {wbsDropTarget?.code === cat.code && wbsDropTarget.position !== 'inside' && <div className={`absolute ${wbsDropTarget.position === 'top' ? 'top-0' : 'bottom-0'} left-0 right-0 h-1 bg-green-500 z-50 shadow-[0_0_10px_rgba(34,197,94,0.8)] pointer-events-none`} />}
                                 <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(cat.code)}>
-                                    <div className={`w-full text-left rounded-xl border-2 transition-all flex flex-col relative overflow-hidden min-h-[120px] ${isInsideDropTarget ? 'border-green-500 ring-4 ring-green-100 bg-green-50 shadow-xl scale-[1.05]' : (selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-50 border-orange-600 shadow-md scale-[1.02]' : 'bg-blue-50 border-blue-700 shadow-md scale-[1.02]') : 'bg-white border-slate-200 hover:border-slate-400 hover:shadow-sm')}`}>
-                                        <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-1 opacity-0 group-hover/wbsrow:opacity-100 transition-all duration-200 bg-white/95 border-r border-slate-200 z-[100] shadow-sm">
+                                    <div className={`w-full text-left rounded-2xl border transition-all flex flex-col relative overflow-hidden min-h-[110px] shadow-lg ${isInsideDropTarget ? 'border-green-500 ring-4 ring-green-100 bg-green-50 scale-[1.05]' : (isSelected ? (viewMode === 'SICUREZZA' ? 'bg-white border-orange-600 border-l-[8px] shadow-2xl scale-[1.03]' : 'bg-white border-blue-700 border-l-[8px] shadow-2xl scale-[1.03]') : 'bg-slate-50 border-slate-300 hover:bg-white hover:border-slate-400 hover:-translate-y-1')}`}>
+                                        <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-1 opacity-0 group-hover/wbsrow:opacity-100 transition-all duration-200 bg-white/95 border-r border-slate-100 z-[100] shadow-sm">
                                             <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isEnabled: !c.isEnabled} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-blue-500 rounded transition-colors" title="Abilita/Disabilita">{cat.isEnabled ? <Lightbulb className="w-3.5 h-3.5" /> : <LightbulbOff className="w-3.5 h-3.5" />}</button>
                                             <button onClick={(e) => { e.stopPropagation(); const newCats = categories.map(c => c.code === cat.code ? {...c, isLocked: !c.isLocked} : c); setCategories(newCats); }} className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="Blocca/Sblocca">{cat.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}</button>
-                                            <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 rounded transition-colors" title="Duplica"><Copy className="w-3.5 h-3.5" /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); setWbsOptionsContext({ type: 'duplicate', sourceCode: cat.code, initialName: cat.name }); }} className="p-1 text-gray-400 hover:text-orange-500 rounded transition-colors" title="Duplica">{cat.isLocked ? <Copy className="w-3.5 h-3.5 opacity-30"/> : <Copy className="w-3.5 h-3.5" />}</button>
                                             <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1 text-gray-400 hover:text-green-600 rounded transition-colors" title="Rinomina">{cat.isLocked ? <Settings className="w-3.5 h-3.5 opacity-30"/> : <Edit2 className="w-3.5 h-3.5" />}</button>
                                             <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 text-gray-400 hover:text-red-600 rounded transition-colors" title="Elimina">{cat.isLocked ? <Trash2 className="w-3.5 h-3.5 opacity-30"/> : <Trash2 className="w-3.5 h-3.5" />}</button>
                                         </div>
                                         
-                                        <div className="p-3 pl-10 h-full flex flex-col justify-between">
+                                        <div className="p-4 pl-10 h-full flex flex-col justify-between">
                                             <div>
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className={`text-[10px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm transition-all ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white' : 'bg-blue-700 text-white') : 'bg-slate-100 text-slate-500'}`}>{cat.code}</span>
-                                                    {cat.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <span className={`text-[10px] font-black font-mono px-2 py-0.5 rounded shadow-sm transition-all ${isSelected ? (viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white' : 'bg-blue-700 text-white') : 'bg-slate-300 text-slate-700'}`}>{cat.code}</span>
+                                                    {cat.isLocked && <Lock className="w-3.5 h-3.5 text-red-600 animate-pulse" />}
                                                 </div>
-                                                <span className={`font-black block whitespace-normal uppercase leading-tight tracking-tight text-[11px] ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900') : 'text-slate-700'}`}>{cat.name}</span>
+                                                <span className={`font-black block whitespace-normal uppercase leading-tight tracking-tight text-[12px] ${isSelected ? (viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900') : 'text-slate-700'}`}>{cat.name}</span>
                                             </div>
-                                            <div className="mt-auto pt-2">
-                                                <span className={`font-mono font-black text-base ${selectedCategoryCode === cat.code ? (viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700') : 'text-slate-400'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+                                            <div className="mt-auto pt-3 border-t border-slate-100/50">
+                                                <span className={`font-mono font-black text-lg ${isSelected ? (viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700') : 'text-slate-500'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1658,25 +1663,25 @@ const App: React.FC = () => {
                             </li>
                             )})}
                         </ul>
-                        <div className="mt-auto p-3 border-t border-gray-300 bg-slate-100 sticky bottom-0 z-20 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
-                            <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-2.5 rounded-xl text-[9px] font-black uppercase transition-all mb-2 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 shadow-sm'}`}><Layers className="w-3.5 h-3.5 mr-1.5" /> Riepilogo</button>
-                            <div className="px-2 py-2 bg-white rounded-xl border border-indigo-100 text-center"><span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Valore Netto</span><span className="font-mono font-black text-indigo-700 text-lg">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span></div>
+                        <div className="mt-auto p-3 border-t border-slate-400 bg-white/90 backdrop-blur-lg sticky bottom-0 z-20 shadow-[0_-10px_25px_rgba(0,0,0,0.15)]">
+                            <button onClick={() => setSelectedCategoryCode('SUMMARY')} className={`w-full flex items-center p-3 rounded-2xl text-[10px] font-black uppercase transition-all mb-3 ${selectedCategoryCode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-200' : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-300 shadow-sm'}`}><Layers className="w-4 h-4 mr-2" /> Riepilogo Generale</button>
+                            <div className="px-4 py-3 bg-white rounded-2xl border-2 border-indigo-100 text-center shadow-inner"><span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Valore Netto Progetto</span><span className="font-mono font-black text-indigo-700 text-xl">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span></div>
                         </div>
                         </>
                     ) : (
-                        <div className="p-2 space-y-2">
-                            <div className="p-1 bg-white border-b border-gray-200"><input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs outline-none focus:ring-1 focus:ring-purple-400" /></div>
+                        <div className="p-3 space-y-3">
+                            <div className="p-1 bg-white border-b border-gray-200"><input type="text" placeholder="Cerca Analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-purple-400" /></div>
                             {filteredAnalyses.map(analysis => (
-                                <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-3 rounded border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}>
-                                    <div className="flex justify-between mb-1"><span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">{analysis.isLocked && <Lock className="w-2.5 h-2.5" />}{analysis.code}</span><span className="font-bold text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span></div>
-                                    <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight">{analysis.description}</p>
-                                    <div className="flex justify-between items-center mt-2 border-t pt-2">
+                                <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className={`bg-white p-4 rounded-2xl border shadow-sm transition-all group/acard ${analysis.isLocked ? 'border-purple-200 grayscale-[0.3]' : 'border-transparent hover:border-purple-400 hover:shadow-2xl hover:-translate-y-1'}`}>
+                                    <div className="flex justify-between mb-1.5"><span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-2 py-0.5 rounded-lg flex items-center gap-1">{analysis.isLocked && <Lock className="w-2.5 h-2.5" />}{analysis.code}</span><span className="font-black text-gray-800 text-xs">{formatCurrency(analysis.totalUnitPrice)}</span></div>
+                                    <p className="text-[10px] text-gray-600 line-clamp-2 leading-tight font-medium">{analysis.description}</p>
+                                    <div className="flex justify-between items-center mt-3 border-t border-slate-50 pt-2.5">
                                         <div className="flex items-center gap-1 opacity-0 group-hover/acard:opacity-100 transition-opacity">
-                                            <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1 rounded transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button>
-                                            <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded"><Edit2 className="w-4 h-4" /></button>
-                                            <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 text-gray-400 hover:text-red-600 bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
+                                            <button onClick={() => handleToggleAnalysisLock(analysis.id)} className={`p-1.5 rounded-lg transition-colors ${analysis.isLocked ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button>
+                                            <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg"><Edit2 className="w-4 h-4" /></button>
+                                            <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1.5 text-gray-400 hover:text-red-600 bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                                         </div>
-                                        <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1 text-purple-400 hover:bg-purple-600 hover:text-white rounded border border-purple-100 shadow-sm" title="Usa nel computo"><ArrowRightLeft className="w-3.5 h-3.5" /></button>
+                                        <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-1.5 text-purple-400 hover:bg-purple-600 hover:text-white rounded-lg border border-purple-100 shadow-sm transition-all" title="Usa nel computo"><ArrowRightLeft className="w-4 h-4" /></button>
                                     </div>
                                 </div>
                             ))}
@@ -1685,14 +1690,16 @@ const App: React.FC = () => {
                 </div>
                 </div>
             )}
-            <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'px-10 py-4' : 'p-5 gap-4'} relative`}>
+            <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
                {isFocusMode && (
                   <div style={{ left: toolbarPos.x, top: toolbarPos.y }} className="fixed z-[300] flex items-center gap-3 bg-slate-900/10 hover:bg-slate-900/90 backdrop-blur-sm hover:backdrop-blur-md border border-slate-700/30 hover:border-slate-600 p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in slide-in-from-top-4 duration-500 group select-none opacity-20 hover:opacity-100 transition-all">
                     <div onMouseDown={handleToolbarMouseDown} className="p-2 cursor-move text-slate-500 hover:text-blue-400 transition-colors" title="Trascina per spostare"><GripHorizontal className="w-5 h-5" /></div>
                     <div className="flex items-center gap-4 pr-3 mr-1 ml-1">
-                        <div className="flex flex-col">
-                            <span className="text-[12px] font-black text-white/90 uppercase tracking-tighter max-w-[250px] whitespace-normal leading-tight mb-1">{activeCategory?.code} - {activeCategory?.name}</span>
-                            <span className="text-lg font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
+                        <div className="flex items-center gap-2">
+                             <div className="flex flex-col">
+                                <span className="text-[12px] font-black text-white/90 uppercase tracking-tighter max-w-[250px] whitespace-normal leading-tight mb-1">{activeCategory?.code} - {activeCategory?.name}</span>
+                                <span className="text-lg font-black text-orange-400 font-mono tracking-tighter leading-none">{formatCurrency(categoryTotals[activeCategory?.code || ''] || 0)}</span>
+                            </div>
                         </div>
                         <div className="h-6 w-[1.5px] bg-slate-700"></div>
                         <button onClick={() => { setActiveCategoryForAi(activeCategory?.code || null); setIsImportAnalysisModalOpen(true); }} className={`px-4 py-2 rounded-xl font-black uppercase text-[10px] flex items-center gap-2 shadow-lg transition-all active:scale-95 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 hover:bg-orange-500' : 'bg-blue-600 hover:bg-blue-500'} text-white`}><Plus className="w-4 h-4" /> Aggiungi Voce</button>
@@ -1704,13 +1711,11 @@ const App: React.FC = () => {
                  <button onClick={handleReturnToArticle} className="fixed bottom-12 right-12 z-[250] flex items-center gap-3 bg-blue-600/30 hover:bg-blue-600 backdrop-blur-lg border border-blue-500/40 text-blue-100 px-6 py-4 rounded-[2rem] shadow-2xl transition-all hover:scale-105 active:scale-95 group animate-in slide-in-from-bottom-8 duration-500"><ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" /><div className="text-left"><span className="block text-[8px] font-black uppercase tracking-widest opacity-60">Navigazione Circolare</span><span className="block text-xs font-black uppercase">Torna alla voce di lavoro</span></div></button>
                )}
                {activeCategory && selectedCategoryCode !== 'SUMMARY' && (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && !isFocusMode && (
-                   <div className={`flex items-center justify-between p-5 bg-white rounded-2xl border-2 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 transition-all ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
+                   <div className={`flex items-center justify-between p-5 bg-slate-50 rounded-2xl border-2 shadow-sm animate-in slide-in-from-top-2 duration-300 z-30 transition-all ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
                         <div className="flex items-center gap-5">
                              <button onClick={() => setIsFocusMode(true)} className="p-3 rounded-xl bg-[#2c3e50] text-white hover:bg-blue-600 shadow-lg transition-all transform active:scale-95 group relative" title="Attiva Focus Mode (Tutto Schermo)"><Maximize2 className="w-5 h-5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[8px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap">Schermo Intero</span></button>
                              <div className="flex flex-col items-center">
                                 <div className={`px-4 py-2.5 rounded-xl border-2 font-black text-2xl shadow-inner transition-colors ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white border-orange-700' : 'bg-blue-700 text-white border-blue-800'}`}>{activeCategory.code}</div>
-                                
-                                {/* NUOVI CONTROLLI WBS SOTTO IL CODICE */}
                                 <div className="mt-2 flex flex-col items-center">
                                   <div className="flex items-center gap-2">
                                       <button 

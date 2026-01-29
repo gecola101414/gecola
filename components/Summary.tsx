@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Totals, ProjectInfo, Category, Article } from '../types';
 import { SOA_CATEGORIES } from '../constants';
-import { Layers, Award, CheckCircle2, AlertTriangle, Calculator, FileText, ShieldAlert } from 'lucide-react';
+import { Layers, Award, CheckCircle2, AlertTriangle, Calculator, FileText, ShieldAlert, Users } from 'lucide-react';
 
 interface SummaryProps {
   totals: Totals;
@@ -48,6 +48,9 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
   const totalAnalyzed = soaBreakdown.reduce((s, i) => s + i.amount, 0);
   const totalWbs = wbsBreakdown.reduce((s, i) => s + i.total, 0);
   const isBalanced = Math.abs(totalWbs - totalAnalyzed) < 0.01;
+
+  // Calcolo Uomini Giorno (240€/giorno)
+  const manDaysCount = Math.ceil((totals.totalLabor || 0) / 240);
 
   return (
     <div className="space-y-8 pb-20 animate-in fade-in duration-500">
@@ -102,11 +105,64 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
           </div>
       </div>
 
-      <div className="bg-white p-8 shadow-lg rounded-xl border border-blue-100 mt-8 flex flex-col items-end">
-          <div className="w-full max-w-md space-y-3">
-              <div className="flex justify-between text-gray-600 font-bold"><span>Totale Opere (Solo Lavori)</span><span className="font-mono text-blue-700 text-xl">{formatCurrency(totals.totalWorks)}</span></div>
-              <div className="pt-4 flex flex-col items-end border-t border-slate-100">
-                  <p className="text-[10px] text-gray-400 text-right uppercase tracking-tighter italic">La quota sicurezza di cantiere (analitica o percentuale) verrà esposta separatamente nel Quadro Economico finale.</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+          <div className="bg-white p-8 shadow-lg rounded-xl border border-blue-100 flex flex-col justify-center">
+              <div className="flex items-center gap-4 mb-6 border-b border-slate-50 pb-4">
+                  <div className="bg-blue-600 p-2 rounded-xl"><Calculator className="w-6 h-6 text-white" /></div>
+                  <h3 className="font-black text-slate-800 uppercase tracking-tighter text-lg">Quadro Economico</h3>
+              </div>
+              <div className="space-y-4">
+                  <div className="flex justify-between text-gray-600 font-bold border-b border-gray-50 pb-2">
+                      <span>Totale Opere (Lavori netti)</span>
+                      <span className="font-mono text-blue-700 text-lg">{formatCurrency(totals.totalWorks)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 font-medium text-sm">
+                      <span>Oneri Sicurezza PSC</span>
+                      <span className="font-mono">{formatCurrency(totals.safetyCosts)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 font-medium text-sm border-b border-gray-50 pb-2">
+                      <span>IVA di Progetto ({info.vatRate}%)</span>
+                      <span className="font-mono">{formatCurrency(totals.vatAmount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
+                      <span className="font-black text-blue-900 uppercase text-xs tracking-widest">Totale Generale</span>
+                      <span className="font-mono text-2xl font-black text-blue-700">{formatCurrency(totals.grandTotal)}</span>
+                  </div>
+              </div>
+          </div>
+
+          <div className="bg-white p-8 shadow-lg rounded-xl border border-orange-100 flex flex-col justify-center relative overflow-hidden group">
+              <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:scale-110 transition-transform duration-700">
+                  <Users className="w-32 h-32 text-orange-600" />
+              </div>
+              <div className="flex items-center gap-4 mb-6 border-b border-slate-50 pb-4">
+                  <div className="bg-orange-500 p-2 rounded-xl"><Users className="w-6 h-6 text-white" /></div>
+                  <h3 className="font-black text-slate-800 uppercase tracking-tighter text-lg">Stima Manodopera</h3>
+              </div>
+              <div className="space-y-5">
+                  <div className="flex justify-between items-center text-gray-600 font-bold">
+                      <div className="flex flex-col">
+                          <span className="text-xs uppercase tracking-widest text-slate-400">Importo Totale</span>
+                          <span className="text-base">Incidenza Manodopera</span>
+                      </div>
+                      <span className="font-mono text-orange-700 text-xl">{formatCurrency(totals.totalLabor)}</span>
+                  </div>
+                  
+                  <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100 relative z-10">
+                      <div className="flex justify-between items-center">
+                          <div>
+                              <span className="block font-black text-orange-900 uppercase text-[10px] tracking-[0.2em] mb-1">Parametro Uomini-Giorno</span>
+                              <p className="text-[9px] text-orange-600 font-bold italic">Basato su costo standard di 240,00 €/giorno</p>
+                          </div>
+                          <div className="text-right">
+                              <span className="block font-mono text-4xl font-black text-orange-600 leading-none">{manDaysCount}</span>
+                              <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest">GG LAVORATIVI</span>
+                          </div>
+                      </div>
+                  </div>
+                  <p className="text-[8px] text-gray-400 uppercase leading-relaxed text-justify">
+                      Il calcolo degli uomini-giorno è un valore puramente indicativo utile alla redazione del Cronoprogramma dei Lavori. Rappresenta il numero teorico di giornate lavorative necessarie ad una singola unità per completare l'opera.
+                  </p>
               </div>
           </div>
       </div>

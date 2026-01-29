@@ -1,4 +1,3 @@
-
 export interface Category {
   code: string;
   name: string;
@@ -87,6 +86,7 @@ export interface ProjectInfo {
 
 export interface Totals {
   totalWorks: number;
+  totalLabor: number; // Aggiunto per calcolo uomini-giorno
   safetyCosts: number;
   totalSafetyProgettuale: number; // Somma analitica dei capitoli sicurezza (S.xx)
   totalTaxable: number;
