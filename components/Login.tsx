@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, CheckCircle2, Phone, Mail, TrendingUp, ExternalLink, Handshake, Users } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
@@ -12,9 +12,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,17 +22,12 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
     }
     setLoading(true);
     setError('');
-    setSuccess('');
     
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: any) {
       console.error(err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-          setError('Email o password non validi.');
-      } else {
-          setError('Errore di accesso. Riprova.');
-      }
+      setError('Credenziali non valide.');
     } finally {
       setLoading(false);
     }
@@ -46,71 +39,63 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
       return;
     }
     if (!auth) return;
-    setResetLoading(true);
-    setError('');
-    setSuccess('');
     try {
       await sendPasswordResetEmail(auth, email);
-      setSuccess('Email di ripristino inviata!');
+      alert('Email di ripristino inviata!');
     } catch (err: any) {
-      setError('Impossibile inviare l\'email di ripristino.');
-    } finally {
-      setResetLoading(false);
+      setError('Impossibile inviare l\'email.');
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1e293b] px-4 py-6">
-      <div className="max-w-6xl w-full bg-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col md:flex-row border border-slate-700 h-[92vh]">
+    <div className="min-h-screen flex items-center justify-center bg-[#1e293b] p-4 overflow-hidden">
+      <div className="max-w-7xl w-full bg-white rounded-[3rem] shadow-[0_40px_120px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col md:flex-row h-[90vh] border border-slate-700">
         
-        {/* LATO SINISTRO: LOGIN (TOP) + PARTNER SITE (BOTTOM) */}
+        {/* LATO SINISTRO: LOGIN (TOP) + ANIMAZIONE AI (BOTTOM) */}
         <div className="flex-1 flex flex-col overflow-hidden bg-white">
           
-          {/* AREA LOGIN COMPATTA IN ALTO */}
-          <div className="p-8 pb-4">
-            <div className="flex items-center justify-between mb-6">
+          {/* AREA LOGIN SUPERIORE */}
+          <div className="p-8 pb-4 shrink-0">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-6">
               <div className="flex items-center gap-3">
                 <div className="bg-orange-500 p-2 rounded-xl shadow-lg">
-                    <Calculator className="w-6 h-6 text-white" />
+                    <Calculator className="w-7 h-7 text-white" />
                 </div>
-                <h1 className="text-2xl font-black text-slate-800 tracking-tight uppercase">GeCoLa <span className="text-orange-500">Cloud</span></h1>
+                <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-none">
+                  GeCoLa <span className="text-orange-500">Cloud</span>
+                </h1>
               </div>
-              <div className="text-right">
-                <h2 className="text-sm font-black text-slate-800 uppercase tracking-tighter">Accesso Professionale</h2>
-                <p className="text-slate-400 text-[10px] font-bold uppercase">Software di Estimazione v11.9</p>
+              
+              <div className="text-right hidden lg:block">
+                <h2 className="text-xs font-black text-slate-800 uppercase tracking-tighter">Accesso Professionale</h2>
+                <p className="text-slate-400 text-[9px] font-bold uppercase">Engineering System v12.0</p>
               </div>
             </div>
 
             <form onSubmit={handleLogin} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
               <div className="md:col-span-4">
-                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 ml-1">Email Aziendale</label>
+                <label className="block text-[9px] font-black uppercase text-slate-400 mb-1 ml-1 tracking-widest">Email Aziendale</label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-xs bg-slate-50 font-bold"
+                  className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-100 focus:border-blue-500 outline-none transition-all text-sm bg-slate-50 font-bold text-slate-700 shadow-inner"
                   placeholder="email@azienda.it"
                 />
               </div>
 
               <div className="md:col-span-4">
                 <div className="flex justify-between items-center mb-1">
-                  <label className="block text-[9px] font-black uppercase text-slate-400 ml-1">Password</label>
-                  <button 
-                    type="button" 
-                    onClick={handleForgotPassword}
-                    className="text-[8px] font-black text-slate-400 hover:text-orange-600 uppercase tracking-tighter"
-                  >
-                    Recupera
-                  </button>
+                  <label className="block text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest">Password</label>
+                  <button type="button" onClick={handleForgotPassword} className="text-[8px] font-bold text-blue-600 hover:underline uppercase">Recupera</button>
                 </div>
                 <input
                   type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all text-xs bg-slate-50 font-bold"
+                  className="w-full px-4 py-2.5 rounded-xl border-2 border-slate-100 focus:border-blue-500 outline-none transition-all text-sm bg-slate-50 font-bold text-slate-700 shadow-inner"
                   placeholder="••••••••"
                 />
               </div>
@@ -119,129 +104,146 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-[#2c3e50] hover:bg-[#1e293b] text-white font-black py-2.5 px-4 rounded-xl shadow-lg transform transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-70 uppercase text-[10px] tracking-widest"
+                  className="w-full bg-[#2c3e50] hover:bg-[#1e293b] text-white font-black py-3 px-6 rounded-xl shadow-xl transform transition-all active:scale-95 flex items-center justify-center gap-3 uppercase text-xs tracking-widest"
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Lock className="w-3.5 h-3.5" /> Entra nel Progetto</>}
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Lock className="w-4 h-4" /> Entra nel Progetto</>}
                 </button>
               </div>
-              
-              {error && (
-                <div className="col-span-12 bg-red-50 text-red-700 px-4 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 animate-in slide-in-from-top-1">
-                  <AlertCircle className="w-3 h-3" /> {error}
-                </div>
-              )}
             </form>
+            {error && (
+                <div className="mt-2 bg-red-50 text-red-700 px-4 py-1.5 rounded-lg text-[10px] font-bold flex items-center gap-2 border border-red-100 animate-in fade-in slide-in-from-top-1">
+                    <AlertCircle className="w-3.5 h-3.5" /> {error}
+                </div>
+            )}
           </div>
 
-          {/* AREA PARTNER A TUTTA AREA IN BASSO */}
-          <div className="flex-1 mt-4 relative bg-slate-900 overflow-hidden border-t border-slate-200 group">
-             <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-white/10 to-transparent z-20 pointer-events-none"></div>
-             
-             <iframe 
-                src="https://www.mapei.com/it/it/home-page" 
-                className="w-full h-full border-none pointer-events-auto"
-                title="Partner Mapei Full Layout"
-              />
-
-              <div className="absolute top-4 left-6 z-30 flex items-center gap-2 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full border border-slate-200 shadow-xl">
-                <TrendingUp className="w-3.5 h-3.5 text-orange-600 animate-pulse" />
-                <span className="text-[8px] font-black uppercase text-slate-800 tracking-widest">Sito Partner Consigliato</span>
+          {/* AREA ANIMAZIONE AI - NEURAL DATA FLOW (SOSTITUISCE IMMAGINE) */}
+          <div className="flex-1 relative bg-slate-950 overflow-hidden border-t border-slate-800">
+              {/* Background Grid */}
+              <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#1e293b 1px, transparent 1px), linear-gradient(90deg, #1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
+              
+              {/* Animazione Nodi Pulsanti */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="relative">
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-600/10 blur-[100px] animate-pulse"></div>
+                      <Cpu className="w-32 h-32 text-blue-500/20 animate-spin-slow" />
+                      <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+                          <Activity className="w-16 h-16 text-blue-400 animate-pulse" />
+                      </div>
+                  </div>
               </div>
 
-              <a 
-                href="https://www.mapei.com/it/it/home-page" 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="absolute inset-0 z-10 bg-transparent flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/10 backdrop-blur-[1px]"
-              >
-                <div className="bg-white text-slate-900 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-2xl transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 hover:scale-105 border-2 border-orange-500">
-                    Sito Ufficiale Mapei <ExternalLink className="w-4 h-4 text-orange-500" />
-                </div>
-              </a>
+              {/* Data Streams (Righi di computo che scorrono) */}
+              <div className="absolute top-0 left-10 bottom-0 w-64 opacity-30 select-none overflow-hidden flex flex-col justify-center gap-2 font-mono text-[8px] text-blue-400/50 italic">
+                  {[...Array(15)].map((_, i) => (
+                      <div key={i} className={`whitespace-nowrap animate-slide-left`} style={{ animationDelay: `${i * 0.5}s`, animationDuration: '10s' }}>
+                        WBS.{String(i+1).padStart(2,'0')} - ANALISI PREZZO UNITARIO - CALCOLO VOLUMI IN CORSO... 125,45 mc x 142,50 €
+                      </div>
+                  ))}
+              </div>
+
+              {/* Scanning Laser Line */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500/50 to-transparent animate-scan z-10 shadow-[0_0_20px_rgba(59,130,246,0.5)]"></div>
+
+              {/* Badge Informativo in basso */}
+              <div className="absolute bottom-8 left-10 z-20 space-y-3">
+                 <div className="inline-flex items-center gap-2 bg-blue-600 px-4 py-1.5 rounded-full border border-blue-400 shadow-2xl animate-in slide-in-from-bottom-4">
+                    <Sparkles className="w-3 h-3 text-yellow-300" />
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white">GeCoLa AI Engine Active</span>
+                 </div>
+                 <h2 className="text-3xl font-black text-white italic tracking-tighter leading-none drop-shadow-2xl">
+                    L'intelligenza al servizio<br/>
+                    <span className="text-blue-400">del computo moderno.</span>
+                 </h2>
+              </div>
           </div>
         </div>
 
-        {/* LATO DESTRO: SIDEBAR INFO E TASTO VISITATORE */}
-        <div className="w-full md:w-96 bg-slate-50 p-8 border-l border-slate-200 flex flex-col shadow-inner">
+        {/* LATO DESTRO: SIDEBAR (INFO + VISITATORE) - COMPRESSA PER PAGINA SINGOLA */}
+        <div className="w-full md:w-80 bg-slate-50 border-l border-slate-200 flex flex-col shadow-inner">
             
-            <div className="flex-1 space-y-8 overflow-y-auto custom-scrollbar pr-2">
+            <div className="p-6 flex-1 flex flex-col space-y-6 overflow-hidden">
                 
-                {/* Info Versione */}
-                <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-blue-600 font-black text-xs uppercase tracking-widest">
+                {/* Qualità Certificata */}
+                <div className="space-y-4 shrink-0">
+                    <div className="flex items-center gap-2 text-blue-700 font-black text-[10px] uppercase tracking-[0.2em]">
                         <ShieldAlert className="w-4 h-4" /> Qualità Certificata
                     </div>
                     
-                    <ul className="space-y-4">
-                        <li className="flex items-start gap-3">
-                            <div className="bg-blue-100 p-2 rounded-xl shadow-sm"><CheckCircle2 className="w-4 h-4 text-blue-600" /></div>
-                            <div>
-                                <span className="block text-[10px] font-black text-slate-700 uppercase leading-none mb-1">Standard Regionali</span>
-                                <span className="text-[10px] text-slate-500 font-medium leading-tight block">Prezzari aggiornati e calcoli parametrici rigorosi.</span>
-                            </div>
+                    <ul className="space-y-3">
+                        <li className="flex items-center gap-3">
+                            <div className="bg-blue-100 p-2 rounded-xl text-blue-600"><CheckCircle2 className="w-4 h-4" /></div>
+                            <span className="text-[9px] font-black text-slate-700 uppercase tracking-tighter">Standard Regionali 2025</span>
                         </li>
-                        <li className="flex items-start gap-3">
-                            <div className="bg-orange-100 p-2 rounded-xl shadow-sm"><Handshake className="w-4 h-4 text-orange-600" /></div>
-                            <div>
-                                <span className="block text-[10px] font-black text-slate-700 uppercase leading-none mb-1">Supporto IA</span>
-                                <span className="text-[10px] text-slate-500 font-medium leading-tight block">Integrazione Gemini Pro per analisi prezzi istantanee.</span>
-                            </div>
+                        <li className="flex items-center gap-3">
+                            <div className="bg-orange-100 p-2 rounded-xl text-orange-600"><Zap className="w-4 h-4" /></div>
+                            <span className="text-[9px] font-black text-slate-700 uppercase tracking-tighter">Analisi IA Istantanea</span>
                         </li>
                     </ul>
                 </div>
 
-                {/* Contatti Commerciali */}
-                <div className="bg-[#2c3e50] p-6 rounded-[2rem] text-white shadow-xl relative overflow-hidden group">
-                    <div className="absolute -top-6 -right-6 p-4 opacity-5 group-hover:scale-110 transition-transform duration-700">
-                        <Users className="w-24 h-24" />
-                    </div>
-                    
-                    <h4 className="font-black text-[10px] uppercase tracking-widest text-orange-400 mb-4 flex items-center gap-2">
-                        <Mail className="w-3.5 h-3.5" /> Contatto Commerciale
+                {/* Box Contatto Commerciale - Più compatto */}
+                <div className="bg-[#2c3e50] p-5 rounded-[2rem] text-white shadow-xl relative overflow-hidden group border border-slate-600 shrink-0">
+                    <h4 className="font-black text-[9px] uppercase tracking-widest text-orange-400 mb-3 flex items-center gap-2">
+                        <Mail className="w-3.5 h-3.5" /> Assistenza Diretta
                     </h4>
-                    
-                    <div className="space-y-4 relative z-10">
-                        <div className="space-y-1">
-                            <span className="block text-[8px] font-black text-slate-400 uppercase tracking-tighter">Proprietà e Sviluppo</span>
-                            <span className="block text-sm font-black text-white uppercase tracking-tight leading-tight">AETERNA s.r.l. Milano</span>
+                    <div className="space-y-3 relative z-10">
+                        <div className="flex items-center gap-3">
+                            <Phone className="w-3.5 h-3.5 text-orange-400" />
+                            <span className="text-xs font-mono font-bold text-slate-100 tracking-tighter">351 9822401</span>
                         </div>
-
-                        <div className="space-y-3 pt-3 border-t border-white/10">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-white/10 p-1.5 rounded-lg"><Phone className="w-3.5 h-3.5 text-orange-400" /></div>
-                                <span className="text-xs font-mono font-bold text-slate-200">351 9822401</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className="bg-white/10 p-1.5 rounded-lg"><Mail className="w-3.5 h-3.5 text-orange-400" /></div>
-                                <span className="text-xs font-mono font-bold text-slate-200 break-all">gecolakey@gmail.com</span>
-                            </div>
+                        <div className="flex items-center gap-3">
+                            <Mail className="w-3.5 h-3.5 text-orange-400" />
+                            <span className="text-[10px] font-mono font-bold text-slate-100 truncate">gecolakey@gmail.com</span>
                         </div>
                     </div>
                 </div>
 
-                {/* TASTO VISITATORE POSIZIONATO SOTTO I CONTATTI */}
-                <div className="pt-2">
+                {/* PULSANTE VISITATORE - POSIZIONATO PER EVITARE SCROLL */}
+                <div className="mt-auto pt-4 flex flex-col items-center">
                     <button
                         type="button"
                         onClick={onVisitorLogin}
-                        className="w-full bg-white border-2 border-slate-200 hover:border-orange-500 hover:bg-orange-50 text-slate-700 font-black py-5 px-4 rounded-3xl shadow-sm transform transition-all active:scale-95 flex flex-col items-center justify-center gap-2 uppercase tracking-widest group"
+                        className="w-full bg-white border-2 border-slate-200 hover:border-orange-500 hover:bg-orange-50 text-slate-700 font-black py-4 px-4 rounded-[1.8rem] shadow-lg transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
                     >
-                        <div className="flex items-center gap-3">
-                            <UserCircle className="w-6 h-6 text-slate-300 group-hover:text-orange-500 transition-colors" /> 
-                            <span className="text-xs">ACCEDI COME VISITATORE</span>
+                        <div className="flex items-center gap-2">
+                            <UserCircle className="w-5 h-5 text-slate-300 group-hover:text-orange-500 transition-colors" /> 
+                            <span className="text-[11px] uppercase tracking-widest">Entra come Visitatore</span>
                         </div>
-                        <span className="text-[9px] text-slate-400 font-bold normal-case group-hover:text-orange-600 transition-colors">Ambiente di test • Limite 15 voci</span>
+                        <span className="text-[8px] text-slate-400 font-bold uppercase group-hover:text-orange-600 transition-colors">Ambiente Test • 15 Voci</span>
                     </button>
+                    
+                    <div className="mt-6 text-center">
+                         <p className="text-[8px] text-slate-400 font-black uppercase tracking-[0.2em]">
+                           © 2026 GeCoLa Cloud Professional
+                         </p>
+                    </div>
                 </div>
-            </div>
-
-            <div className="pt-6 mt-auto text-center border-t border-slate-200">
-                 <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">
-                   © 2026 GeCoLa Cloud Promotion System
-                 </p>
             </div>
         </div>
       </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes scan {
+          0% { top: 0; opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { top: 100%; opacity: 0; }
+        }
+        @keyframes slide-left {
+          from { transform: translateX(100%); }
+          to { transform: translateX(-200%); }
+        }
+        .animate-scan {
+          animation: scan 4s linear infinite;
+        }
+        .animate-slide-left {
+          animation: slide-left linear infinite;
+        }
+        .animate-spin-slow {
+          animation: spin 20s linear infinite;
+        }
+      `}} />
     </div>
   );
 };

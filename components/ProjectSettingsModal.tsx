@@ -1,6 +1,6 @@
 
+import { X, Save, Settings2, Info, User, MapPin, Calendar, Building2, ShieldCheck, UserCheck } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
-import { X, Save, Map, UserCheck, Type, Settings2 } from 'lucide-react';
 import { ProjectInfo } from '../types';
 import { REGIONS, YEARS } from '../constants';
 
@@ -18,10 +18,10 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
     if (isOpen) {
       setFormData({
           ...info,
-          fontSizeTitle: info.fontSizeTitle || 30,
-          fontSizeClient: info.fontSizeClient || 16,
-          fontSizeTotals: info.fontSizeTotals || 24,
-          tariffColumnWidth: info.tariffColumnWidth || 105,
+          fontSizeTitle: info.fontSizeTitle || 28,
+          fontSizeClient: info.fontSizeClient || 15,
+          fontSizeTotals: info.fontSizeTotals || 22,
+          tariffColumnWidth: info.tariffColumnWidth || 135,
           fontSizeMeasurements: info.fontSizeMeasurements || 12,
           fontSizeWbsSidebar: info.fontSizeWbsSidebar || 14,
       });
@@ -41,175 +41,145 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-300 flex flex-col max-h-[95vh]">
-        <div className="bg-[#2c3e50] px-5 py-4 flex justify-between items-center border-b border-gray-600 flex-shrink-0">
-          <h3 className="text-white font-semibold text-lg flex items-center gap-2">
-            <Map className="w-5 h-5 text-orange-400" />
-            Impostazioni Progetto & Prezzario
-          </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-[450] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="bg-white rounded-[2.5rem] shadow-[0_25px_80px_rgba(0,0,0,0.6)] w-full max-w-5xl overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-200 flex flex-col md:flex-row h-auto max-h-[95vh]">
         
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Sezione Anagrafica */}
-            <div className="col-span-2">
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Titolo Progetto</label>
-              <input 
-                type="text" 
-                value={formData.title}
-                onChange={(e) => handleChange('title', e.target.value)}
-                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Committente</label>
-              <input 
-                type="text" 
-                value={formData.client}
-                onChange={(e) => handleChange('client', e.target.value)}
-                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold uppercase text-gray-500 mb-1 flex items-center gap-1">
-                <UserCheck className="w-3 h-3 text-blue-500" /> Progettista
-              </label>
-              <input 
-                type="text" 
-                value={formData.designer || ''}
-                onChange={(e) => handleChange('designer', e.target.value)}
-                className="w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
-                placeholder="Ing. / Arch. ..."
-              />
-            </div>
-
-            {/* Sezione Prezzario */}
-            <div className="col-span-2 bg-orange-50 p-4 rounded border border-orange-100 mt-2">
-              <h4 className="font-bold text-orange-800 text-sm mb-3 border-b border-orange-200 pb-1">Configurazione Prezzario (AI)</h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Regione di Riferimento</label>
-                  <select 
-                    value={formData.region}
-                    onChange={(e) => handleChange('region', e.target.value)}
-                    className="w-full border border-gray-300 rounded p-2 bg-white focus:ring-1 focus:ring-orange-500 outline-none"
-                  >
-                    {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-500 mb-1">Anno Prezzario</label>
-                  <select 
-                    value={formData.year}
-                    onChange={(e) => handleChange('year', e.target.value)}
-                    className="w-full border border-gray-300 rounded p-2 bg-white focus:ring-1 focus:ring-orange-500 outline-none"
-                  >
-                     {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* TABELLA FONT SIZES & LAYOUT */}
-            <div className="col-span-2 mt-4 pt-4 border-t border-slate-200">
-               <h4 className="font-black text-slate-800 text-xs mb-4 uppercase tracking-widest flex items-center gap-2">
-                 <Settings2 className="w-4 h-4 text-blue-600" /> Dimensioni UI & Layout (PX)
-               </h4>
-               <div className="overflow-hidden border border-slate-200 rounded-xl shadow-sm">
-                 <table className="w-full text-xs text-left border-collapse">
-                   <thead className="bg-slate-100 text-slate-500 uppercase font-black">
-                     <tr>
-                       <th className="p-3 border-b border-slate-200">Elemento dell'Interfaccia</th>
-                       <th className="p-3 border-b border-slate-200 text-center w-32">Dimensione</th>
-                     </tr>
-                   </thead>
-                   <tbody className="bg-white">
-                     <tr className="hover:bg-slate-50">
-                       <td className="p-3 border-b border-slate-100 font-medium">Titolo Principale Progetto (Rotolo)</td>
-                       <td className="p-3 border-b border-slate-100">
-                          <input 
-                            type="number" 
-                            value={formData.fontSizeTitle} 
-                            onChange={(e) => handleChange('fontSizeTitle', parseInt(e.target.value) || 30)}
-                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
-                          />
-                       </td>
-                     </tr>
-                     <tr className="hover:bg-slate-50">
-                       <td className="p-3 border-b border-slate-100 font-medium text-orange-600">Larghezza Colonna Tariffa (Computo)</td>
-                       <td className="p-3 border-b border-slate-100">
-                          <input 
-                            type="number" 
-                            value={formData.tariffColumnWidth} 
-                            onChange={(e) => handleChange('tariffColumnWidth', parseInt(e.target.value) || 105)}
-                            className="w-full text-center font-bold text-orange-600 bg-orange-50/30 rounded border border-orange-200 p-1"
-                          />
-                       </td>
-                     </tr>
-                     <tr className="hover:bg-slate-50">
-                       <td className="p-3 border-b border-slate-100 font-medium">Righi Misure (Testi e Numeri)</td>
-                       <td className="p-3 border-b border-slate-100">
-                          <input 
-                            type="number" 
-                            value={formData.fontSizeMeasurements} 
-                            onChange={(e) => handleChange('fontSizeMeasurements', parseInt(e.target.value) || 12)}
-                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
-                          />
-                       </td>
-                     </tr>
-                     <tr className="hover:bg-slate-50">
-                       <td className="p-3 border-b border-slate-100 font-medium">Testi Capitoli WBS Sidebar</td>
-                       <td className="p-3 border-b border-slate-100">
-                          <input 
-                            type="number" 
-                            value={formData.fontSizeWbsSidebar} 
-                            onChange={(e) => handleChange('fontSizeWbsSidebar', parseInt(e.target.value) || 14)}
-                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
-                          />
-                       </td>
-                     </tr>
-                     <tr className="hover:bg-slate-50">
-                       <td className="p-3 border-b border-slate-100 font-medium">Importi Totali (Sidebar e Riepilogo)</td>
-                       <td className="p-3 border-b border-slate-100">
-                          <input 
-                            type="number" 
-                            value={formData.fontSizeTotals} 
-                            onChange={(e) => handleChange('fontSizeTotals', parseInt(e.target.value) || 24)}
-                            className="w-full text-center font-bold text-blue-600 bg-slate-50 rounded border border-slate-200 p-1"
-                          />
-                       </td>
-                     </tr>
-                   </tbody>
-                 </table>
-               </div>
-            </div>
-
+        {/* SIDEBAR DIDATTICA: La Logica del Progetto */}
+        <div className="w-full md:w-80 bg-gradient-to-br from-slate-800 to-slate-950 p-8 text-white flex flex-col">
+          <div className="mb-10">
+             <div className="bg-blue-600/20 p-4 rounded-[1.5rem] w-fit mb-4 shadow-inner ring-1 ring-blue-500/30">
+                <Settings2 className="w-10 h-10 text-blue-400" />
+             </div>
+             <h2 className="text-2xl font-black uppercase tracking-tighter leading-tight italic text-blue-100">Control Room<br/>Progetto</h2>
+             <div className="h-1 w-12 bg-blue-500 rounded-full mt-3"></div>
           </div>
 
-          <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-gray-100 flex-shrink-0">
+          <div className="space-y-6 flex-1">
+             <div className="bg-white/5 p-5 rounded-2xl border border-white/5 shadow-inner">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-300 mb-2 flex items-center gap-2">
+                  <Info className="w-3 h-3" /> Metodologia
+                </h4>
+                <p className="text-[11px] font-medium leading-relaxed opacity-80 italic">
+                  "L'anagrafica trasforma un semplice elenco in un documento legale. Definire correttamente Progettista e Committente è la base per la validità contrattuale del Computo."
+                </p>
+             </div>
+             
+             <div className="bg-slate-800/40 p-5 rounded-2xl border border-white/5">
+                <p className="text-[10px] text-slate-400 leading-relaxed italic">
+                    Usa questa sezione per aggiornare i dati di testata che appariranno in tutti i documenti PDF esportati. Le percentuali di IVA e Sicurezza aggiornano il Quadro Economico istantaneamente.
+                </p>
+             </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-white/10 text-[9px] font-black uppercase tracking-widest opacity-40 text-center">
+            Engineering Solution v11.9.3
+          </div>
+        </div>
+
+        {/* AREA FORM: Dati Anagrafici e Tecnici */}
+        <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
+          <div className="px-8 py-6 flex justify-between items-center border-b border-slate-100 bg-white shadow-sm">
+              <div>
+                <h3 className="font-black uppercase text-xs tracking-widest text-slate-400 mb-1">Anagrafica Generale</h3>
+                <p className="text-slate-800 text-lg font-black tracking-tighter italic">Variabili di Testata e Calcolo</p>
+              </div>
+              <button onClick={onClose} className="hover:bg-slate-100 p-2 rounded-2xl transition-all">
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-8 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="col-span-2 space-y-2">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Titolo del Progetto / Opera</label>
+                    <div className="relative group">
+                        <Building2 className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                        <input type="text" value={formData.title} onChange={e => handleChange('title', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-blue-500 bg-white font-black text-slate-700 shadow-sm transition-all text-sm" placeholder="Es: Ristrutturazione Bagno..." />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Tecnico Progettista</label>
+                    <div className="relative group">
+                        <UserCheck className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                        <input type="text" value={formData.designer} onChange={e => handleChange('designer', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Committente</label>
+                    <div className="relative group">
+                        <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                        <input type="text" value={formData.client} onChange={e => handleChange('client', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Luogo del Cantiere</label>
+                    <div className="relative group">
+                        <MapPin className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                        <input type="text" value={formData.location} onChange={e => handleChange('location', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" />
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Data del Computo</label>
+                    <div className="relative group">
+                        <Calendar className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                        <input type="text" value={formData.date} onChange={e => handleChange('date', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" />
+                    </div>
+                </div>
+            </div>
+
+            {/* Parametri di Calcolo */}
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-blue-500" /> Impostazioni Contabili
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                    <div className="space-y-1.5">
+                        <span className="text-[9px] font-black uppercase text-slate-400 ml-1">Regione</span>
+                        <select value={formData.region} onChange={e => handleChange('region', e.target.value)} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-black bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500/20">
+                            {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                    </div>
+                    <div className="space-y-1.5">
+                        <span className="text-[9px] font-black uppercase text-slate-400 ml-1">Anno</span>
+                        <select value={formData.year} onChange={e => handleChange('year', e.target.value)} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-black bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500/20">
+                            {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                    </div>
+                    <div className="space-y-1.5">
+                        <span className="text-[9px] font-black uppercase text-slate-400 ml-1">IVA (%)</span>
+                        <input type="number" value={formData.vatRate} onChange={e => handleChange('vatRate', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-black bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    </div>
+                    <div className="space-y-1.5">
+                        <span className="text-[9px] font-black uppercase text-slate-400 ml-1">Oneri Sic. (%)</span>
+                        <input type="number" value={formData.safetyRate} onChange={e => handleChange('safetyRate', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-black bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    </div>
+                </div>
+            </div>
+          </form>
+
+          {/* Footer Azioni */}
+          <div className="p-8 bg-white border-t border-slate-100 flex justify-end gap-4 shadow-[0_-10px_30px_rgba(0,0,0,0.02)]">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+              className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 transition-colors tracking-[0.2em]"
             >
-              Annulla
+              Chiudi
             </button>
             <button
-              type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 flex items-center shadow-sm"
+              onClick={handleSubmit}
+              className="px-12 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-2xl shadow-blue-200 transform transition-all active:scale-95 flex items-center gap-3"
             >
-              <Save className="w-4 h-4 mr-2" />
-              Salva Impostazioni
+              <Save className="w-5 h-5" />
+              Applica Modifiche
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );

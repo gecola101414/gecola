@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { Totals, ProjectInfo, Category, Article } from '../types';
 import { SOA_CATEGORIES } from '../constants';
@@ -15,33 +16,51 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
   };
 
+  // 1. Riepilogo per WBS (Tutte, incluse quelle dentro Supercategorie)
   const wbsBreakdown = useMemo(() => {
       return categories
-        .filter(c => c.isEnabled !== false)
+        .filter(c => c.isEnabled !== false && !c.isSuperCategory) // Solo capitoli reali con importi
         .map(cat => {
           const catTotal = articles
             .filter(a => a.categoryCode === cat.code)
             .reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
           return { ...cat, total: catTotal };
-      });
+      }).filter(c => c.total > 0 || categories.find(parent => parent.code === c.code)); // Mostra anche se a zero se presente in struttura
   }, [categories, articles]);
 
+  // 2. Riepilogo SOA con Eredità dal Capitolo (Fix Gerarchia)
   const soaBreakdown = useMemo(() => {
       const soaMap: Record<string, number> = {};
       let untaggedTotal = 0;
+
       articles.forEach(art => {
           const cat = categories.find(c => c.code === art.categoryCode);
+          
+          // Se il capitolo è disabilitato, non contiamo i suoi importi nel riepilogo
           if (cat && cat.isEnabled === false) return;
+
           const amount = art.quantity * art.unitPrice;
-          if (art.soaCategory) soaMap[art.soaCategory] = (soaMap[art.soaCategory] || 0) + amount;
-          else untaggedTotal += amount;
+          
+          // LOGICA PATTO D'ACCIAIO: La SOA del Capitolo ha priorità assoluta (eredità)
+          // Se il capitolo non ha SOA, usiamo quella della voce (retrocompatibilità)
+          const effectiveSoa = cat?.soaCategory || art.soaCategory;
+
+          if (effectiveSoa) {
+              soaMap[effectiveSoa] = (soaMap[effectiveSoa] || 0) + amount;
+          } else if (amount > 0) {
+              untaggedTotal += amount;
+          }
       });
+
       const list = Object.entries(soaMap).map(([code, amount]) => ({
           code,
           description: SOA_CATEGORIES.find(s => s.code === code)?.desc || 'Cat. Sconosciuta',
           amount
       })).sort((a, b) => b.amount - a.amount);
-      if (untaggedTotal > 0.01) list.push({ code: 'N/D', description: 'Voci non qualificate', amount: untaggedTotal });
+
+      if (untaggedTotal > 0.01) {
+          list.push({ code: 'N/D', description: 'Voci non qualificate (Verifica WBS)', amount: untaggedTotal });
+      }
       return list;
   }, [articles, categories]);
 
@@ -89,13 +108,13 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
           </div>
 
           <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-              <div className="p-3 bg-slate-50 border-b font-bold text-purple-800 flex items-center gap-2"><Award className="w-4 h-4" /> Analisi SOA</div>
+              <div className="p-3 bg-slate-50 border-b font-bold text-purple-800 flex items-center gap-2"><Award className="w-4 h-4" /> Analisi SOA (Ereditata da WBS)</div>
               <table className="w-full text-sm">
                   <thead className="bg-gray-50"><tr><th className="p-3 text-left">Cat.</th><th className="p-3 text-left">Descrizione</th><th className="p-3 text-right">Importo</th></tr></thead>
                   <tbody>
                       {soaBreakdown.map((item, idx) => (
-                          <tr key={item.code} className={`border-t ${idx === 0 ? 'bg-purple-50' : ''}`}>
-                              <td className="p-3"><span className="bg-slate-200 px-1.5 py-0.5 rounded text-[10px] font-bold">{item.code}</span></td>
+                          <tr key={item.code} className={`border-t ${idx === 0 ? 'bg-purple-50' : ''} ${item.code === 'N/D' ? 'bg-red-50' : ''}`}>
+                              <td className="p-3"><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.code === 'N/D' ? 'bg-red-200 text-red-800' : 'bg-slate-200 text-slate-800'}`}>{item.code}</span></td>
                               <td className="p-3 text-xs">{item.description}</td>
                               <td className="p-3 text-right font-bold">{formatCurrency(item.amount)}</td>
                           </tr>

@@ -4,7 +4,7 @@ import {
   X, Book, ChevronRight, ChevronLeft, Calculator, Sparkles, Award, 
   Layers, Search, Save, Users, User, Zap, ShieldCheck, Share2, 
   Maximize2, Paintbrush, CircleDot, Database, Terminal, Cpu, 
-  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft, CopyPlus
+  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft, CopyPlus, ShieldAlert
 } from 'lucide-react';
 
 interface HelpManualModalProps {
@@ -95,6 +95,11 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
       title: "16. Smart Repeat (Misure Seriali)",
       icon: <CopyPlus className="w-5 h-5" />,
       content: "Attivando il quarto pulsante della barra strumenti (icona clona), abiliti la modalità 'Smart Repeat'. \n\nQuesta funzione è fondamentale per lavori ripetitivi: ogni volta che crei un nuovo rigo (tramite pulsante (+), tasto INVIO o Comando Vocale), il sistema pre-compila automaticamente i campi con i dati del rigo precedente. È ideale per computare vani identici o armature seriali in frazioni di secondo."
+    },
+    {
+      title: "17. Controllo Dimensionale Attivo (Sentinella)",
+      icon: <ShieldAlert className="w-5 h-5" />,
+      content: "Il cuore dell'intelligenza contabile di GeCoLa (Surveyor Guard 4.2).\n\nLOGICA DEI RANGHI:\nIl sistema analizza i suffissi delle unità di misura ($m^3=3$, $m^2=2$, $m=1$). Quando colleghi una voce (Vedi Voce), la 'Sentinella' (attivabile dal pulsante scudo nella toolbar WBS) calcola la differenza tra il rango della sorgente e quello della destinazione.\n\nSCICCHERIA OPERATIVA:\nSe passi da $m^2$ a $m^3$, il sistema 'pretende' una sola dimensione locale. I campi già forniti dalla sorgente vengono bloccati (grigio), mentre il campo mancante si illumina in AZZURRO GLOW per guidare la tua mano. Inserire dimensioni in eccesso attiverà un segnale ROSSO NEON sulla cella incoerente, permettendo un intervento istantaneo senza margini di errore."
     }
   ];
 
@@ -246,7 +251,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
 
           <button 
             disabled={activeChapter === chapters.length - 1}
-            onClick={() => setActiveChapter(prev => prev - 1)}
+            onClick={() => setActiveChapter(prev => (prev + 1) % chapters.length)}
             className="flex items-center gap-3 text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 disabled:opacity-20 transition-all hover:translate-x-1"
           >
             Successivo <ChevronRight className="w-5 h-5" />

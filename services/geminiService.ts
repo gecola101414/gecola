@@ -1,9 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { Article, Measurement, Category } from '../types';
-import { CATEGORIES } from '../constants';
 
-// Added comment above fix: strictly following initialization guidelines
 const getAiClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
@@ -48,7 +46,6 @@ export const generateBulkItems = async (
     Return ONLY a JSON object with an array "items".
     `;
 
-    // Added responseSchema for more structured and reliable JSON responses from the model
     const response = await ai.models.generateContent({
       model: "gemini-3-pro-preview",
       contents: prompt,
@@ -80,7 +77,6 @@ export const generateBulkItems = async (
       },
     });
 
-    // Added comment: correctly accessing .text property
     const data = cleanAndParseJson(response.text || "");
     const groundingUrls = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
@@ -94,32 +90,73 @@ export const generateBulkItems = async (
   }
 };
 
+/**
+ * PARSER "AGGANCIO PERFETTO" v2.6
+ * Ottimizzato per listini GeCoLa.it: estrae dinamicamente il nome del prezzario ufficiale.
+ */
 export const parseDroppedContent = (rawText: string): Partial<Article> | null => {
   try {
     if (!rawText) return null;
-    let parts = rawText.split('\t').map(s => s.trim()).filter(s => s.length > 0);
-    if (parts.length < 3) {
-       parts = rawText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
-    }
-    if (parts.length < 4) return null;
 
-    const unitPrice = parseFloat(parts[3].replace(/[€$£\s]/g, '').replace(/\./g, '').replace(',', '.'));
+    // Cleanup e normalizzazione testo
+    const cleanText = rawText.trim();
+
+    // Split per tabulazioni o spazi multipli (struttura tabellare)
+    let parts = cleanText.split(/\t|\s{3,}/).map(s => s.trim()).filter(s => s.length > 0);
+    
+    // Se non abbiamo abbastanza parti, proviamo a processare le righe
+    if (parts.length < 3) {
+      parts = cleanText.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+    }
+
+    if (parts.length < 3) return null;
+
+    const parseItaNumber = (str: string) => {
+        if (!str) return 0;
+        // Rimuove simboli valuta, gestisce punti migliaia e virgole decimali
+        const clean = str.replace(/[€$£%\s]/g, '').replace(/\./g, '').replace(',', '.');
+        return parseFloat(clean);
+    };
+
+    // Mappatura Standard: 0:Codice, 1:Descrizione, 2:UM, 3:Prezzo, 4:MO%
+    const code = parts[0] || 'NP.001';
+    const description = parts[1] || 'Voce importata';
+    const unit = parts[2] || 'cad';
+    const unitPrice = parseItaNumber(parts[3] || '0');
+    
     let laborRate = 0;
     if (parts.length >= 5) {
-       const val = parseFloat(parts[4].replace(/[%\s]/g, '').replace(',', '.'));
-       laborRate = !isNaN(val) ? (val <= 1 ? val * 100 : val) : 0;
+       const val = parseItaNumber(parts[4]);
+       laborRate = !isNaN(val) ? (val <= 1 && val > 0 ? val * 100 : val) : 0;
+    }
+
+    // --- LOGICA ESTRAZIONE PREZZARIO UFFICIALE (Task Richiesto) ---
+    let priceListSource = "Prezzario Ufficiale";
+    
+    // Se è presente una sesta parte, solitamente è il nome del prezzario sorgente
+    if (parts.length >= 6) {
+       priceListSource = parts[5];
+    } else {
+       // Euristiche di ricerca nel blocco di testo completo per pattern comuni (es. "Prezzario Regione... 2024")
+       const sourceMatch = cleanText.match(/(Prezzario|Listino|Tariffario)\s+[A-Za-z\s,]+\s+\d{4}/i);
+       if (sourceMatch) {
+           priceListSource = sourceMatch[0];
+       } else if (cleanText.toLowerCase().includes("gecola.it")) {
+           priceListSource = "Listino Online GeCoLa";
+       }
     }
 
     return {
-      code: parts[0],
-      description: parts[1],
-      unit: parts[2],
+      code,
+      description,
+      unit,
       unitPrice: isNaN(unitPrice) ? 0 : unitPrice,
-      laborRate,
+      laborRate: isNaN(laborRate) ? 0 : laborRate,
       quantity: 1,
-      priceListSource: parts[5] || ""
+      priceListSource
     };
   } catch (error) {
+    console.error("Perfect Hook Parser Error:", error);
     return null;
   }
 };
@@ -144,7 +181,6 @@ export const parseVoiceMeasurement = async (transcript: string): Promise<Partial
               }
             }
         });
-        // Added comment: correctly accessing .text property
         const data = JSON.parse(response.text || "{}");
         return {
             description: data.description || transcript,

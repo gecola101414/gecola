@@ -1,3 +1,4 @@
+
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
@@ -147,54 +148,23 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
 
     tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
 
-    categories.forEach((cat) => {
-        if (!cat.isEnabled) return;
-        const catArticles = articles.filter(a => a.categoryCode === cat.code);
-        if (catArticles.length === 0) return;
-        const isSafety = cat.type === 'safety';
-        const fillColor = isSafety ? [255, 200, 150] : [70, 130, 180];
-        const textColor = isSafety ? [80, 40, 0] : [255, 255, 255];
-
-        tableBody.push([
-            { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-            { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-            { content: `${cat.code} - ${cat.name}`, styles: { fillColor, textColor, fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } },
-            { content: '', styles: { isWbs: true, lineWidth: 0 } }
-        ]);
-
-        catArticles.forEach((art, artIndex) => {
-            const wbsN = getWbsNumber(cat.code);
-            const artNum = `${wbsN}.${artIndex + 1}`;
+    const topLevels = categories.filter(c => !c.parentId);
+    
+    topLevels.forEach(root => {
+        if (root.isEnabled === false) return;
+        if (root.isSuperCategory) {
             tableBody.push([
-                { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', cellPadding: { top: 3, bottom: 1 } } },
-                { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
-                { content: art.description, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
-                '', '', '', '', '', '', ''
+                { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+                { content: `AREA DI INTERVENTO: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
             ]);
-            tableBody.push([ '', '', { content: 'ELENCO MISURE:', styles: { fontStyle: 'bold', fontSize: 7.5, textColor: [40, 40, 40], cellPadding: { top: 2, bottom: 1, left: 1 } } }, '', '', '', '', '', '', '' ]);
-            let runningPartial = 0;
-            art.measurements.forEach(m => {
-                let val = 0;
-                if (m.linkedArticleId) {
-                    const linkedArt = articles.find(a => a.id === m.linkedArticleId);
-                    if (linkedArt) {
-                        const base = m.linkedType === 'amount' ? (linkedArt.quantity * linkedArt.unitPrice) : linkedArt.quantity;
-                        val = calculateMeasurementValue(m, base);
-                    }
-                } else { val = calculateMeasurementValue(m); }
-                let displayVal = (m.type === 'subtotal') ? runningPartial : val;
-                if (m.type === 'subtotal') runningPartial = 0; else runningPartial += val;
-                tableBody.push([ '', '', { content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, styles: { fontStyle: m.type === 'subtotal' ? 'bold' : 'normal', halign: m.type === 'subtotal' ? 'right' : 'left', textColor: m.type === 'deduction' ? [200, 0, 0] : [60, 60, 60], cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, fontSize: 8 } }, { content: formatNumber(m.multiplier), styles: { halign: 'left' } }, { content: formatNumber(m.length), styles: { halign: 'left' } }, { content: formatNumber(m.width), styles: { halign: 'left' } }, { content: formatNumber(m.height), styles: { halign: 'left' } }, { content: formatNumber(displayVal), styles: { halign: 'left', fontStyle: 'normal', cellPadding: { left: 1.5 }, fontSize: 8 } }, '', '' ]);
+            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory);
+            children.forEach(child => {
+                if (child.isEnabled === false) return;
+                appendWbsToPdfBody(tableBody, child, articles);
             });
-            tableBody.push([ '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'left', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: formatNumber(art.unitPrice), styles: { halign: 'left', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'left', textColor: [0, 0, 120], cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } } ]);
-            tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
-        });
+        } else {
+            appendWbsToPdfBody(tableBody, root, articles);
+        }
     });
 
     let grandTotal = 0; let pageTotal = 0;  
@@ -247,25 +217,113 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
           grandTotal += pageTotal; pageTotal = 0;
       }
     });
-    drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
+
+    // 1. RIEPILOGO FINALE (Cambio Pagina)
     doc.addPage();
-    drawHeader(doc, projectInfo, "RIEPILOGO TECNICO-ECONOMICO", 1);
-    const summaryBody: any[] = [];
-    let totNet = 0; let totLab = 0;
-    categories.forEach((cat) => {
-        if (!cat.isEnabled) return;
-        const catArts = articles.filter(a => a.categoryCode === cat.code);
-        if (catArts.length === 0) return;
-        const net = catArts.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
-        const lab = catArts.reduce((s, a) => s + ((a.quantity * a.unitPrice) * (a.laborRate/100)), 0);
-        totNet += net; totLab += lab;
-        summaryBody.push([cat.code, cat.name, formatCurrency(net), formatCurrency(lab)]);
+    const summaryTableBody: any[] = [];
+    let totalLavoriSum = 0;
+    let totalLaborSum = 0;
+
+    categories.forEach(cat => {
+        if (cat.isEnabled === false || cat.isSuperCategory) return;
+        const catArticles = articles.filter(a => a.categoryCode === cat.code);
+        const catTotal = catArticles.reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
+        const catLabor = catArticles.reduce((sum, a) => sum + ((a.quantity * a.unitPrice) * (a.laborRate / 100)), 0);
+        
+        if (catTotal > 0 || catArticles.length > 0) {
+            totalLavoriSum += catTotal;
+            totalLaborSum += catLabor;
+            summaryTableBody.push([
+                { content: cat.code, styles: { fontStyle: 'bold', halign: 'center' } },
+                { content: cat.name.toUpperCase(), styles: { halign: 'left' } },
+                { content: formatCurrency(catTotal), styles: { halign: 'right', fontStyle: 'bold' } },
+                { content: formatCurrency(catLabor), styles: { halign: 'right' } }
+            ]);
+        }
     });
-    summaryBody.push([{ content: 'TOTALI GENERALI', colSpan: 2, styles: { fontStyle: 'bold', halign: 'right', fillColor: [240, 240, 240] } }, { content: formatCurrency(totNet), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }, { content: formatCurrency(totLab), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }]);
-    autoTable(doc, { head: [['WBS', 'CAPITOLO', 'IMPORTO NETTO', 'MANODOPERA']], body: summaryBody, startY: 50, theme: 'grid', styles: { fontSize: 8.5, cellPadding: 3 }, headStyles: { fillColor: [40, 60, 100], textColor: [255, 255, 255], fontStyle: 'bold' }, columnStyles: { 0: { cellWidth: 15 }, 2: { halign: 'left' }, 3: { halign: 'left' } } });
+
+    // Riga Totali Riepilogo
+    summaryTableBody.push([
+        { content: 'TOTALE GENERALE', colSpan: 2, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
+        { content: formatCurrency(totalLavoriSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
+        { content: formatCurrency(totalLaborSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } }
+    ]);
+
+    autoTable(doc, {
+        head: [['COD.', 'DESCRIZIONE CAPITOLO (WBS)', 'IMPORTO LAVORI', 'INCIDENZA M.O.']],
+        body: summaryTableBody,
+        startY: 30,
+        margin: { left: 10, right: 10 },
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
+        columnStyles: {
+            0: { cellWidth: 20 },
+            1: { cellWidth: 100 }, // Colonna larga per stare su un rigo
+            2: { cellWidth: 35 },
+            3: { cellWidth: 35 }
+        },
+        headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+        didDrawPage: (data) => {
+            doc.setFontSize(12); doc.setFont("helvetica", "bold");
+            doc.text("RIEPILOGO GENERALE DEI LAVORI E DELLA MANODOPERA", 105, 20, { align: 'center' });
+        }
+    });
+
+    // Firma in calce al riepilogo
     drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
+
     window.open(URL.createObjectURL(doc.output('blob')), '_blank');
   } catch (error) { console.error(error); alert("Errore PDF."); }
+};
+
+const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]) => {
+    const catArticles = articles.filter(a => a.categoryCode === cat.code);
+    if (catArticles.length === 0) return;
+
+    const isSafety = cat.type === 'safety';
+    const fillColor = isSafety ? [255, 200, 150] : [240, 240, 240];
+    const textColor = [0, 0, 0];
+
+    tableBody.push([
+        { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+        { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+        { content: `${cat.code} - ${cat.name}`, styles: { fillColor, textColor, fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } },
+        { content: '', styles: { isWbs: true, lineWidth: 0 } }
+    ]);
+
+    catArticles.forEach((art, artIndex) => {
+        const wbsN = getWbsNumber(cat.code);
+        const artNum = `${wbsN}.${artIndex + 1}`;
+        tableBody.push([
+            { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', cellPadding: { top: 3, bottom: 1 } } },
+            { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
+            { content: art.description, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
+            '', '', '', '', '', '', ''
+        ]);
+        
+        let runningPartial = 0;
+        art.measurements.forEach(m => {
+            let val = 0;
+            if (m.linkedArticleId) {
+                const linkedArt = articles.find(a => a.id === m.linkedArticleId);
+                if (linkedArt) {
+                    const base = m.linkedType === 'amount' ? (linkedArt.quantity * linkedArt.unitPrice) : linkedArt.quantity;
+                    val = calculateMeasurementValue(m, base);
+                }
+            } else { val = calculateMeasurementValue(m); }
+            let displayVal = (m.type === 'subtotal') ? runningPartial : val;
+            if (m.type === 'subtotal') runningPartial = 0; else runningPartial += val;
+            tableBody.push([ '', '', { content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, styles: { fontStyle: m.type === 'subtotal' ? 'bold' : 'normal', halign: m.type === 'subtotal' ? 'right' : 'left', textColor: m.type === 'deduction' ? [200, 0, 0] : [60, 60, 60], cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, fontSize: 8 } }, { content: formatNumber(m.multiplier), styles: { halign: 'left' } }, { content: formatNumber(m.length), styles: { halign: 'left' } }, { content: formatNumber(m.width), styles: { halign: 'left' } }, { content: formatNumber(m.height), styles: { halign: 'left' } }, { content: formatNumber(displayVal), styles: { halign: 'left', fontStyle: 'normal', cellPadding: { left: 1.5 }, fontSize: 8 } }, '', '' ]);
+        });
+        tableBody.push([ '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'left', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: formatNumber(art.unitPrice), styles: { halign: 'left', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'left', textColor: [0, 0, 120], cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } } ]);
+        tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
+    });
 };
 
 export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
@@ -274,6 +332,7 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
         const doc = new jsPDF();
         const tableBody: any[] = [];
         categories.forEach((cat) => {
+            if (cat.isSuperCategory) return;
             if (!cat.isEnabled) return;
             const catArticles = articles.filter(a => a.categoryCode === cat.code);
             if (catArticles.length === 0) return;
@@ -294,6 +353,7 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
         const tableBody: any[] = [];
         let totalLaborSum = 0;
         categories.forEach((cat) => {
+            if (cat.isSuperCategory) return;
             if (!cat.isEnabled) return;
             const catArticles = articles.filter(a => a.categoryCode === cat.code);
             if (catArticles.length === 0) return;

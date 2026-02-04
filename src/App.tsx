@@ -180,7 +180,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    };
 
    const getLinkedArticleNumber = (linkedArt: Article) => {
-       const catArticles = allArticles.filter(a => a.categoryCode === linkedArt.categoryCode);
+       const catArticles = allArticles.filter(a => a.id && a.categoryCode === linkedArt.categoryCode);
        const localIndex = catArticles.findIndex(a => a.id === linkedArt.id) + 1;
        const wbsNum = getWbsNumber(linkedArt.categoryCode);
        return `${wbsNum}.${localIndex}`;
@@ -964,7 +964,6 @@ const App: React.FC = () => {
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
   
   const handleBulkGenerate = async (description: string) => {
-    if (!process.env.API_KEY) { alert("API Key missing."); return; }
     setIsGenerating(true);
     try {
         const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories);
@@ -985,7 +984,19 @@ const App: React.FC = () => {
       if (currentCat && currentCat.isLocked) { alert("Impossibile importare: Il capitolo è bloccato."); return; }
       if (!rawText) return; 
       setIsProcessingDrop(true); 
-      setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; updateState([...articles, newArticle]); } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
+      setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArticle: Article = { id: Math.random().toString(36).substr(2, 9), categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0 }; 
+          updateState([...articles, newArticle]); 
+      } else { alert("Struttura dati non riconosciuta."); } } catch (e) { console.error(e); alert("Errore durante l'analisi."); } finally { setIsProcessingDrop(false); } }, 100); 
+  };
+
+  // Added comment above fix: implemented missing handleWorkspaceDrop to handle external text drops
+  const handleWorkspaceDrop = (e: React.DragEvent) => { 
+    e.preventDefault(); 
+    e.stopPropagation(); 
+    const textData = e.dataTransfer.getData('text/plain'); 
+    const type = e.dataTransfer.getData('type');
+    // If it has text but no internal 'type', it's an external drop (e.g. from GeCoLa.it)
+    if (textData && !type) handleDropContent(textData); 
   };
 
   const getProjectExportData = () => { const gecolaData = { projectInfo, categories, articles, analyses, version: "10.3" }; return JSON.stringify({ gecolaData, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); };
@@ -1004,7 +1015,7 @@ const App: React.FC = () => {
   return (
     <div 
         className="h-screen flex flex-col bg-[#e8eaed] font-sans overflow-hidden text-slate-800"
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} // Pulisce il divieto globale
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} 
         onDragEnter={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
     >
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
@@ -1024,7 +1035,7 @@ const App: React.FC = () => {
              <button onClick={() => setIsPrintMenuOpen(!isPrintMenuOpen)} className="p-1.5 text-slate-300 hover:text-white hover:bg-red-600 rounded relative"><FileText className="w-5 h-5" />
                 {isPrintMenuOpen && (<div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 py-2 z-50 text-left"><button onClick={() => generateComputoMetricPdf(projectInfo, categories, articles)} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50">Computo Metrico</button></div>)}
              </button>
-             <button onClick={() => signOut(auth)} className="p-1.5 text-red-400 hover:text-white hover:bg-red-600 rounded ml-2"><LogOut className="w-5 h-5" /></button>
+             <button onClick={() => auth && signOut(auth)} className="p-1.5 text-red-400 hover:text-white hover:bg-red-600 rounded ml-2"><LogOut className="w-5 h-5" /></button>
           </div>
       </div>
       
@@ -1032,4 +1043,117 @@ const App: React.FC = () => {
         <div className="w-64 bg-white border-r border-slate-300 flex flex-col flex-shrink-0 z-10 shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
           <div className="p-3 bg-slate-50 border-b border-slate-200 flex gap-1">
              <button onClick={() => setViewMode('COMPUTO')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'COMPUTO' ? 'bg-white text-blue-700 ring-1 ring-blue-200 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Computo</button>
-             <button onClick={()
+             <button onClick={() => setViewMode('ANALISI')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded transition-all ${viewMode === 'ANALISI' ? 'bg-white text-purple-700 ring-1 ring-purple-200 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>Analisi</button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-2 space-y-2 bg-slate-50/50" onDrop={(e) => handleWbsDrop(e, null)} onDragOver={(e) => e.preventDefault()}>
+            {viewMode === 'COMPUTO' ? (
+                <>
+                <div className="flex justify-between items-center px-1 mb-2">
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Struttura WBS</span>
+                    <PlusCircle className="w-4 h-4 text-blue-600 cursor-pointer hover:scale-110 transition-transform" onClick={handleAddCategory} />
+                </div>
+                <ul className="space-y-1">
+                  {categories.map(cat => {
+                    const isSelected = selectedCategoryCode === cat.code;
+                    return (
+                    <li key={cat.code} className="relative" onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
+                      {wbsDropTarget?.code === cat.code && <div className={`absolute ${wbsDropTarget.position === 'top' ? '-top-1' : '-bottom-1'} left-0 right-0 h-1 bg-green-500 z-50 rounded-full`} />}
+                      <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDragEnd={() => setDraggedCategoryCode(null)} className={`group relative flex items-center p-2 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-blue-600 text-white shadow-md' : 'hover:bg-white text-slate-600 shadow-sm border border-transparent hover:border-slate-200'}`} onClick={() => setSelectedCategoryCode(cat.code)}>
+                        <GripVertical className={`w-3 h-3 mr-2 opacity-0 group-hover:opacity-30 cursor-move`} />
+                        <div className="flex-1 overflow-hidden">
+                           <div className="flex items-center gap-1.5">
+                               <span className={`text-[10px] font-mono font-bold ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>{cat.code}</span>
+                               {cat.isLocked && <Lock className="w-2.5 h-2.5 text-red-400" />}
+                           </div>
+                           <p className="text-xs font-bold truncate leading-tight uppercase tracking-tight">{cat.name}</p>
+                        </div>
+                        <div className="hidden group-hover:flex items-center gap-1 ml-1 bg-white/95 rounded-md p-0.5 shadow-sm border border-slate-100">
+                           <button onClick={(e) => handleCloneCategory(cat.code, e)} className="p-1 hover:bg-orange-100 text-orange-500 rounded"><Copy className="w-3 h-3" /></button>
+                           <button onClick={(e) => handleEditCategory(cat)} className="p-1 hover:bg-blue-100 text-blue-500 rounded"><Edit2 className="w-3 h-3" /></button>
+                           <button onClick={(e) => handleDeleteCategory(cat.code, e)} className="p-1 hover:bg-red-100 text-red-500 rounded"><Trash2 className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+                    </li>
+                  )})}
+                </ul>
+                </>
+            ) : (
+                <div className="space-y-3" onDrop={handleAnalysisDrop} onDragOver={(e) => { e.preventDefault(); setIsAnalysisDragOver(true); }} onDragLeave={() => setIsAnalysisDragOver(false)}>
+                    <div className="px-1"><input type="text" placeholder="Cerca analisi..." value={analysisSearchTerm} onChange={e => setAnalysisSearchTerm(e.target.value)} className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-purple-400" /></div>
+                    {filteredAnalyses.map(analysis => (
+                        <div key={analysis.id} draggable onDragStart={(e) => handleAnalysisDragStart(e, analysis)} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm hover:border-purple-400 transition-all cursor-grab group">
+                            <div className="flex justify-between items-start mb-1"><span className="bg-purple-100 text-purple-700 font-bold font-mono text-[10px] px-1.5 py-0.5 rounded leading-none">{analysis.code}</span><span className="font-bold text-xs text-slate-800">{formatCurrency(analysis.totalUnitPrice)}</span></div>
+                            <p className="text-[10px] text-slate-500 line-clamp-2 mb-2 leading-snug">{analysis.description}</p>
+                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-1 hover:bg-purple-50 text-purple-600 rounded"><Edit2 className="w-3 h-3" /></button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-1 hover:bg-red-50 text-red-500 rounded"><Trash2 className="w-3 h-3" /></button></div>
+                        </div>
+                    ))}
+                    {isAnalysisDragOver && <div className="p-8 border-2 border-dashed border-purple-400 rounded-xl bg-purple-50 text-center animate-pulse"><Move className="w-6 h-6 mx-auto text-purple-400 mb-2" /><p className="text-[10px] font-black uppercase text-purple-600">Rilascia per importare</p></div>}
+                </div>
+            )}
+          </div>
+          
+          <div className="p-4 bg-slate-900 text-white border-t border-slate-700">
+             <div className="flex justify-between items-center mb-1"><span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Netto Lavori</span><span className="font-bold text-sm font-mono">{formatCurrency(totals.totalWorks)}</span></div>
+             <div className="flex justify-between items-center"><span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Totale G.</span><span className="font-black text-lg text-orange-400 font-mono tracking-tighter">{formatCurrency(totals.grandTotal)}</span></div>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col h-full bg-white relative overflow-hidden" onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }} onDrop={handleWorkspaceDrop}>
+          {activeCategory && viewMode === 'COMPUTO' ? (
+            <>
+              <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-b border-slate-200 shadow-sm z-30">
+                 <div className="flex items-center gap-4">
+                    <div className="bg-blue-600 text-white px-3 py-1 rounded-md font-black font-mono text-lg shadow-inner">{activeCategory.code}</div>
+                    <div><h2 className="font-black text-slate-800 uppercase text-sm tracking-tight leading-none">{activeCategory.name}</h2><p className="text-[10px] text-slate-400 mt-1 font-bold">Importo Capitolo: <span className="text-blue-600">{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></p></div>
+                 </div>
+                 <div className="flex items-center gap-3">
+                    <button onClick={() => { setIsBulkModalOpen(true); setActiveCategoryForAi(activeCategory.code); }} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 shadow-lg shadow-green-100 transition-all active:scale-95"><Sparkles className="w-4 h-4" /> Ricerca Intelligente</button>
+                    <button onClick={() => { setIsImportAnalysisModalOpen(true); setActiveCategoryForAi(activeCategory.code); }} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 shadow-lg shadow-purple-100 transition-all active:scale-95"><TestTubes className="w-4 h-4" /> Aggiungi da Analisi</button>
+                    <div className="w-px h-6 bg-slate-200 mx-2"></div>
+                    <button onClick={() => handleAddEmptyArticle(activeCategory.code)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 shadow-lg shadow-blue-100 transition-all active:scale-95"><Plus className="w-4 h-4" /> Nuova Voce Libera</button>
+                 </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 bg-[#f8fafc] scroll-smooth" onKeyDown={handleInputKeyDown}>
+                <table className="w-full text-left border-collapse table-fixed bg-white shadow-xl rounded-xl overflow-hidden border border-slate-200">
+                    <TableHeader activeColumn={activeColumn} />
+                    {activeArticles.map((article, artIndex) => (
+                        <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} />
+                    ))}
+                    {activeArticles.length === 0 && (
+                        <tbody><tr><td colSpan={12} className="py-24 px-12"><div className="flex flex-col items-center justify-center border-4 border-dashed border-slate-100 rounded-[3rem] p-12 text-center bg-slate-50/30"><div className="bg-white p-6 rounded-full shadow-inner mb-6 text-blue-200"><MousePointerClick className="w-16 h-16" /></div><h3 className="text-xl font-black uppercase text-slate-400 mb-2">Capitolo Vuoto</h3><p className="text-slate-400 text-sm max-w-xs mx-auto mb-8 font-medium">Usa i pulsanti in alto per caricare le voci o trascinale direttamente dai listini GeCoLa.it</p><CategoryDropGate categoryCode={activeCategory.code} isLoading={isProcessingDrop} onDropContent={handleDropContent} /></div></td></tr></tbody>
+                    )}
+                </table>
+                <div className="h-40"></div>
+              </div>
+            </>
+          ) : viewMode === 'ANALISI' ? (
+              <div className="flex-1 overflow-y-auto p-12 bg-[#f8fafc]">
+                  <div className="max-w-7xl mx-auto">
+                    <div className="flex justify-between items-center mb-10"><div className="flex items-center gap-4"><div className="bg-purple-600 p-3 rounded-2xl shadow-xl"><TestTubes className="w-8 h-8 text-white" /></div><div><h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Archivio Analisi Prezzi</h2><p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">Lavorazioni Speciali e Analitiche</p></div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs shadow-xl shadow-purple-200 flex items-center gap-3 transition-all hover:scale-105 active:scale-95"><Plus className="w-5 h-5" /> Nuova Analisi</button></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                        {analyses.map(analysis => (
+                            <div key={analysis.id} className="bg-white rounded-3xl shadow-lg border border-slate-200 transition-all flex flex-col group hover:border-purple-400 hover:shadow-2xl overflow-hidden"><div className="p-6 flex-1"><div className="flex justify-between items-start mb-4"><span className="bg-purple-600 text-white font-black font-mono text-[10px] px-3 py-1 rounded-full shadow-sm">{analysis.code}</span><div className="text-right"><div className="text-2xl font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</div><span className="text-[9px] text-slate-400 uppercase font-bold tracking-widest mt-1 block">per {analysis.unit}</span></div></div><h4 className="font-bold text-slate-800 text-sm leading-snug line-clamp-3 mb-6 min-h-[3em]">{analysis.description}</h4><div className="space-y-2 border-t border-slate-50 pt-5"><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold uppercase">Materiali</span><span className="font-mono text-slate-700 font-bold">{formatCurrency(analysis.totalMaterials)}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold uppercase">Manodopera</span><span className="font-mono text-slate-700 font-bold">{formatCurrency(analysis.totalLabor)}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold uppercase">Noli/Attrezz.</span><span className="font-mono text-slate-700 font-bold">{formatCurrency(analysis.totalEquipment)}</span></div></div></div><div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center"><div className="flex items-center gap-1"><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-slate-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 text-slate-400 hover:text-red-600 bg-red-50/0 hover:bg-red-50 rounded-xl transition-all"><Trash2 className="w-4 h-4" /></button></div><button onClick={() => handleImportAnalysisToArticle(analysis)} className="flex items-center gap-2 bg-white text-purple-700 font-black text-[10px] px-4 py-2 rounded-xl border border-slate-200 hover:bg-purple-600 hover:text-white transition-all shadow-sm uppercase tracking-widest">Usa in Computo <ArrowRightLeft className="w-4 h-4" /></button></div></div>
+                        ))}
+                    </div>
+                  </div>
+              </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-300 gap-6"><LayoutDashboard className="w-32 h-32 opacity-10" /><h2 className="text-3xl font-black uppercase tracking-tighter opacity-20">Benvenuto in GeCoLa</h2><p className="text-sm font-bold opacity-30 tracking-widest uppercase">Seleziona una WBS dal menu laterale per iniziare lo srotolamento</p></div>
+          )}
+        </div>
+      </div>
+      
+      <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
+      {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
+      {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
+      <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} />
+      <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
+      <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
+      <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
+      <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerate} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
+    </div>
+  );
+};
+
+export default App;
