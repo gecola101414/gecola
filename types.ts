@@ -1,16 +1,16 @@
 
 export interface Category {
-  id: string; // ID univoco immutabile per gestione gerarchia
+  id: string; 
   code: string;
   name: string;
   isLocked?: boolean;
   isEnabled?: boolean;
   isImported?: boolean;
-  isSuperCategory?: boolean; // Se true, funge da raccoglitore di WBS
-  type?: 'work' | 'safety'; // Distingue tra capitoli di lavoro e di sicurezza
-  parentId?: string; // ID della categoria genitore per raggruppamento
-  color?: string; // Colore identificativo (usato principalmente per Super Categorie)
-  soaCategory?: string; // Nuova centralizzazione SOA a livello di WBS
+  isSuperCategory?: boolean; 
+  type?: 'work' | 'safety'; 
+  parentId?: string; 
+  color?: string; 
+  soaCategory?: string; 
 }
 
 export interface Measurement {
@@ -38,8 +38,8 @@ export interface Article {
   quantity: number;
   linkedAnalysisId?: string;
   isLocked?: boolean;
-  displayMode?: number; // 0: Normal, 1: Concise, 2: Industrial
-  soaCategory?: string; // Mantenuto per compatibilità ma prioritario quello di categoria
+  displayMode?: number; 
+  soaCategory?: string; 
   groundingUrls?: any[];
 }
 

@@ -1,8 +1,7 @@
-
 import React, { useMemo } from 'react';
 import { Totals, ProjectInfo, Category, Article } from '../types';
 import { SOA_CATEGORIES } from '../constants';
-import { Layers, Award, CheckCircle2, AlertTriangle, Calculator, FileText, ShieldAlert, Users } from 'lucide-react';
+import { Layers, Award, CheckCircle2, AlertTriangle, Calculator, FileText, ShieldAlert, Users, PenTool, Calendar as CalendarIcon } from 'lucide-react';
 
 interface SummaryProps {
   totals: Totals;
@@ -16,33 +15,28 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
   };
 
-  // 1. Riepilogo per WBS (Tutte, incluse quelle dentro Supercategorie)
+  // 1. Riepilogo per WBS
   const wbsBreakdown = useMemo(() => {
       return categories
-        .filter(c => c.isEnabled !== false && !c.isSuperCategory) // Solo capitoli reali con importi
+        .filter(c => c.isEnabled !== false && !c.isSuperCategory)
         .map(cat => {
           const catTotal = articles
             .filter(a => a.categoryCode === cat.code)
             .reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
           return { ...cat, total: catTotal };
-      }).filter(c => c.total > 0 || categories.find(parent => parent.code === c.code)); // Mostra anche se a zero se presente in struttura
+      }).filter(c => c.total > 0.01);
   }, [categories, articles]);
 
-  // 2. Riepilogo SOA con Eredità dal Capitolo (Fix Gerarchia)
+  // 2. Riepilogo SOA
   const soaBreakdown = useMemo(() => {
       const soaMap: Record<string, number> = {};
       let untaggedTotal = 0;
 
       articles.forEach(art => {
           const cat = categories.find(c => c.code === art.categoryCode);
-          
-          // Se il capitolo è disabilitato, non contiamo i suoi importi nel riepilogo
           if (cat && cat.isEnabled === false) return;
 
           const amount = art.quantity * art.unitPrice;
-          
-          // LOGICA PATTO D'ACCIAIO: La SOA del Capitolo ha priorità assoluta (eredità)
-          // Se il capitolo non ha SOA, usiamo quella della voce (retrocompatibilità)
           const effectiveSoa = cat?.soaCategory || art.soaCategory;
 
           if (effectiveSoa) {
@@ -68,7 +62,7 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
   const totalWbs = wbsBreakdown.reduce((s, i) => s + i.total, 0);
   const isBalanced = Math.abs(totalWbs - totalAnalyzed) < 0.01;
 
-  // Calcolo Uomini Giorno (240€/giorno)
+  // Calcolo Uomini Giorno (240€/giorno) - Patto di Ferro
   const manDaysCount = Math.ceil((totals.totalLabor || 0) / 240);
 
   return (
@@ -179,10 +173,29 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
                           </div>
                       </div>
                   </div>
-                  <p className="text-[8px] text-gray-400 uppercase leading-relaxed text-justify">
-                      Il calcolo degli uomini-giorno è un valore puramente indicativo utile alla redazione del Cronoprogramma dei Lavori. Rappresenta il numero teorico di giornate lavorative necessarie ad una singola unità per completare l'opera.
-                  </p>
               </div>
+          </div>
+      </div>
+
+      {/* BLOCCO DATA E FIRMA DEL PROGETTISTA (PATTO DI FERRO) */}
+      <div className="mt-12 flex flex-col md:flex-row justify-between items-start gap-12 border-t-2 border-slate-200 pt-10">
+          <div className="space-y-4">
+              <div className="flex items-center gap-2 text-slate-400">
+                  <CalendarIcon className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Luogo e Data</span>
+              </div>
+              <p className="text-sm font-bold text-slate-700 uppercase italic">{info.location}, {info.date}</p>
+          </div>
+          
+          <div className="w-full md:w-80 space-y-6 text-center">
+              <div className="flex items-center justify-center gap-2 text-slate-400">
+                  <PenTool className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Il Progettista</span>
+              </div>
+              <div className="h-24 w-full bg-slate-50 border-b-2 border-slate-300 rounded-xl flex items-center justify-center">
+                  <span className="text-slate-300 text-xs italic font-serif">Firma Digitale o Autografa</span>
+              </div>
+              <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{info.designer}</p>
           </div>
       </div>
 

@@ -7,7 +7,8 @@ import {
   Minimize2, GripHorizontal, ArrowLeft, Headset, CopyPlus, Paintbrush, 
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
   Zap, CornerRightDown, ListFilter, EyeOff, ChevronRight, Folder, FolderPlus, Tag, AlertTriangle, Link2Off,
-  ShieldCheck, RefreshCw, FilePlus2, Magnet, MoreVertical, LayoutList, List, Database, Info, ChevronUp
+  ShieldCheck, RefreshCw, FilePlus2, Magnet, MoreVertical, LayoutList, List, Database, Info, ChevronUp,
+  Calendar
 } from 'lucide-react';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -17,6 +18,7 @@ import Login from './components/Login';
 import { CATEGORIES, INITIAL_ARTICLES, PROJECT_INFO, INITIAL_ANALYSES, SOA_CATEGORIES, VIVID_COLORS } from './constants';
 import { Article, Totals, ProjectInfo, Measurement, Category, PriceAnalysis } from './types';
 import Summary from './components/Summary';
+import ScheduleView from './components/ScheduleView';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
 import LinkArticleModal from './components/LinkArticleModal';
 import ArticleEditModal from './components/ArticleEditModal';
@@ -1062,7 +1064,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    );
 };
 
-type ViewMode = 'COMPUTO' | 'SICUREZZA' | 'ANALISI' | 'SUMMARY'; 
+type ViewMode = 'COMPUTO' | 'SICUREZZA' | 'ANALISI' | 'SUMMARY' | 'CRONOPROGRAMMA'; 
 interface Snapshot { articles: Article[]; categories: Category[]; analyses: PriceAnalysis[]; }
 
 const App: React.FC = () => {
@@ -1096,6 +1098,11 @@ const App: React.FC = () => {
   const [analysisDropPosition, setAnalysisDropPosition] = useState<'top' | 'bottom' | null>(null);
 
   const [lastMovedItemId, setLastMovedItemId] = useState<string | null>(null);
+
+  // Stato per gli offset del cronoprogramma (giorno di inizio per ogni WBS)
+  const [scheduleOffsets, setScheduleOffsets] = useState<Record<string, number>>({});
+  // Stato per la composizione delle squadre per ogni WBS (default: 2)
+  const [teamSizes, setTeamSizes] = useState<Record<string, number>>({});
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -1132,12 +1139,20 @@ const App: React.FC = () => {
   const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
 
+  // --- LOGICA INIZIALIZZAZIONE ID STABILI ---
+  const initializedCategories = useMemo(() => {
+      return CATEGORIES.map((c, i) => ({
+          ...c,
+          id: c.id || `cat_init_${i}` // Se manca l'ID nelle costanti, ne generiamo uno basato sulla posizione iniziale
+      }));
+  }, []);
+
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
-  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
+  const [categories, setCategories] = useState<Category[]>(initializedCategories);
   const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
   const [analyses, setAnalyses] = useState<PriceAnalysis[]>(INITIAL_ANALYSES);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>(PROJECT_INFO);
-  const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(CATEGORIES[0]?.code || 'WBS.01');
+  const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(categories[0]?.code || 'WBS.01');
   const [activeColumn, setActiveColumn] = useState<string | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [future, setFuture] = useState<Snapshot[]>([]);
@@ -1264,7 +1279,7 @@ const App: React.FC = () => {
       return `WBS.${(currentCats.filter(c => c.type !== 'safety' && !c.isSuperCategory).length + 1).toString().padStart(2, '0')}`;
   };
   
-  const renumberCategories = (cats: Category[], currentArts: Article[]) => {
+  const renumberCategories = useCallback((cats: Category[], currentArts: Article[]) => {
       const codeMap: Record<string, string> = {};
       const idToCodeMap: Record<string, string> = {};
       let workCount = 0;
@@ -1298,7 +1313,7 @@ const App: React.FC = () => {
           return art;
       });
       return { newCategories: finalCategories, newArticles, codeMap };
-  };
+  }, []);
 
   const renumberAnalyses = (analysesToRenumber: PriceAnalysis[], currentArticles: Article[]) => {
     const codeMap: Record<string, string> = {};
@@ -1394,21 +1409,21 @@ const App: React.FC = () => {
       }
   };
 
-  const handleWbsDragStart = (e: React.DragEvent, code: string) => { 
-      setDraggedCategoryCode(code); 
-      const dummyUrl = 'https://gecola.it/transfer/wbs/' + code;
+  const handleWbsDragStart = (e: React.DragEvent, id: string) => { 
+      setDraggedCategoryCode(id); 
+      const dummyUrl = 'https://gecola.it/transfer/wbs/' + id;
       e.dataTransfer.setData('text/uri-list', dummyUrl);
       e.dataTransfer.setData('URL', dummyUrl);
-      const cat = categories.find(c => c.code === code);
+      const cat = categories.find(c => c.code === id);
       if (cat) {
-          const catArticles = articles.filter(a => a.categoryCode === code);
+          const catArticles = articles.filter(a => a.categoryCode === id);
           const relatedAnalysesIds = new Set(catArticles.map(a => a.linkedAnalysisId).filter(Boolean));
           const relatedAnalyses = analyses.filter(an => relatedAnalysesIds.has(an.id));
           const payload = { type: 'CROSS_TAB_WBS_BUNDLE', category: cat, articles: catArticles, analyses: relatedAnalyses };
           const jsonPayload = JSON.stringify(payload);
           e.dataTransfer.setData('text/plain', jsonPayload);
       }
-      e.dataTransfer.setData('wbsCode', code); 
+      e.dataTransfer.setData('wbsCode', id); 
       e.dataTransfer.effectAllowed = 'all'; 
   };
 
@@ -1434,9 +1449,8 @@ const App: React.FC = () => {
           if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
           
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          const isInsideCandidate = targetCat?.isSuperCategory && e.clientY > (rect.top + 15) && e.clientY < (rect.bottom - 15);
           
-          if (isInsideCandidate && !(draggedCat?.isSuperCategory)) { 
+          if (targetCat?.isSuperCategory && e.clientY > (rect.top + 15) && e.clientY < (rect.bottom - 15) && !(draggedCat?.isSuperCategory)) { 
               setWbsDropTarget({ code: targetCode, position: 'inside' }); 
           } else {
              const isTop = e.clientY < (rect.top + rect.height / 2);
@@ -1704,8 +1718,8 @@ const App: React.FC = () => {
       });
   };
 
-  const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, ...[newM]] }; }); updateState(updated); };
-  const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, ...[newM]] }; }); updateState(updated); };
+  const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
+  const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   
   const handleToggleDeduction = (articleId: string, mId: string) => { 
     const updated = articles.map(art => { 
@@ -2074,7 +2088,7 @@ const App: React.FC = () => {
           )}
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
-                <div className="w-[20rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
+                <div className="w-[24rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
                 
                 <div 
                     onMouseEnter={() => startScroll(-3)} 
@@ -2082,7 +2096,7 @@ const App: React.FC = () => {
                     onDragOver={(e) => { e.preventDefault(); startScroll(-3); }}
                     onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }}
                     onDragLeave={stopScroll}
-                    className="absolute top-[9.8rem] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"
+                    className="absolute top-[12rem] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"
                 >
                     <ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle ? 'opacity-50' : 'opacity-100'}`} />
                 </div>
@@ -2097,11 +2111,12 @@ const App: React.FC = () => {
                     <ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle ? 'opacity-50' : 'opacity-100'}`} />
                 </div>
 
-                <div className="p-2 bg-slate-300/40 border-b border-slate-400 grid grid-cols-4 gap-1">
-                    <button onClick={() => setViewMode('COMPUTO')} className={`py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><HardHat className="w-3.5 h-3.5" /> Lavori</button>
-                    <button onClick={() => setViewMode('SICUREZZA')} className={`py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><ShieldAlert className="w-3.5 h-3.5" /> Sicur.</button>
-                    <button onClick={() => setViewMode('ANALISI')} className={`py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><TestTubes className="w-3.5 h-3.5" /> Analisi</button>
-                    <button onClick={() => setViewMode('SUMMARY')} className={`py-2 text-[8px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Layers className="w-3.5 h-3.5" /> Riepil.</button>
+                <div className="p-2 bg-slate-300/40 border-b border-slate-400 grid grid-cols-5 gap-1">
+                    <button onClick={() => setViewMode('COMPUTO')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><HardHat className="w-3 h-3" /> Lavori</button>
+                    <button onClick={() => setViewMode('SICUREZZA')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><ShieldAlert className="w-3 h-3" /> Sicur.</button>
+                    <button onClick={() => setViewMode('ANALISI')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><TestTubes className="w-3 h-3" /> Analisi</button>
+                    <button onClick={() => setViewMode('SUMMARY')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Layers className="w-3 h-3" /> Riepil.</button>
+                    <button onClick={() => setViewMode('CRONOPROGRAMMA')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'CRONOPROGRAMMA' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Calendar className="w-3 h-3" /> Crono</button>
                 </div>
                 <div className="px-3 py-2 border-b border-slate-300 bg-slate-50/50">
                     <div className="flex items-center justify-between bg-gradient-to-r from-indigo-700 to-indigo-600 rounded-xl px-4 py-2 shadow-lg ring-1 ring-indigo-800">
@@ -2275,6 +2290,22 @@ const App: React.FC = () => {
                    <div className="flex-1 overflow-y-auto p-12 bg-white">
                        <Summary totals={totals} info={projectInfo} categories={categories} articles={articles} />
                    </div>
+               ) : viewMode === 'CRONOPROGRAMMA' ? (
+                   <div className="flex-1 overflow-hidden">
+                       <ScheduleView 
+                         categories={categories} 
+                         articles={articles} 
+                         projectInfo={projectInfo}
+                         offsets={scheduleOffsets}
+                         teamSizes={teamSizes}
+                         onOffsetChange={(id, val) => setScheduleOffsets(prev => ({ ...prev, [id]: val }))}
+                         onTeamSizeChange={(id, val) => setTeamSizes(prev => ({ ...prev, [id]: val }))}
+                         onReorderCategories={(newCats) => {
+                             const result = renumberCategories(newCats, articles);
+                             updateState(result.newArticles, result.newCategories);
+                         }}
+                       />
+                   </div>
                ) : (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && activeCategory ? (
                    <>
                    {!isFocusMode && (
@@ -2293,7 +2324,7 @@ const App: React.FC = () => {
                                             <Maximize2 className="w-4 h-4" />
                                             <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Full Screen</span>
                                         </button>
-                                        <button onClick={handleCycleDisplayMode} className={`p-2 rounded-xl border transition-all shadow-md group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-blue-800 text-white border-blue-900 animate-pulse'}`}>
+                                        <button onClick={handleCycleDisplayMode} className={`p-2 rounded-xl border transition-all shadow-md group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : wbsDisplayMode === 2 ? 'bg-blue-800 text-white border-blue-900 animate-pulse' : ''}`}>
                                           <RefreshCw className={`w-4 h-4 transition-transform duration-700 ${wbsDisplayMode > 0 ? 'rotate-180' : ''}`} />
                                           <div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest p-4 rounded-2xl shadow-2xl opacity-0 group-hover/cycle:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black flex flex-col gap-2 text-center">
                                               <div className={`transition-opacity ${wbsDisplayMode === 0 ? 'text-blue-400' : 'opacity-30'}`}>0 - Tutto Aperto: Visualizzazione totale per editing</div>
@@ -2457,10 +2488,6 @@ const App: React.FC = () => {
           <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
           <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
           <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
-          <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} isImport={wbsOptionsContext?.type === 'import'} initialName={wbsOptionsContext?.initialName || ''} />
-          <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
-          <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => setIsRebarModalOpen(false)} onAdd={handleAddRebarMeasurement} />
-          <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
           <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerateLocal} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
         </>
       )}

@@ -1,4 +1,3 @@
-
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
@@ -24,7 +23,7 @@ const numberToItalianWords = (num: number): string => {
     const integerPart = Math.floor(num);
     const decimalPart = Math.round((num - integerPart) * 100);
     let words = '';
-    if (integerPart >= 1000000) return "Valore fuori scala"; 
+    if (integerPart >= 1000000) return "Valore troppo alto"; 
     if (integerPart >= 1000) {
         const thousands = Math.floor(integerPart / 1000);
         const remainder = integerPart % 1000;
@@ -62,7 +61,12 @@ const calculateMeasurementValue = (m: Measurement, linkedVal: number = 0) => {
     }
     const factors = [m.length, m.width, m.height].filter(v => v !== undefined && v !== 0 && v !== null);
     const base = factors.length > 0 ? factors.reduce((a, b) => (a || 1) * (b || 1), 1) : 0;
-    let effectiveMultiplier = (m.multiplier !== undefined) ? m.multiplier : (factors.length > 0 ? 1 : 0);
+    let effectiveMultiplier = 0;
+    if (m.multiplier !== undefined) {
+        effectiveMultiplier = m.multiplier;
+    } else {
+        if (factors.length > 0) effectiveMultiplier = 1;
+    }
     const effectiveBase = (factors.length === 0 && effectiveMultiplier !== 0) ? 1 : base;
     const val = effectiveBase * effectiveMultiplier;
     return m.type === 'deduction' ? -val : val;
@@ -76,204 +80,94 @@ const getLibs = async () => {
     return { jsPDF, autoTable };
 };
 
-const drawGridLines = (doc: any, startY: number, endY: number) => {
-    const boundaries = [10, 20, 42, 102, 112, 124, 136, 148, 166, 184, 200];
-    for (let i = 1; i < boundaries.length - 1; i++) { 
-        if (i === 7) {
-            doc.setDrawColor(140, 140, 140); doc.setLineWidth(0.3);
-        } else {
-            doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.15);
-        }
-        doc.line(boundaries[i], startY, boundaries[i], endY); 
-    }
-    doc.setLineWidth(0.1);
-};
-
-const drawTableFrame = (doc: any, startY: number, endY: number) => {
-    doc.setDrawColor(0, 0, 0); doc.setLineWidth(0.4);
-    doc.line(10, startY, 10, endY); doc.line(200, startY, 200, endY); 
-    doc.line(10, endY, 200, endY); doc.line(10, startY, 200, startY); 
-    doc.setLineWidth(0.1);
-};
-
-const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number, grandTotal?: number, isTotalCurrency: boolean = true) => {
+const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number, grandTotal?: number, pageWidth?: number, pageHeight?: number, isTotalCurrency: boolean = true) => {
     doc.setTextColor(0, 0, 0);
     if (pageNumber === 1) {
-        doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.text(title, 105, 18, { align: 'center' });
-        doc.setFontSize(10); doc.text(projectInfo.title, 12, 28);
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8);
-        doc.text(`Committente: ${projectInfo.client}`, 12, 33);
-        doc.text(`Progettista: ${projectInfo.designer}`, 12, 37);
-        doc.text(`Listino: ${projectInfo.region} ${projectInfo.year}`, 12, 41);
-        doc.setLineWidth(0.3); doc.line(10, 44, 200, 44);
+        doc.setFontSize(14);
+        doc.text(title, (pageWidth || 210) / 2, 15, { align: 'center' });
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text(projectInfo.title, 10, 22);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text(`Committente: ${projectInfo.client}`, 10, 27);
+        doc.text(`Data: ${projectInfo.date}`, 10, 31);
+        doc.text(`Prezzario: ${projectInfo.region} ${projectInfo.year}`, 10, 35);
     } else {
-        doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.text(projectInfo.title, 12, 15);
-        if (grandTotal !== undefined) {
-            doc.setFontSize(7.5); doc.text("RIPORTO PAGINA PRECEDENTE:  ", 160, 22, { align: 'right' });
-            doc.text(isTotalCurrency ? formatCurrency(grandTotal) : formatNumber(grandTotal), 198, 22, { align: 'right' });
-            doc.line(130, 23, 200, 23);
-        }
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text(projectInfo.title, 10, 20);
+    }
+    if (pageNumber > 1 && grandTotal !== undefined) {
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("RIPORTO:", 160, 28, { align: 'right' });
+        doc.text(isTotalCurrency ? formatCurrency(grandTotal) : formatNumber(grandTotal), 200, 28, { align: 'right' });
     }
 };
 
-const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined, pageTotal: number | undefined, isTotalCurrency: boolean = true) => {
-    const pageHeight = doc.internal.pageSize.height;
+const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined, pageTotal: number | undefined, pageWidth: number, pageHeight: number, isTotalCurrency: boolean = true) => {
+    const footerY = pageHeight - 15;
     if (grandTotal !== undefined && pageTotal !== undefined) {
         const currentCumulative = grandTotal + pageTotal;
-        doc.setFontSize(7.5); doc.setFont("helvetica", "bold");
-        doc.text("TOTALE DA RIPORTARE:  ", 160, pageHeight - 20, { align: 'right' });
-        doc.text(isTotalCurrency ? formatCurrency(currentCumulative) : formatNumber(currentCumulative), 198, pageHeight - 20, { align: 'right' });
-        doc.line(130, pageHeight - 18.5, 200, pageHeight - 18.5);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("A RIPORTARE:", 160, footerY, { align: 'right' });
+        doc.text(isTotalCurrency ? formatCurrency(currentCumulative) : formatNumber(currentCumulative), 200, footerY, { align: 'right' });
     }
-    doc.setFontSize(7); doc.setFont("helvetica", "normal");
-    doc.text(`Pagina ${pageNumber}`, 105, pageHeight - 6, { align: 'center' });
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Pag. ${pageNumber}`, pageWidth / 2, footerY + 5, { align: 'center' });
 };
 
 const drawSignature = (doc: any, projectInfo: ProjectInfo, yPos: number) => {
     const pageHeight = doc.internal.pageSize.height;
+    const pageWidth = doc.internal.pageSize.width;
     let finalY = yPos + 15;
-    if (finalY > pageHeight - 60) { doc.addPage(); finalY = 30; }
-    doc.setFontSize(8); doc.text(`${projectInfo.location}, ${projectInfo.date}`, 46, finalY);
-    doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.text("IL PROGETTISTA", 72, finalY + 12, { align: 'center' });
-    doc.setFont("helvetica", "normal"); doc.text(projectInfo.designer, 72, finalY + 19, { align: 'center' });
-    return finalY + 30;
+    
+    if (finalY > pageHeight - 50) { 
+        doc.addPage(); 
+        finalY = 25; 
+        drawHeader(doc, projectInfo, "FIRMA E CHIUSURA", 99, undefined, pageWidth, pageHeight);
+    }
+    
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.1);
+    doc.line(10, finalY, pageWidth - 10, finalY);
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${projectInfo.location}, ${projectInfo.date}`, 10, finalY + 10);
+    
+    const signatureX = pageWidth - 70;
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.text("IL PROGETTISTA", signatureX + 30, finalY + 18, { align: 'center' });
+    
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
+    doc.line(signatureX, finalY + 28, signatureX + 60, finalY + 28);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text(projectInfo.designer, signatureX + 30, finalY + 34, { align: 'center' });
+    
+    return finalY + 40;
 };
 
-export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
-  try {
-    const { jsPDF, autoTable } = await getLibs();
-    const doc = new jsPDF();
-    const tableBody: any[] = [];
-    const pageHeight = doc.internal.pageSize.height;
-
-    tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
-
-    const topLevels = categories.filter(c => !c.parentId);
-    
-    topLevels.forEach(root => {
-        if (root.isEnabled === false) return;
-        if (root.isSuperCategory) {
-            tableBody.push([
-                { content: '', colSpan: 2, styles: { lineWidth: 0 } },
-                { content: `AREA DI INTERVENTO: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
-            ]);
-            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory);
-            children.forEach(child => {
-                if (child.isEnabled === false) return;
-                appendWbsToPdfBody(tableBody, child, articles);
-            });
-        } else {
-            appendWbsToPdfBody(tableBody, root, articles);
-        }
+const drawGridLines = (doc: any, startY: number, endY: number) => {
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.1);
+    const xPositions = [10, 20, 42, 102, 112, 124, 136, 148, 166, 184, 200];
+    xPositions.forEach(x => {
+        doc.line(x, startY, x, endY);
     });
+};
 
-    let grandTotal = 0; let pageTotal = 0;  
-    autoTable(doc, {
-      head: [['Num.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'par.ug.', 'lung.', 'larg.', 'H/peso', 'Quantità', 'unitario', 'TOTALE']],
-      body: tableBody,
-      startY: 44, 
-      margin: { top: 25, bottom: 25, left: 10, right: 10 }, 
-      theme: 'plain', 
-      styles: { fontSize: 8, valign: 'top', cellPadding: 1.2, lineWidth: 0, overflow: 'linebreak', font: 'helvetica' },
-      columnStyles: { 
-          0: { cellWidth: 10, halign: 'center' }, 
-          1: { cellWidth: 22 }, 
-          2: { cellWidth: 60 }, 
-          3: { cellWidth: 10, halign: 'left' }, 
-          4: { cellWidth: 12, halign: 'left' }, 
-          5: { cellWidth: 12, halign: 'left' }, 
-          6: { cellWidth: 12, halign: 'left' }, 
-          7: { cellWidth: 18, halign: 'left' }, 
-          8: { cellWidth: 18, halign: 'left' }, 
-          9: { cellWidth: 16, halign: 'left' } 
-      },
-      headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.5 }, lineColor: [0,0,0] },
-      didDrawCell: (data: any) => {
-          if (data.section === 'body' && data.cell.styles.isTotalRow && data.column.index === 7) {
-              doc.setDrawColor(150, 150, 150); 
-              const leftPadding = 1.5; const xStart = data.cell.x + leftPadding; const xEnd = data.cell.x + data.cell.width;
-              doc.setLineWidth(0.15); doc.line(xStart, data.cell.y, xEnd, data.cell.y);
-              doc.setLineWidth(0.4); doc.line(xStart, data.cell.y + data.cell.height, xEnd, data.cell.y + data.cell.height);
-              doc.setLineWidth(0.15); doc.line(xStart, data.cell.y + data.cell.height + 0.6, xEnd, data.cell.y + data.cell.height + 0.6);
-              doc.setLineWidth(0.1); 
-          }
-          if (data.section === 'body' && data.column.index === 9) {
-              const raw = data.cell.raw;
-              if (typeof raw === 'number') pageTotal += raw; else if (raw?.content && typeof raw.content === 'number') pageTotal += raw.content;
-          }
-      },
-      didParseCell: (data: any) => {
-          if (data.section === 'body' && data.column.index === 9) {
-               const raw = data.cell.raw;
-               if (typeof raw === 'number') data.cell.text = [formatCurrency(raw)];
-               else if (raw?.content && typeof raw.content === 'number') data.cell.text = [formatCurrency(raw.content)];
-          }
-      },
-      didDrawPage: (data: any) => {
-          const currentTableStartY = data.pageNumber === 1 ? 44 : 25; const tableEndY = pageHeight - 25;
-          drawHeader(doc, projectInfo, "COMPUTO METRICO ESTIMATIVO", data.pageNumber, grandTotal);
-          drawGridLines(doc, currentTableStartY, tableEndY); drawTableFrame(doc, currentTableStartY, tableEndY);
-          drawFooter(doc, data.pageNumber, grandTotal, pageTotal);
-          grandTotal += pageTotal; pageTotal = 0;
-      }
-    });
-
-    // 1. RIEPILOGO FINALE (Cambio Pagina)
-    doc.addPage();
-    const summaryTableBody: any[] = [];
-    let totalLavoriSum = 0;
-    let totalLaborSum = 0;
-
-    categories.forEach(cat => {
-        if (cat.isEnabled === false || cat.isSuperCategory) return;
-        const catArticles = articles.filter(a => a.categoryCode === cat.code);
-        const catTotal = catArticles.reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
-        const catLabor = catArticles.reduce((sum, a) => sum + ((a.quantity * a.unitPrice) * (a.laborRate / 100)), 0);
-        
-        if (catTotal > 0 || catArticles.length > 0) {
-            totalLavoriSum += catTotal;
-            totalLaborSum += catLabor;
-            summaryTableBody.push([
-                { content: cat.code, styles: { fontStyle: 'bold', halign: 'center' } },
-                { content: cat.name.toUpperCase(), styles: { halign: 'left' } },
-                { content: formatCurrency(catTotal), styles: { halign: 'right', fontStyle: 'bold' } },
-                { content: formatCurrency(catLabor), styles: { halign: 'right' } }
-            ]);
-        }
-    });
-
-    // Riga Totali Riepilogo
-    summaryTableBody.push([
-        { content: 'TOTALE GENERALE', colSpan: 2, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
-        { content: formatCurrency(totalLavoriSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
-        { content: formatCurrency(totalLaborSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } }
-    ]);
-
-    autoTable(doc, {
-        head: [['COD.', 'DESCRIZIONE CAPITOLO (WBS)', 'IMPORTO LAVORI', 'INCIDENZA M.O.']],
-        body: summaryTableBody,
-        startY: 30,
-        margin: { left: 10, right: 10 },
-        theme: 'grid',
-        styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
-        columnStyles: {
-            0: { cellWidth: 20 },
-            1: { cellWidth: 100 }, // Colonna larga per stare su un rigo
-            2: { cellWidth: 35 },
-            3: { cellWidth: 35 }
-        },
-        headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
-        didDrawPage: (data) => {
-            doc.setFontSize(12); doc.setFont("helvetica", "bold");
-            doc.text("RIEPILOGO GENERALE DEI LAVORI E DELLA MANODOPERA", 105, 20, { align: 'center' });
-        }
-    });
-
-    // Firma in calce al riepilogo
-    drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
-
-    window.open(URL.createObjectURL(doc.output('blob')), '_blank');
-  } catch (error) { console.error(error); alert("Errore PDF."); }
+const drawTableFrame = (doc: any, startY: number, endY: number) => {
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
+    doc.rect(10, startY, 190, endY - startY);
 };
 
 const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]) => {
@@ -316,14 +210,154 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
                     const base = m.linkedType === 'amount' ? (linkedArt.quantity * linkedArt.unitPrice) : linkedArt.quantity;
                     val = calculateMeasurementValue(m, base);
                 }
-            } else { val = calculateMeasurementValue(m); }
-            let displayVal = (m.type === 'subtotal') ? runningPartial : val;
-            if (m.type === 'subtotal') runningPartial = 0; else runningPartial += val;
-            tableBody.push([ '', '', { content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, styles: { fontStyle: m.type === 'subtotal' ? 'bold' : 'normal', halign: m.type === 'subtotal' ? 'right' : 'left', textColor: m.type === 'deduction' ? [200, 0, 0] : [60, 60, 60], cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, fontSize: 8 } }, { content: formatNumber(m.multiplier), styles: { halign: 'left' } }, { content: formatNumber(m.length), styles: { halign: 'left' } }, { content: formatNumber(m.width), styles: { halign: 'left' } }, { content: formatNumber(m.height), styles: { halign: 'left' } }, { content: formatNumber(displayVal), styles: { halign: 'left', fontStyle: 'normal', cellPadding: { left: 1.5 }, fontSize: 8 } }, '', '' ]);
+            } else {
+                val = calculateMeasurementValue(m);
+            }
+            let displayVal = val;
+            if (m.type === 'subtotal') {
+                displayVal = runningPartial;
+                runningPartial = 0;
+            } else {
+                runningPartial += val;
+            }
+            tableBody.push([ '', '', { content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, styles: { fontStyle: m.type === 'subtotal' ? 'bold' : 'normal', halign: m.type === 'subtotal' ? 'right' : 'left', textColor: m.type === 'deduction' ? [200, 0, 0] : [60, 60, 60], cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, fontSize: 8 } }, { content: formatNumber(m.multiplier), styles: { halign: 'center' } }, { content: formatNumber(m.length), styles: { halign: 'center' } }, { content: formatNumber(m.width), styles: { halign: 'center' } }, { content: formatNumber(m.height), styles: { halign: 'center' } }, { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: 'normal', cellPadding: { left: 1.5 }, fontSize: 8 } }, '', '' ]);
         });
-        tableBody.push([ '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'left', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: formatNumber(art.unitPrice), styles: { halign: 'left', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'left', textColor: [0, 0, 120], cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } } ]);
+        tableBody.push([ '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: formatNumber(art.unitPrice), styles: { halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'right', textColor: [0, 0, 120], cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } } ]);
         tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
     });
+};
+
+export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+  try {
+    const { jsPDF, autoTable } = await getLibs();
+    const doc = new jsPDF();
+    const tableBody: any[] = [];
+    const pageHeight = doc.internal.pageSize.height;
+
+    tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
+
+    const topLevels = categories.filter(c => !c.parentId);
+    
+    topLevels.forEach(root => {
+        if (root.isEnabled === false) return;
+        if (root.isSuperCategory) {
+            tableBody.push([
+                { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+                { content: `AREA DI INTERVENTO: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
+            ]);
+            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory);
+            children.forEach(child => {
+                if (child.isEnabled === false) return;
+                appendWbsToPdfBody(tableBody, child, articles);
+            });
+        } else {
+            appendWbsToPdfBody(tableBody, root, articles);
+        }
+    });
+
+    let grandTotal = 0; let pageTotal = 0;  
+    autoTable(doc, {
+      head: [['Num.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'par.ug.', 'lung.', 'larg.', 'H/peso', 'Quantità', 'unitario', 'TOTALE']],
+      body: tableBody,
+      startY: 44, 
+      margin: { top: 25, bottom: 25, left: 10, right: 10 }, 
+      theme: 'plain', 
+      styles: { fontSize: 8, valign: 'top', cellPadding: 1.2, lineWidth: 0, overflow: 'linebreak', font: 'helvetica' },
+      columnStyles: { 
+          0: { cellWidth: 10, halign: 'center' }, 
+          1: { cellWidth: 22 }, 
+          2: { cellWidth: 60 }, 
+          3: { cellWidth: 10, halign: 'center' }, 
+          4: { cellWidth: 12, halign: 'center' }, 
+          5: { cellWidth: 12, halign: 'center' }, 
+          6: { cellWidth: 12, halign: 'center' }, 
+          7: { cellWidth: 18, halign: 'right' }, 
+          8: { cellWidth: 18, halign: 'right' }, 
+          9: { cellWidth: 16, halign: 'right' } 
+      },
+      headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.5 }, lineColor: [0,0,0] },
+      didDrawCell: (data: any) => {
+          if (data.section === 'body' && data.cell.styles.isTotalRow && data.column.index === 7) {
+              doc.setDrawColor(150, 150, 150); 
+              const leftPadding = 1.5; const xStart = data.cell.x + leftPadding; const xEnd = data.cell.x + data.cell.width;
+              doc.setLineWidth(0.15); doc.line(xStart, data.cell.y, xEnd, data.cell.y);
+              doc.setLineWidth(0.4); doc.line(xStart, data.cell.y + data.cell.height, xEnd, data.cell.y + data.cell.height);
+              doc.setLineWidth(0.15); doc.line(xStart, data.cell.y + data.cell.height + 0.6, xEnd, data.cell.y + data.cell.height + 0.6);
+              doc.setLineWidth(0.1); 
+          }
+          if (data.section === 'body' && data.column.index === 9) {
+              const raw = data.cell.raw;
+              if (typeof raw === 'number') pageTotal += raw; else if (raw?.content && typeof raw.content === 'number') pageTotal += raw.content;
+          }
+      },
+      didParseCell: (data: any) => {
+          if (data.section === 'body' && data.column.index === 9) {
+               const raw = data.cell.raw;
+               if (typeof raw === 'number') data.cell.text = [formatCurrency(raw)];
+               else if (raw?.content && typeof raw.content === 'number') data.cell.text = [formatCurrency(raw.content)];
+          }
+      },
+      didDrawPage: (data: any) => {
+          const currentTableStartY = data.pageNumber === 1 ? 44 : 25; const tableEndY = pageHeight - 25;
+          drawHeader(doc, projectInfo, "COMPUTO METRICO ESTIMATIVO", data.pageNumber, grandTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          drawGridLines(doc, currentTableStartY, tableEndY); drawTableFrame(doc, currentTableStartY, tableEndY);
+          drawFooter(doc, data.pageNumber, grandTotal, pageTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          grandTotal += pageTotal; pageTotal = 0;
+      }
+    });
+
+    doc.addPage();
+    const summaryTableBody: any[] = [];
+    let totalLavoriSum = 0;
+    let totalLaborSum = 0;
+
+    categories.forEach(cat => {
+        if (cat.isEnabled === false || cat.isSuperCategory) return;
+        const catArticles = articles.filter(a => a.categoryCode === cat.code);
+        const catTotal = catArticles.reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
+        const catLabor = catArticles.reduce((sum, a) => sum + ((a.quantity * a.unitPrice) * (a.laborRate / 100)), 0);
+        
+        if (catTotal > 0 || catArticles.length > 0) {
+            totalLavoriSum += catTotal;
+            totalLaborSum += catLabor;
+            summaryTableBody.push([
+                { content: cat.code, styles: { fontStyle: 'bold', halign: 'center' } },
+                { content: cat.name.toUpperCase(), styles: { halign: 'left' } },
+                { content: formatCurrency(catTotal), styles: { halign: 'right', fontStyle: 'bold' } },
+                { content: formatCurrency(catLabor), styles: { halign: 'right' } }
+            ]);
+        }
+    });
+
+    summaryTableBody.push([
+        { content: 'TOTALE GENERALE', colSpan: 2, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
+        { content: formatCurrency(totalLavoriSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
+        { content: formatCurrency(totalLaborSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } }
+    ]);
+
+    autoTable(doc, {
+        head: [['COD.', 'DESCRIZIONE CAPITOLO (WBS)', 'IMPORTO LAVORI', 'INCIDENZA M.O.']],
+        body: summaryTableBody,
+        startY: 30,
+        margin: { left: 10, right: 10 },
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
+        columnStyles: {
+            0: { cellWidth: 20 },
+            1: { cellWidth: 100 }, 
+            2: { cellWidth: 35 },
+            3: { cellWidth: 35 }
+        },
+        headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+        didDrawPage: (data) => {
+            doc.setFontSize(12); doc.setFont("helvetica", "bold");
+            doc.text("RIEPILOGO GENERALE DEI LAVORI E DELLA MANODOPERA", 105, 20, { align: 'center' });
+        }
+    });
+
+    drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
+    window.open(URL.createObjectURL(doc.output('blob')), '_blank');
+  } catch (error) { console.error(error); alert("Errore PDF."); }
 };
 
 export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
@@ -338,10 +372,11 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
             if (catArticles.length === 0) return;
             tableBody.push([{ content: `${cat.code} - ${cat.name}`, colSpan: 5, styles: { fillColor: [230, 230, 230], fontStyle: 'bold' } }]);
             catArticles.forEach((art, artIndex) => {
-                tableBody.push([{ content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, { content: art.code, styles: { fontStyle: 'bold' } }, { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, { content: art.unit, styles: { halign: 'center' } }, { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'left', fontStyle: 'bold', fontSize: 7.5 } }]);
+                tableBody.push([{ content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, { content: art.code, styles: { fontStyle: 'bold' } }, { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, { content: art.unit, styles: { halign: 'center' } }, { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } }]);
             });
         });
         autoTable(doc, { head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'U.M.', 'PREZZO UNITARIO']], body: tableBody, startY: 40, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5 }, headStyles: { fillColor: [60, 60, 60] }, didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI", data.pageNumber); } });
+        drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Elenco Prezzi."); }
 };
@@ -362,11 +397,12 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
                 const totalItem = art.quantity * art.unitPrice;
                 const laborPart = totalItem * (art.laborRate / 100);
                 totalLaborSum += laborPart;
-                tableBody.push([ { content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, art.code, { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, { content: formatNumber(art.quantity), styles: { halign: 'left' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'left', fontStyle: 'bold' } } ]);
+                tableBody.push([ { content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, art.code, { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, { content: formatNumber(art.quantity), styles: { halign: 'right' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } ]);
             });
         });
-        tableBody.push([{ content: 'TOTALE GENERALE INCIDENZA MANODOPERA', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }, { content: formatCurrency(totalLaborSum), styles: { halign: 'left', fontStyle: 'bold', fillColor: [230, 230, 255] } }]);
+        tableBody.push([{ content: 'TOTALE GENERALE INCIDENZA MANODOPERA', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }, { content: formatCurrency(totalLaborSum), styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }]);
         autoTable(doc, { head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'QUANTITÀ', '% M.O.', 'IMPORTO M.O.']], body: tableBody, startY: 40, theme: 'grid', styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [41, 128, 185] }, didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "STIMA INCIDENZA MANODOPERA", data.pageNumber); } });
+        drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Manodopera."); }
 };
@@ -385,11 +421,12 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
             let finalY = (doc as any).lastAutoTable.finalY + 10;
             const drawRow = (label: string, val: number, bold = false) => {
                 doc.setFont("helvetica", bold ? "bold" : "normal"); doc.text(label, 150, finalY, { align: 'right' });
-                doc.text(formatCurrency(val), 195, finalY, { align: 'left' }); finalY += 6;
+                doc.text(formatCurrency(val), 195, finalY, { align: 'right' }); finalY += 6;
             };
             drawRow("Costo Tecnico", an.costoTecnico); drawRow(`Spese Generali (${an.generalExpensesRate}%)`, an.valoreSpese);
             drawRow(`Utile d'Impresa (${an.profitRate}%)`, an.valoreUtile); doc.line(130, finalY - 3, 195, finalY - 3);
             drawRow(`TOTALE ANALISI`, an.totalBatchValue, true);
+            drawSignature(doc, projectInfo, finalY + 10);
         });
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Analisi."); }
@@ -405,6 +442,159 @@ const drawHeaderSimple = (doc: any, projectInfo: ProjectInfo, title: string, pag
     } else {
         doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.text(projectInfo.title, 12, 15); doc.line(10, 18, 200, 18);
     }
+};
+
+export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleData: any[], maxCalendarDays: number) => {
+    try {
+        const { jsPDF } = await getLibs();
+        const doc = new jsPDF({ orientation: 'landscape', format: 'a3', unit: 'mm' });
+        
+        const margin = 15;
+        const pageWidth = 420;
+        const pageHeight = 297;
+        const wbsNameWidth = 60;
+        const wbsDaysWidth = 12;
+        const wbsTeamWidth = 12;
+        const wbsColumnWidth = wbsNameWidth + wbsDaysWidth + wbsTeamWidth;
+        const timelineWidth = pageWidth - margin * 2 - wbsColumnWidth;
+        const dayWidth = timelineWidth / maxCalendarDays;
+        const rowHeight = 10;
+        const headerHeight = 35;
+
+        doc.setFontSize(18); doc.setFont("helvetica", "bold");
+        doc.text("CRONOPROGRAMMA DEI LAVORI", pageWidth / 2, 15, { align: 'center' });
+        doc.setFontSize(10); doc.setFont("helvetica", "normal");
+        doc.text(`Progetto: ${projectInfo.title}`, margin, 25);
+        doc.text(`Committente: ${projectInfo.client}`, margin, 30);
+
+        let currentY = headerHeight;
+
+        doc.setDrawColor(0); doc.setLineWidth(0.5);
+        doc.line(margin, currentY, pageWidth - margin, currentY);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+        doc.text("WBS / ATTIVITÀ", margin + 2, currentY + 7);
+        doc.text("Giorni", margin + wbsNameWidth + 2, currentY + 7);
+        doc.text("Sq.", margin + wbsNameWidth + wbsDaysWidth + 2, currentY + 7);
+        
+        const contentBottomY = currentY + 10 + (scheduleData.length * rowHeight);
+
+        for(let d=1; d<=maxCalendarDays; d++) {
+            const x = margin + wbsColumnWidth + (d-1) * dayWidth;
+            const weekend = d % 7 === 6 || d % 7 === 0;
+            if (weekend) {
+                doc.setFillColor(235, 235, 235);
+                doc.rect(x, currentY, dayWidth, contentBottomY - currentY, 'F');
+            }
+            doc.setDrawColor(210); doc.setLineWidth(0.1);
+            doc.line(x, currentY, x, contentBottomY);
+            doc.setTextColor(120);
+            doc.setFontSize(6);
+            doc.text(d.toString(), x + dayWidth/2, currentY + 7, { align: 'center' });
+        }
+        
+        currentY += 10;
+        doc.setDrawColor(0); doc.setLineWidth(0.3);
+        doc.line(margin, currentY, pageWidth - margin, currentY);
+
+        let totalLaborValue = 0;
+        let lastDay = 0;
+
+        scheduleData.forEach((cat) => {
+            if (currentY + rowHeight > pageHeight - margin) return;
+            totalLaborValue += cat.totalLabor;
+            if (cat.calendarEnd > lastDay) lastDay = cat.calendarEnd;
+            doc.setDrawColor(240); doc.setLineWidth(0.05);
+            doc.line(margin, currentY + rowHeight, pageWidth - margin, currentY + rowHeight);
+            doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
+            doc.setTextColor(0);
+            doc.text(`${cat.code} - ${cat.name.substring(0, 32)}`, margin + 2, currentY + 7);
+            doc.setFont("helvetica", "bold"); doc.setFontSize(7);
+            doc.setTextColor(60, 60, 60);
+            doc.text(cat.duration.toString(), margin + wbsNameWidth + 3, currentY + 7);
+            doc.setTextColor(0, 80, 180);
+            doc.text(cat.teamSize.toString(), margin + wbsNameWidth + wbsDaysWidth + 3, currentY + 7);
+
+            const barX = margin + wbsColumnWidth + ((cat.calendarStart - 1) * dayWidth);
+            const barW = cat.calendarDuration * dayWidth;
+            const barH = 5;
+            const barY = currentY + (rowHeight - barH) / 2;
+
+            const hex = cat.barColor || '#3B82F6';
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            doc.setFillColor(r, g, b);
+            doc.roundedRect(barX, barY, barW, barH, 0.5, 0.5, 'F');
+            currentY += rowHeight;
+        });
+
+        doc.setDrawColor(0); doc.setLineWidth(0.5);
+        doc.line(margin + wbsColumnWidth, headerHeight, margin + wbsColumnWidth, contentBottomY);
+        doc.setLineWidth(0.5);
+        doc.rect(margin, headerHeight, pageWidth - margin * 2, contentBottomY - headerHeight);
+
+        // --- RELAZIONE TECNICA ESSENZIALE (Patto di Ferro) ---
+        let reportY = contentBottomY + 15;
+        if (reportY > pageHeight - 80) { doc.addPage(); reportY = margin + 10; }
+        
+        doc.setFontSize(11); doc.setFont("helvetica", "bold");
+        doc.setTextColor(44, 62, 80);
+        doc.text("DATI ESSENZIALI DEL CRONOPROGRAMMA", margin, reportY);
+        
+        doc.setFontSize(9); doc.setFont("helvetica", "normal");
+        doc.setTextColor(0);
+        
+        const manDaysTotal = Math.ceil(totalLaborValue / 240);
+        const consecutiveDays = lastDay;
+
+        let listY = reportY + 8;
+        doc.setFont("helvetica", "bold"); doc.text("- Durata complessiva del cantiere:", margin, listY);
+        doc.setFont("helvetica", "normal"); doc.text(`${consecutiveDays} giorni naturali e consecutivi`, margin + 60, listY);
+        
+        listY += 6;
+        doc.setFont("helvetica", "bold"); doc.text("- Fabbisogno totale forza lavoro:", margin, listY);
+        doc.setFont("helvetica", "normal"); doc.text(`${manDaysTotal} Uomini-Giorno (UG)`, margin + 60, listY);
+        
+        listY += 6;
+        doc.setFont("helvetica", "bold"); doc.text("- Importo manodopera stimata:", margin, listY);
+        doc.setFont("helvetica", "normal"); doc.text(`€ ${formatCurrency(totalLaborValue)}`, margin + 60, listY);
+
+        listY += 6;
+        doc.setFont("helvetica", "bold"); doc.text("- Produzione base considerata:", margin, listY);
+        doc.setFont("helvetica", "normal"); doc.text(`€ 240,00/giorno per singolo operaio (Sq.)`, margin + 60, listY);
+
+        listY += 12;
+        doc.setFontSize(8); doc.setFont("helvetica", "bold");
+        doc.text("NOTE TECNICHE E NORMATIVE:", margin, listY);
+        doc.setFont("helvetica", "italic");
+        
+        const noteItems = [
+            "1. Le durate di ogni singola lavorazione riportate in tabella sono state incrementate del 10% rispetto al calcolo teorico di produzione. Tale incremento cautelativo tiene conto delle medie stagionali relative alle condizioni meteo, delle festività nazionali e patronali, di eventuali scioperi del settore e di possibili imprevisti logistici o interferenze di cantiere.",
+            "2. Il presente cronoprogramma è sviluppato sulla base di una settimana lavorativa di 5 (cinque) giorni (Lunedì-Venerdì) e su un unico turno di lavoro giornaliero standard.",
+            "3. La durata del cantiere è espressa in 'giorni naturali e consecutivi', ovvero comprensivi delle domeniche e di tutti gli altri giorni festivi, ai sensi della normativa vigente sui LL.PP. (Rif. Art. 121 DPR 207/2010 e s.m.i.)."
+        ];
+
+        let noteY = listY + 5;
+        noteItems.forEach(note => {
+            const splitNote = doc.splitTextToSize(note, pageWidth - margin * 2);
+            doc.text(splitNote, margin, noteY);
+            noteY += (splitNote.length * 4) + 2;
+        });
+        
+        // Firma in calce
+        const sigX = pageWidth - margin - 70;
+        const sigY = noteY + 10;
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        doc.text(`${projectInfo.location}, ${projectInfo.date}`, margin, sigY);
+        doc.setFont("helvetica", "bold");
+        doc.text("IL PROGETTISTA", sigX + 35, sigY, { align: 'center' });
+        doc.setLineWidth(0.2);
+        doc.line(sigX, sigY + 10, sigX + 70, sigY + 10);
+        doc.setFont("helvetica", "normal");
+        doc.text(projectInfo.designer, sigX + 35, sigY + 16, { align: 'center' });
+
+        window.open(URL.createObjectURL(doc.output('blob')), '_blank');
+    } catch (e) { console.error(e); alert("Errore A3."); }
 };
 
 export const generateProfessionalPdf = generateComputoMetricPdf;
