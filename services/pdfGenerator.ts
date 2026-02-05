@@ -20,8 +20,8 @@ const convertGroup = (n: number): string => {
 
 const numberToItalianWords = (num: number): string => {
     if (num === 0) return 'zero';
-    const integerPart = Math.floor(num);
-    const decimalPart = Math.round((num - integerPart) * 100);
+    const integerPart = Math.floor(Math.abs(num));
+    const decimalPart = Math.round((Math.abs(num) - integerPart) * 100);
     let words = '';
     if (integerPart >= 1000000) return "Valore troppo alto"; 
     if (integerPart >= 1000) {
@@ -42,14 +42,16 @@ const getWbsNumber = (code: string) => {
     return code;
 };
 
+// Task 3: Forza sempre l'uso dei separatori di migliaia con it-IT
 const formatCurrency = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
 };
 
 const formatNumber = (val: number | undefined | null) => {
-  if (val === undefined || val === null || val === 0) return '';
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val);
+  if (val === undefined || val === null) return '';
+  // Se è esattamente 0 mostriamo 0,00 per coerenza finanziaria se richiesto, altrimenti seguiamo la logica esistente
+  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
 };
 
 const calculateMeasurementValue = (m: Measurement, linkedVal: number = 0) => {
@@ -85,7 +87,7 @@ const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumbe
     if (pageNumber === 1) {
         doc.setFontSize(14);
         doc.text(title, (pageWidth || 210) / 2, 15, { align: 'center' });
-        doc.setFontSize(10);
+        doc.setFontSize(8); 
         doc.setFont("helvetica", "bold");
         doc.text(projectInfo.title, 10, 22);
         doc.setFont("helvetica", "normal");
@@ -94,21 +96,22 @@ const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumbe
         doc.text(`Data: ${projectInfo.date}`, 10, 31);
         doc.text(`Prezzario: ${projectInfo.region} ${projectInfo.year}`, 10, 35);
     } else {
-        doc.setFontSize(9);
+        doc.setFontSize(7.2); 
         doc.setFont("helvetica", "bold");
-        doc.text(projectInfo.title, 10, 20);
+        doc.text(projectInfo.title, 10, 20); 
     }
     if (pageNumber > 1 && grandTotal !== undefined) {
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
-        doc.text("RIPORTO:", 160, 28, { align: 'right' });
-        doc.text(isTotalCurrency ? formatCurrency(grandTotal) : formatNumber(grandTotal), 200, 28, { align: 'right' });
+        doc.text("RIPORTO:", 160, 30, { align: 'right' });
+        doc.text(isTotalCurrency ? formatCurrency(grandTotal) : formatNumber(grandTotal), 200, 30, { align: 'right' });
     }
 };
 
-const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined, pageTotal: number | undefined, pageWidth: number, pageHeight: number, isTotalCurrency: boolean = true) => {
+const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined, pageTotal: number | undefined, pageWidth: number, pageHeight: number, isTotalCurrency: boolean = true, isLastPageOfTable: boolean = false) => {
     const footerY = pageHeight - 15;
-    if (grandTotal !== undefined && pageTotal !== undefined) {
+    // Task 2: Elimina "A RIPORTARE" nell'ultima pagina della tabella
+    if (!isLastPageOfTable && grandTotal !== undefined && pageTotal !== undefined) {
         const currentCumulative = grandTotal + pageTotal;
         doc.setFontSize(9);
         doc.setFont("helvetica", "bold");
@@ -201,6 +204,12 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
             '', '', '', '', '', '', ''
         ]);
         
+        tableBody.push([
+            '', '', 
+            { content: 'ELENCO DELLE MISURE', styles: { fontStyle: 'bold', fontSize: 7.5, textColor: [40, 40, 40], cellPadding: { left: 3, top: 1, bottom: 1 } } },
+            '', '', '', '', '', '', ''
+        ]);
+
         let runningPartial = 0;
         art.measurements.forEach(m => {
             let val = 0;
@@ -227,40 +236,69 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
     });
 };
 
-export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[], filterType: 'work' | 'safety' = 'work') => {
   try {
     const { jsPDF, autoTable } = await getLibs();
     const doc = new jsPDF();
     const tableBody: any[] = [];
     const pageHeight = doc.internal.pageSize.height;
+    const title = filterType === 'work' ? "COMPUTO METRICO ESTIMATIVO" : "COMPUTO ONERI DELLA SICUREZZA";
 
     tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
 
+    let globalTotalForClosing = 0;
     const topLevels = categories.filter(c => !c.parentId);
     
     topLevels.forEach(root => {
         if (root.isEnabled === false) return;
         if (root.isSuperCategory) {
-            tableBody.push([
-                { content: '', colSpan: 2, styles: { lineWidth: 0 } },
-                { content: `AREA DI INTERVENTO: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
-            ]);
-            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory);
-            children.forEach(child => {
-                if (child.isEnabled === false) return;
-                appendWbsToPdfBody(tableBody, child, articles);
-            });
-        } else {
+            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory && c.type === filterType);
+            if (children.length > 0) {
+                tableBody.push([
+                    { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+                    { content: `AREA: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
+                ]);
+                children.forEach(child => {
+                    if (child.isEnabled === false) return;
+                    appendWbsToPdfBody(tableBody, child, articles);
+                    const catArticles = articles.filter(a => a.categoryCode === child.code);
+                    globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
+                });
+            }
+        } else if (root.type === filterType) {
             appendWbsToPdfBody(tableBody, root, articles);
+            const catArticles = articles.filter(a => a.categoryCode === root.code);
+            globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
         }
     });
+
+    // Task: Riga di chiusura "TOTALE COMPUTO"
+    // Riga 1: Etichetta e Valore numerico (impegna ultime 3 colonne)
+    tableBody.push([
+        { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+        { content: 'TOTALE COMPUTO', colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fontSize: 10, cellPadding: 4, fillColor: [245, 245, 245] } },
+        { 
+            content: `€ ${formatCurrency(globalTotalForClosing)}`, 
+            colSpan: 3, 
+            styles: { fontStyle: 'bold', halign: 'right', fontSize: 10, cellPadding: 4, fillColor: [245, 245, 245], textColor: [0, 0, 150] } 
+        }
+    ]);
+    // Riga 2: Valore in lettere (impegna ultime 5 colonne)
+    tableBody.push([
+        { content: '', colSpan: 5, styles: { lineWidth: 0 } },
+        { 
+            content: `(${numberToItalianWords(globalTotalForClosing)})`, 
+            colSpan: 5, 
+            styles: { fontStyle: 'italic', halign: 'right', fontSize: 8.5, cellPadding: { top: 0, bottom: 4, right: 4 }, fillColor: [245, 245, 245], textColor: [0, 0, 150] } 
+        }
+    ]);
 
     let grandTotal = 0; let pageTotal = 0;  
     autoTable(doc, {
       head: [['Num.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'par.ug.', 'lung.', 'larg.', 'H/peso', 'Quantità', 'unitario', 'TOTALE']],
       body: tableBody,
       startY: 44, 
-      margin: { top: 25, bottom: 25, left: 10, right: 10 }, 
+      margin: { top: 38, bottom: 25, left: 10, right: 10 }, 
       theme: 'plain', 
       styles: { fontSize: 8, valign: 'top', cellPadding: 1.2, lineWidth: 0, overflow: 'linebreak', font: 'helvetica' },
       columnStyles: { 
@@ -285,9 +323,17 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
               doc.setLineWidth(0.15); doc.line(xStart, data.cell.y + data.cell.height + 0.6, xEnd, data.cell.y + data.cell.height + 0.6);
               doc.setLineWidth(0.1); 
           }
-          if (data.section === 'body' && data.column.index === 9) {
+          // Calcolo pageTotal includendo la riga del totale computo (ora inizia a colonna 7 con colSpan 3)
+          if (data.section === 'body' && (data.column.index === 9 || (data.column.index === 7 && data.cell.colSpan === 3))) {
               const raw = data.cell.raw;
-              if (typeof raw === 'number') pageTotal += raw; else if (raw?.content && typeof raw.content === 'number') pageTotal += raw.content;
+              let val = 0;
+              if (typeof raw === 'number') val = raw; 
+              else if (raw?.content && typeof raw.content === 'number') val = raw.content;
+              else if (typeof raw === 'string' && raw.includes('€')) {
+                  const match = raw.match(/[\d.]+,[\d]+/);
+                  if (match) val = parseFloat(match[0].replace('.', '').replace(',', '.'));
+              }
+              pageTotal += val;
           }
       },
       didParseCell: (data: any) => {
@@ -298,10 +344,13 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
           }
       },
       didDrawPage: (data: any) => {
-          const currentTableStartY = data.pageNumber === 1 ? 44 : 25; const tableEndY = pageHeight - 25;
-          drawHeader(doc, projectInfo, "COMPUTO METRICO ESTIMATIVO", data.pageNumber, grandTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          const currentTableStartY = data.pageNumber === 1 ? 44 : 38; const tableEndY = pageHeight - 25;
+          drawHeader(doc, projectInfo, title, data.pageNumber, grandTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
           drawGridLines(doc, currentTableStartY, tableEndY); drawTableFrame(doc, currentTableStartY, tableEndY);
-          drawFooter(doc, data.pageNumber, grandTotal, pageTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          
+          const isLastPageOfTable = Math.abs((grandTotal + pageTotal) - globalTotalForClosing) < 0.05;
+          drawFooter(doc, data.pageNumber, grandTotal, pageTotal, doc.internal.pageSize.width, doc.internal.pageSize.height, true, isLastPageOfTable);
+          
           grandTotal += pageTotal; pageTotal = 0;
       }
     });
@@ -312,7 +361,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     let totalLaborSum = 0;
 
     categories.forEach(cat => {
-        if (cat.isEnabled === false || cat.isSuperCategory) return;
+        if (cat.isEnabled === false || cat.isSuperCategory || cat.type !== filterType) return;
         const catArticles = articles.filter(a => a.categoryCode === cat.code);
         const catTotal = catArticles.reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
         const catLabor = catArticles.reduce((sum, a) => sum + ((a.quantity * a.unitPrice) * (a.laborRate / 100)), 0);
@@ -351,13 +400,17 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
         didDrawPage: (data) => {
             doc.setFontSize(12); doc.setFont("helvetica", "bold");
-            doc.text("RIEPILOGO GENERALE DEI LAVORI E DELLA MANODOPERA", 105, 20, { align: 'center' });
+            doc.text(`RIEPILOGO GENERALE ${filterType === 'work' ? 'LAVORI' : 'SICUREZZA'}`, 105, 20, { align: 'center' });
         }
     });
 
     drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
     window.open(URL.createObjectURL(doc.output('blob')), '_blank');
   } catch (error) { console.error(error); alert("Errore PDF."); }
+};
+
+export const generateComputoSicurezzaPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+    return generateComputoMetricPdf(projectInfo, categories, articles, 'safety');
 };
 
 export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
@@ -436,11 +489,13 @@ const drawHeaderSimple = (doc: any, projectInfo: ProjectInfo, title: string, pag
     doc.setTextColor(0,0,0);
     if (pageNumber === 1) {
         doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.text(title, 105, 18, { align: 'center' });
-        doc.setFontSize(10); doc.text(projectInfo.title, 12, 28);
+        doc.setFontSize(8); 
+        doc.text(projectInfo.title, 12, 28);
         doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.text(`Committente: ${projectInfo.client}`, 12, 33);
-        doc.text(`Progettista: ${projectInfo.designer}`, 12, 37); doc.line(10, 44, 200, 44);
+        doc.text(`Progettista: ${projectInfo.designer}`, 12, 37); 
     } else {
-        doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.text(projectInfo.title, 12, 15); doc.line(10, 18, 200, 18);
+        doc.setFontSize(7.2); 
+        doc.setFont("helvetica", "bold"); doc.text(projectInfo.title, 12, 15); 
     }
 };
 
@@ -463,7 +518,7 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
 
         doc.setFontSize(18); doc.setFont("helvetica", "bold");
         doc.text("CRONOPROGRAMMA DEI LAVORI", pageWidth / 2, 15, { align: 'center' });
-        doc.setFontSize(10); doc.setFont("helvetica", "normal");
+        doc.setFontSize(8); doc.setFont("helvetica", "normal"); 
         doc.text(`Progetto: ${projectInfo.title}`, margin, 25);
         doc.text(`Committente: ${projectInfo.client}`, margin, 30);
 

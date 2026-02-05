@@ -1,10 +1,10 @@
-
 import React, { useState } from 'react';
 import { 
   X, Book, ChevronRight, ChevronLeft, Calculator, Sparkles, Award, 
   Layers, Search, Save, Users, User, Zap, ShieldCheck, Share2, 
   Maximize2, Paintbrush, CircleDot, Database, Terminal, Cpu, 
-  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft, CopyPlus, ShieldAlert
+  Bike, MousePointer2, Settings, FileText, Info, HardHat, Link, History, ArrowLeft, CopyPlus, ShieldAlert,
+  Calendar, Gavel
 } from 'lucide-react';
 
 interface HelpManualModalProps {
@@ -19,7 +19,7 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
     {
       title: "1. La Visione dell'Autore",
       icon: <Bike className="w-5 h-5" />,
-      content: "Per l'Ing. Domenico Gimondo, un software tecnico deve essere come una bicicletta: l'importante non è il meccanismo delle marce, ma la libertà di movimento che ti regala. \n\nGeCoLa è progettato per eliminare la 'fatica informatica'. Una volta trovato l'equilibrio tra la tua competenza professionale e la semplicità del foglio digitale, non ti dimenticherai più come si fa. Il programma mette al centro la capacità dell'uomo, restando un passo indietro rispetto al lavoro che sta nascendo."
+      content: "Per l'Ing. Domenico Gimondo, un software tecnico deve essere come una bicicletta: l'importante non è il meccanismo delle marce, ma la libertà di movimento che ti regala. \n\nGeCoLa è progettato per eliminare la 'fatica informatica'. Una volta trovato l'equilibrio tra la tua competenza professionale e la semplicità del foglio digitale, non lo dimenticherai più. \n\nDefiniamo questo approccio **'Muscle Memory Software'**: strumenti così intuitivi e organici che, una volta appresi (in pochissimi minuti), diventano un'estensione naturale delle tue mani. Come andare in bicicletta, appunto: impari una volta e pedali per sempre senza mai guardare i pedali."
     },
     {
       title: "2. L'Autore: Ing. Domenico GIMONDO",
@@ -100,6 +100,11 @@ const HelpManualModal: React.FC<HelpManualModalProps> = ({ isOpen, onClose }) =>
       title: "17. Controllo Dimensionale Attivo (Sentinella)",
       icon: <ShieldAlert className="w-5 h-5" />,
       content: "Il cuore dell'intelligenza contabile di GeCoLa (Surveyor Guard 4.2).\n\nLOGICA DEI RANGHI:\nIl sistema analizza i suffissi delle unità di misura ($m^3=3$, $m^2=2$, $m=1$). Quando colleghi una voce (Vedi Voce), la 'Sentinella' (attivabile dal pulsante scudo nella toolbar WBS) calcola la differenza tra il rango della sorgente e quello della destinazione.\n\nSCICCHERIA OPERATIVA:\nSe passi da $m^2$ a $m^3$, il sistema 'pretende' una sola dimensione locale. I campi già forniti dalla sorgente vengono bloccati (grigio), mentre il campo mancante si illumina in AZZURRO GLOW per guidare la tua mano. Inserire dimensioni in eccesso attiverà un segnale ROSSO NEON sulla cella incoerente, permettendo un intervento istantaneo senza margini di errore."
+    },
+    {
+      title: "18. Cronoprogramma Professionale A3",
+      icon: <Calendar className="w-5 h-5" />,
+      content: "Il modulo Cronoprogramma trasforma il valore della manodopera in pianificazione temporale scientifica.\n\nREGOLE DEL SISTEMA:\n1. **PARAMETRO SQ (SQUADRA):** Definisci il numero di operai assegnati alla WBS. Il sistema calcola la durata basandosi su una produzione base di € 240,00/die per operaio.\n2. **BUFFER TECNICO (+10%):** Per rigore professionale, ogni durata calcolata viene incrementata del 10% per assorbire imprevisti meteo e interferenze.\n3. **CALENDARIO:** La pianificazione segue la settimana corta (5gg) e un unico turno di lavoro.\n4. **VALENZA GIURIDICA:** La durata è espressa in 'Giorni Naturali e Consecutivi' ai sensi dell'Art. 121 DPR 207/2010. \n\nEXPORT: Genera un documento A3 orizzontale con diagramma di Gantt e Relazione Tecnica integrata in calce."
     }
   ];
 

@@ -32,7 +32,7 @@ import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
-import { generateComputoMetricPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
 
 const MIME_ARTICLE = 'application/gecola-article';
@@ -1450,8 +1450,13 @@ const App: React.FC = () => {
           
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
           
-          if (targetCat?.isSuperCategory && e.clientY > (rect.top + 15) && e.clientY < (rect.bottom - 15) && !(draggedCat?.isSuperCategory)) { 
-              setWbsDropTarget({ code: targetCode, position: 'inside' }); 
+          if (targetCat?.isSuperCategory) {
+              // PATTO DI FERRO: Logica Inside Gravity 90%
+              if (e.clientY < (rect.top + 10)) {
+                setWbsDropTarget({ code: targetCode, position: 'top' });
+              } else {
+                setWbsDropTarget({ code: targetCode, position: 'inside' });
+              }
           } else {
              const isTop = e.clientY < (rect.top + rect.height / 2);
              setWbsDropTarget({ code: targetCode, position: isTop ? 'top' : 'bottom' });
@@ -1525,13 +1530,15 @@ const App: React.FC = () => {
           const [movedItem] = newCatsOrder.splice(sIdx, 1);
           
           let finalTargetIdx = newCatsOrder.findIndex(c => c.code === targetCode);
-          let targetParentId = targetCat?.parentId;
+          let targetParentId = undefined;
 
+          // PATTO DI FERRO: Ereditarietà automatica del Parent per evitare l'espulsione
           if (pos === 'inside') {
               targetParentId = targetCode;
-              finalTargetIdx = finalTargetIdx + 1;
+              finalTargetIdx = finalTargetIdx + 1; 
           } else if (pos === 'top' || pos === 'bottom') {
               if (targetCat?.parentId) {
+                  // Se droppo tra fratelli, eredito lo stesso genitore
                   targetParentId = targetCat.parentId;
               }
               if (pos === 'bottom') finalTargetIdx++;
@@ -1719,29 +1726,33 @@ const App: React.FC = () => {
   };
 
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
-  const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
+  // FIX: corrected spreading Measurement object. Measurement is not iterable.
+  const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(recalculateAllArticles(updated)); };
   
+  // FIX PER PATTO DI FERRO: Ripristinata funzione Deduzioni corretta
   const handleToggleDeduction = (articleId: string, mId: string) => { 
-    const updated = articles.map(art => { 
-      if (art.id !== articleId) return art; 
-      const newMeasurements = art.measurements.map(m => { 
-        if (m.id !== mId) return m; 
-        if (m.type === 'subtotal') return m; 
-        const isPositive = m.type === 'positive';
-        const newType = isPositive ? 'deduction' : 'positive'; 
-        let newDesc = m.description;
-        if (newType === 'deduction') {
-            if (!newDesc.toLowerCase().startsWith('a dedurre:')) {
-                newDesc = `A dedurre: ${newDesc}`;
-            }
-        } else {
-            newDesc = newDesc.replace(/^a dedurre:\s*/i, '');
-        }
-        return { ...m, type: newType, description: newDesc } as Measurement; 
+    setArticles(prevArticles => {
+      const updated = prevArticles.map(art => { 
+        if (art.id !== articleId) return art; 
+        const newMeasurements = art.measurements.map(m => { 
+          if (m.id !== mId) return m; 
+          if (m.type === 'subtotal') return m; 
+          const isPositive = m.type === 'positive';
+          const newType = isPositive ? 'deduction' : 'positive'; 
+          let newDesc = m.description;
+          if (newType === 'deduction') {
+              if (!newDesc.toLowerCase().startsWith('a dedurre:')) {
+                  newDesc = `A dedurre: ${newDesc}`;
+              }
+          } else {
+              newDesc = newDesc.replace(/^a dedurre:\s*/i, '');
+          }
+          return { ...m, type: newType, description: newDesc } as Measurement; 
+        }); 
+        return { ...art, measurements: newMeasurements }; 
       }); 
-      return { ...art, measurements: newMeasurements }; 
-    }); 
-    updateState(updated); 
+      return recalculateAllArticles(updated);
+    });
   };
   
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
@@ -2076,6 +2087,7 @@ const App: React.FC = () => {
                         {isPrintMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3 font-bold"><FileText className="w-4 h-4 text-blue-500" />Computo Estimativo</button>
+                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoSicurezzaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-orange-50 flex items-center gap-3 font-bold"><ShieldAlert className="w-4 h-4 text-orange-500" />Computo Oneri Sicurezza</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-4 h-4 text-slate-500" />Elenco Prezzi Unitari</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-4 h-4 text-cyan-600" />Stima Manodopera</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-4 h-4 text-purple-600" />Analisi Nuovi Prezzi</button>
@@ -2177,8 +2189,13 @@ const App: React.FC = () => {
                                     {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'top' && (
                                         <div className="absolute -top-1 left-0 right-0 h-1 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
                                     )}
+                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside' && (
+                                        <div className="absolute inset-0 border-2 border-orange-500 rounded-2xl bg-orange-500/10 pointer-events-none z-50 animate-pulse">
+                                            <div className="absolute top-8 left-6 right-6 h-1 bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
+                                        </div>
+                                    )}
                                     <div className="flex flex-row items-end group" draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)}>
-                                        <div onClick={() => toggleSuperCollapse(cat.code)} className={`px-4 py-1.5 rounded-t-xl border-t border-x text-[8px] font-black uppercase tracking-[0.2em] transition-all flex flex-row items-center gap-2 cursor-pointer select-none active:scale-95 shadow-sm text-white max-w-[80%] overflow-hidden`} style={{ backgroundColor: isInsideDropTarget ? '#F97316' : (cat.color || '#CBD5E1'), borderColor: isInsideDropTarget ? '#EA580C' : (cat.color || '#94A3B8'), borderLeftWidth: isChildSelected ? '4px' : '1px', borderLeftColor: 'white' }}>
+                                        <div onClick={() => toggleSuperCollapse(cat.code)} className={`px-4 py-1.5 rounded-t-xl border-t border-x text-[8px] font-black uppercase tracking-[0.2em] transition-all flex flex-row items-center gap-2 cursor-pointer select-none shadow-sm text-white max-w-[80%] overflow-hidden`} style={{ backgroundColor: isInsideDropTarget ? '#F97316' : (cat.color || '#CBD5E1'), borderColor: isInsideDropTarget ? '#EA580C' : (cat.color || '#94A3B8'), borderLeftWidth: isChildSelected ? '4px' : '1px', borderLeftColor: 'white' }}>
                                           <GripVertical className="w-3 h-3 opacity-30" />
                                           <ChevronDown className={`w-3 h-3 transition-transform duration-300 ${isCollapsed ? '-rotate-90' : ''}`} />
                                           <span className="truncate">{cat.name}</span>
@@ -2187,7 +2204,7 @@ const App: React.FC = () => {
                                             <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white/80 border border-slate-300 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white shadow-sm transition-all transform active:scale-90"><Settings className="w-3.5 h-3.5" /></button>
                                         </div>
                                     </div>
-                                    <div className={`rounded-b-2xl rounded-tr-2xl border transition-all duration-500 relative ${isInsideDropTarget ? 'border-orange-500 bg-orange-50/50 shadow-2xl scale-[1.02]' : 'bg-white shadow-sm'} ${isCollapsed ? 'p-0 h-[8px] overflow-hidden' : 'p-2 min-h-[40px]'}`} style={{ borderColor: !isInsideDropTarget ? (cat.color || '#CBD5E1') : undefined }}>
+                                    <div className={`rounded-b-2xl rounded-tr-2xl border transition-all duration-500 relative ${isInsideDropTarget ? 'border-orange-500 bg-orange-50 shadow-2xl scale-[1.01]' : 'bg-white shadow-sm'} ${isCollapsed ? 'p-0 h-[8px] overflow-hidden' : 'p-2 min-h-[40px]'}`} style={{ borderColor: !isInsideDropTarget ? (cat.color || '#CBD5E1') : undefined }}>
                                         {!isCollapsed && (
                                             <div className="animate-in fade-in duration-500">
                                                 <div className="flex flex-col gap-1.5">
@@ -2205,24 +2222,21 @@ const App: React.FC = () => {
                                                           <div className="absolute -top-1 left-0 right-0 h-1 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
                                                       )}
                                                       <div className="flex justify-between items-center" onClick={() => setSelectedCategoryCode(prev => prev === child.code ? '' : child.code)}>
-                                                          <div className="flex flex-col max-w-[75%]">
+                                                          <div className="flex flex-col max-w-[65%]">
                                                               <div className="flex items-center gap-2">
                                                                   <span className={`text-[8px] font-black font-mono ${isSelectedChild ? 'text-amber-700' : 'text-slate-400'}`}>{child.code}</span>
                                                                   {child.soaCategory && <span className={`text-[7px] font-black bg-slate-100 px-1 rounded ${isSelectedChild ? 'text-amber-800 bg-amber-200/50' : 'text-slate-50'}`}>{child.soaCategory}</span>}
                                                               </div>
                                                               <span className={`font-black uppercase leading-none truncate ${isSelectedChild ? 'text-amber-900 text-[10px]' : 'text-slate-600 text-[9px]'}`}>{child.name}</span>
                                                           </div>
-                                                          <div className="flex items-center gap-1 opacity-0 group-hover/child:opacity-100 transition-opacity">
-                                                            <button onClick={(e) => { e.stopPropagation(); handleEditCategory(child); }} className="p-1 text-amber-600 hover:text-blue-600 transition-colors"><Settings className="w-3.3 h-3.3" /></button>
-                                                            {child.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                                            <span className={`font-mono font-black text-[10px] ${isSelectedChild ? 'text-amber-700' : 'text-slate-400'}`}>{formatCurrency(categoryTotals[child.code] || 0)}</span>
+                                                            <div className="flex items-center gap-1 opacity-0 group-hover/child:opacity-100 transition-opacity">
+                                                              <button onClick={(e) => { e.stopPropagation(); handleEditCategory(child); }} className="p-1 text-amber-600 hover:text-blue-600 transition-colors"><Settings className="w-3.3 h-3.3" /></button>
+                                                              {child.isLocked && <Lock className="w-3 h-3 text-red-500" />}
+                                                            </div>
                                                           </div>
                                                       </div>
-                                                      {isSelectedChild && (
-                                                          <div className="mt-2 pt-2 border-t border-amber-200/50 flex justify-between items-center animate-in slide-in-from-bottom-1">
-                                                              <span className="text-[7px] font-black text-amber-600 uppercase tracking-widest">Totale Parziale</span>
-                                                              <span className="text-[11px] font-black font-mono text-amber-700">{formatCurrency(categoryTotals[child.code] || 0)}</span>
-                                                          </div>
-                                                      )}
                                                       {wbsDropTarget?.code === child.code && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && (
                                                           <div className="absolute -bottom-1 left-0 right-0 h-1 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
                                                       )}
@@ -2253,16 +2267,13 @@ const App: React.FC = () => {
                                                 </div>
                                                 <span className={`font-black block whitespace-normal uppercase leading-tight transition-all ${isSelected ? 'text-amber-900 text-[11px]' : 'text-slate-600 text-[9px] truncate'}`}>{cat.name}</span>
                                             </div>
-                                            <div className="flex gap-1 opacity-0 group-hover/wbsrow-container:opacity-100 transition-opacity">
-                                                <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-500 hover:text-white transition-all"><Settings className="w-3.3 h-3.3" /></button>
+                                            <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+                                                <span className={`font-mono font-black text-[12px] ${isSelected ? 'text-amber-700' : 'text-slate-500'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
+                                                <div className="flex gap-1 opacity-0 group-hover/wbsrow-container:opacity-100 transition-opacity">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-500 hover:text-white transition-all"><Settings className="w-3.3 h-3.3" /></button>
+                                                </div>
                                             </div>
                                         </div>
-                                        {isSelected && (
-                                            <div className="mt-2.5 pt-2.5 border-t border-amber-200/50 flex justify-between items-center animate-in slide-in-from-bottom-1">
-                                                <span className="text-[8px] font-black text-amber-600 uppercase tracking-widest">Totale Capitolo</span>
-                                                <span className="font-mono font-black text-[15px] text-amber-700">{formatCurrency(categoryTotals[cat.code] || 0)}</span>
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -2459,7 +2470,7 @@ const App: React.FC = () => {
                                         <td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase">{analysis.unit}</span></td>
                                         <td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td>
                                         <td className="p-4 text-center">
-                                            <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-center gap-1 opacity-0 group-hover/opacity-100 transition-opacity">
                                               <button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-xl transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button>
                                               <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-gray-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button>
                                               <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-white rounded-xl transition-all" title="Importa in Computo"><ArrowRight className="w-4 h-4" /></button>
@@ -2489,6 +2500,9 @@ const App: React.FC = () => {
           <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
           <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
           <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerateLocal} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
+          <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
+          <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => setIsRebarModalOpen(false)} onAdd={handleAddRebarMeasurement} />
+          <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
         </>
       )}
     </div>
