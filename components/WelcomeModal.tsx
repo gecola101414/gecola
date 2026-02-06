@@ -52,7 +52,7 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onComplete, isLoadi
         
         {/* Header */}
         <div className="bg-[#1e293b] px-6 py-8 text-center border-b border-slate-600">
-          <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">GeCoLa <span className="text-orange-500">Cloud</span></h1>
+          <h1 className="text-3xl font-bold text-white mb-2 tracking-tight">GeCoLa <span className="text-orange-500">WEB</span></h1>
           <p className="text-slate-400 text-sm">Software Professionale per il Computo Metrico Estimativo</p>
         </div>
 

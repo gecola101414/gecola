@@ -38,6 +38,7 @@ import { generateComputoExcel } from './services/excelGenerator';
 const MIME_ARTICLE = 'application/gecola-article';
 const MIME_MEASUREMENT = 'application/gecola-measurement';
 const MIME_ANALYSIS_ROW = 'application/gecola-analysis-row';
+const MIME_ANALYSIS_DRAG = 'application/gecola-analysis-data';
 
 // --- SISTEMA AUDIO OTTIMIZZATO ---
 let globalAudioCtx: AudioContext | null = null;
@@ -211,7 +212,7 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn, tariffWidth }) 
     <tr>
       <th className="py-2.5 px-1 text-center w-[30px] border-r border-gray-300">N..</th>
       <th className="py-2.5 px-1 text-left border-r border-gray-300" style={{ width: tariffWidth ? `${tariffWidth}px` : '135px' }}>Tariffa</th>
-      <th className={`py-2.5 px-1 text-left min-w-[170px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
+      <th className={`py-2.5 px-1 text-left min-w-[280px] border-r border-gray-300 ${activeColumn === 'desc' ? 'bg-blue-50 text-blue-900' : ''}`}>Designazione dei Lavori</th>
       <th className={`py-2.5 px-1 text-center w-[40px] border-r border-gray-300 ${activeColumn === 'mult' ? 'bg-blue-50 text-blue-900' : ''}`}>Par.Ug</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'len' ? 'bg-blue-50 text-blue-900' : ''}`}>Lung..</th>
       <th className={`py-2.5 px-1 text-center w-[50px] border-r border-gray-300 ${activeColumn === 'wid' ? 'bg-blue-50 text-blue-900' : ''}`}>Larg.</th>
@@ -238,6 +239,9 @@ interface ArticleGroupProps {
   onUpdateMeasurement: (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => void;
   onDeleteMeasurement: (articleId: string, mId: string) => void;
   onToggleDeduction: (articleId: string, mId: string) => void;
+  onAddMeasurement: (articleId: string) => void;
+  onAddSubtotal: (articleId: string) => void;
+  onAddVoiceMeasurement: (articleId: string, data: Partial<Measurement>) => void;
   onOpenLinkModal: (articleId: string, measurementId: string) => void;
   onScrollToArticle: (id: string, fromId?: string) => void;
   onReorderMeasurements: (articleId: string, startIndex: number, endIndex: number) => void;
@@ -258,9 +262,6 @@ interface ArticleGroupProps {
   isPaintingAutomationActive: boolean;
   isRebarAutomationActive: boolean;
   onDeleteArticle: (id: string) => void;
-  onAddMeasurement: (articleId: string) => void;
-  onAddSubtotal: (articleId: string) => void;
-  onAddVoiceMeasurement: (articleId: string, data: Partial<Measurement>) => void;
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
@@ -575,7 +576,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            e.preventDefault();
            return;
        }
-       e.dataTransfer.setData(MIME_MEASUREMENT, 'true');
        e.dataTransfer.setData('type', 'MEASUREMENT');
        e.dataTransfer.setData('index', index.toString());
        e.dataTransfer.effectAllowed = "move";
@@ -618,7 +618,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       e.stopPropagation();
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
       const isExternalText = e.dataTransfer.types.includes('text/plain');
-      if (isInternal || isExternalText) {
+      const isAnalysisDrag = e.dataTransfer.types.includes(MIME_ANALYSIS_DRAG);
+      
+      if (isInternal || isExternalText || isAnalysisDrag) {
           e.dataTransfer.dropEffect = 'copy';
           if (isCategoryLocked) return;
           const rect = tbodyRef.current?.getBoundingClientRect();
@@ -652,8 +654,12 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
       const articleId = e.dataTransfer.getData('articleId');
       const textData = e.dataTransfer.getData('text/plain');
+      const isAnalysisDrag = e.dataTransfer.types.includes(MIME_ANALYSIS_DRAG);
+
       if (isInternal && articleId) {
           onArticleDrop(e, article.id, articleDropPosition || 'bottom');
+      } else if (isAnalysisDrag) {
+          // Handled by Workspace drop
       } else if (textData) {
           const insertionIndex = articleDropPosition === 'bottom' ? index + 1 : index;
           onInsertExternalArticle(insertionIndex, textData);
@@ -1094,8 +1100,10 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
   const [draggedAnalysisId, setDraggedAnalysisId] = useState<string | null>(null);
+  const [isDraggingAnalysis, setIsDraggingAnalysis] = useState(false);
   const [analysisDragOverId, setAnalysisDragOverId] = useState<string | null>(null);
   const [analysisDropPosition, setAnalysisDropPosition] = useState<'top' | 'bottom' | null>(null);
+  const [activeWbsContext, setActiveWbsContext] = useState<'work' | 'safety'>('work');
 
   const [lastMovedItemId, setLastMovedItemId] = useState<string | null>(null);
 
@@ -1117,19 +1125,42 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!user || user === 'visitor' || !db) return;
-    const currentSessionId = `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    if (!user || user === 'visitor' || !db || !auth) return;
+    
+    // 1. Recupero l'ID di questo computer dal localStorage
+    let idDispositivo = localStorage.getItem('unique_device_id');
+    
+    // 2. Se è la prima volta che usa questo PC, creo un ID e lo salvo per sempre
+    if (!idDispositivo) {
+      idDispositivo = Math.random().toString(36).substring(2) + Date.now();
+      localStorage.setItem('unique_device_id', idDispositivo);
+    }
+
     const userSessionRef = ref(db, `sessions/${user.uid}`);
     let isMounted = true;
-    set(userSessionRef, { sessionId: currentSessionId, lastLogin: new Date().toISOString(), device: navigator.userAgent, platform: navigator.platform }).catch(err => console.error("Session Write Failed:", err));
+    
+    // 3. Comunico a Firebase che questo PC è quello "attivo"
+    set(userSessionRef, { 
+      sessionId: idDispositivo, 
+      lastLogin: new Date().toISOString(), 
+      device: navigator.userAgent, 
+      platform: navigator.platform 
+    }).catch(err => console.error("Session Write Failed:", err));
+
+    // 4. SENTINELLA: Controllo se un ALTRO PC entra
     const unsubscribeDb = onValue(userSessionRef, (snapshot) => {
         if (!isMounted) return;
         const data = snapshot.val();
-        if (data && data.sessionId && data.sessionId !== currentSessionId) {
-            setSessionError(true);
-            if (auth.currentUser) { signOut(auth).catch(e => console.error("Logout error", e)); }
+        
+        // Se l'ID sul DB è diverso dal mio ID locale, significa che un ALTRO PC è entrato
+        if (data && data.sessionId && data.sessionId !== idDispositivo) {
+            alert("Questo account è stato effettuato da un altro computer. Questa sessione verrà chiusa.");
+            signOut(auth).then(() => {
+              window.location.reload();
+            }).catch(e => console.error("Logout error", e));
         }
     });
+    
     return () => { isMounted = false; off(userSessionRef); unsubscribeDb(); };
   }, [user]);
 
@@ -1364,9 +1395,13 @@ const App: React.FC = () => {
       }
   };
 
-  const handleImportAnalysisToArticle = (analysis: PriceAnalysis) => {
+  const handleImportAnalysisToArticle = (analysis: PriceAnalysis, targetWbsOverride?: string) => {
       if (!canAddArticle()) return;
-      const targetCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
+      
+      // PATTO DI FERRO: Priorità al targetWbsOverride (per il Drag & Drop puntuale)
+      const targetCode = targetWbsOverride || activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
+      
+      // Fixed: changed matchingAn to analysis
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
       const newArticle: Article = {
           id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0
@@ -1433,13 +1468,12 @@ const App: React.FC = () => {
       e.dataTransfer.dropEffect = 'copy'; 
 
       const targetCat = categories.find(c => c.code === targetCode);
-      const draggedCat = categories.find(c => c.code === draggedCategoryCode);
-      
       const isExternal = e.dataTransfer.types.includes('text/plain') || 
                          e.dataTransfer.types.includes('text/uri-list') ||
-                         e.dataTransfer.types.includes('articleId');
+                         e.dataTransfer.types.includes('articleId') ||
+                         e.dataTransfer.types.includes(MIME_ANALYSIS_DRAG);
       
-      if (isDraggingArticle) {
+      if (isDraggingArticle || isDraggingAnalysis) {
           if (targetCat?.isSuperCategory) { e.dataTransfer.dropEffect = 'none'; setWbsDropTarget(null); return; }
           setWbsDropTarget({ code: targetCode, position: 'inside' });
           return;
@@ -1447,19 +1481,19 @@ const App: React.FC = () => {
 
       if (draggedCategoryCode || isExternal) {
           if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
-          
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
           
+          // PATTO DI FERRO: Logica per la Linea Blu interna ed esterna
           if (targetCat?.isSuperCategory) {
-              // PATTO DI FERRO: Logica Inside Gravity 90%
-              if (e.clientY < (rect.top + 10)) {
-                setWbsDropTarget({ code: targetCode, position: 'top' });
-              } else {
-                setWbsDropTarget({ code: targetCode, position: 'inside' });
+              if (e.clientY < (rect.top + 15)) { 
+                  setWbsDropTarget({ code: targetCode, position: 'top' }); 
+              } else { 
+                  setWbsDropTarget({ code: targetCode, position: 'inside' }); 
               }
           } else {
-             const isTop = e.clientY < (rect.top + rect.height / 2);
-             setWbsDropTarget({ code: targetCode, position: isTop ? 'top' : 'bottom' });
+             // Se è un figlio o una WBS standard
+             const midPoint = rect.top + rect.height / 2;
+             setWbsDropTarget({ code: targetCode, position: e.clientY < midPoint ? 'top' : 'bottom' });
           }
       }
   };
@@ -1468,6 +1502,24 @@ const App: React.FC = () => {
       e.preventDefault(); e.stopPropagation(); 
       const pos = wbsDropTarget?.position || 'bottom';
       setWbsDropTarget(null);
+
+      const analysisId = e.dataTransfer.getData(MIME_ANALYSIS_DRAG);
+      if (analysisId && targetCode) {
+          const targetCategory = categories.find(c => c.code === targetCode);
+          if (targetCategory?.isSuperCategory) {
+              setIsDraggingAnalysis(false);
+              return;
+          }
+          const analysis = analyses.find(a => a.id === analysisId);
+          if (analysis) {
+             // PATTO DI FERRO: Importa nell'attuale targetCode del Drop, non in quello attivo
+             handleImportAnalysisToArticle(analysis, targetCode);
+             playUISound('confirm');
+          }
+          setIsDraggingAnalysis(false);
+          setDraggedAnalysisId(null);
+          return;
+      }
 
       const textData = e.dataTransfer.getData('text/plain');
       if (textData && !draggedCategoryCode) {
@@ -1513,37 +1565,39 @@ const App: React.FC = () => {
 
       if (draggedCategoryCode) {
           const originalCode = draggedCategoryCode;
-          
           if (!targetCode) {
              const newCats = categories.map(c => c.code === draggedCategoryCode ? { ...c, parentId: undefined } : c);
-             updateState(articles, newCats); 
-             setLastMovedItemId(originalCode);
+             updateState(articles, newCats); setLastMovedItemId(originalCode);
              setTimeout(() => setLastMovedItemId(null), 3000);
              setDraggedCategoryCode(null); playUISound('move'); return;
           }
-
+          
           const targetIdx = categories.findIndex(c => c.code === targetCode);
           const targetCat = categories[targetIdx];
-          
           let newCatsOrder = [...categories];
           const sIdx = newCatsOrder.findIndex(c => c.code === draggedCategoryCode);
           const [movedItem] = newCatsOrder.splice(sIdx, 1);
           
-          let finalTargetIdx = newCatsOrder.findIndex(c => c.code === targetCode);
-          let targetParentId = undefined;
+          let finalTargetIdx: number;
+          let targetParentId: string | undefined = undefined;
 
-          // PATTO DI FERRO: Ereditarietà automatica del Parent per evitare l'espulsione
-          if (pos === 'inside') {
+          // PATTO DI FERRO: Miracolo della cartella - Posizionamento tassativo indicato dalla linea blu
+          if (pos === 'inside' && targetCat?.isSuperCategory) {
               targetParentId = targetCode;
-              finalTargetIdx = finalTargetIdx + 1; 
-          } else if (pos === 'top' || pos === 'bottom') {
-              if (targetCat?.parentId) {
-                  // Se droppo tra fratelli, eredito lo stesso genitore
-                  targetParentId = targetCat.parentId;
+              // Trova l'indice dopo la testata della cartella o dopo l'ultimo figlio
+              const lastChildIdx = [...newCatsOrder].reverse().findIndex(c => c.parentId === targetCode);
+              if (lastChildIdx !== -1) {
+                  finalTargetIdx = newCatsOrder.length - lastChildIdx;
+              } else {
+                  finalTargetIdx = newCatsOrder.findIndex(c => c.code === targetCode) + 1;
               }
+          } else {
+              // Segue la linea blu (Sopra o Sotto un rigo esistente, figlio o radice)
+              targetParentId = targetCat?.parentId;
+              finalTargetIdx = newCatsOrder.findIndex(c => c.code === targetCode);
               if (pos === 'bottom') finalTargetIdx++;
           }
-          
+
           const updatedMovedItem = { ...movedItem, parentId: targetParentId };
           newCatsOrder.splice(Math.max(0, finalTargetIdx), 0, updatedMovedItem);
           
@@ -1552,14 +1606,18 @@ const App: React.FC = () => {
           updateState(result.newArticles, result.newCategories); 
           setLastMovedItemId(newCode);
           setTimeout(() => setLastMovedItemId(null), 3000);
-          setDraggedCategoryCode(null); playUISound('move');
+          setDraggedCategoryCode(null); 
+          playUISound('move');
       }
   };
 
   const handleAnalysisRowDragStart = (e: React.DragEvent, id: string) => {
     setDraggedAnalysisId(id);
+    setIsDraggingAnalysis(true);
     e.dataTransfer.setData(MIME_ANALYSIS_ROW, id);
-    e.dataTransfer.effectAllowed = 'move';
+    const analysis = analyses.find(a => a.id === id);
+    if (analysis) e.dataTransfer.setData(MIME_ANALYSIS_DRAG, analysis.id);
+    e.dataTransfer.effectAllowed = 'copyMove';
   };
 
   const handleAnalysisRowDragOver = (e: React.DragEvent, id: string) => {
@@ -1576,6 +1634,7 @@ const App: React.FC = () => {
     const sourceId = e.dataTransfer.getData(MIME_ANALYSIS_ROW) || draggedAnalysisId;
     setAnalysisDragOverId(null);
     setDraggedAnalysisId(null);
+    setIsDraggingAnalysis(false);
 
     if (!sourceId || sourceId === targetId) return;
 
@@ -1599,95 +1658,29 @@ const App: React.FC = () => {
   const handleWbsActionChoice = (mode: WbsActionMode, newName: string) => {
     if (!wbsOptionsContext) return;
     const { type, sourceCode, payload } = wbsOptionsContext;
-    
     if ((type === 'clone' && sourceCode) || (type === 'import' && payload)) {
-      let sourceCat: Category;
-      let sourceArticles: Article[];
-      let sourceAnalyses: PriceAnalysis[];
-
-      if (type === 'import' && payload) {
-        sourceCat = payload.category;
-        sourceArticles = payload.articles;
-        sourceAnalyses = payload.analyses || [];
-      } else {
-        sourceCat = categories.find(c => c.code === sourceCode)!;
-        sourceArticles = articles.filter(a => a.categoryCode === sourceCode);
-        const relatedAnalysesIds = new Set(sourceArticles.map(a => a.linkedAnalysisId).filter(Boolean));
-        sourceAnalyses = analyses.filter(an => relatedAnalysesIds.has(an.id));
-      }
-
-      if (!sourceCat) return;
-
+      let sourceCat: Category | null = null;
+      let sourceArticles: Article[] = [];
+      let sourceAnalyses: PriceAnalysis[] = [];
+      if (type === 'import' && payload) { sourceCat = payload.category; sourceArticles = payload.articles; sourceAnalyses = payload.analyses || []; } else { sourceCat = categories.find(c => c.code === sourceCode) || null; if (sourceCat) { sourceArticles = articles.filter(a => a.categoryCode === sourceCode); const relatedAnalysesIds = new Set(sourceArticles.map(a => a.linkedAnalysisId).filter(Boolean)); sourceAnalyses = analyses.filter(an => relatedAnalysesIds.has(an.id)); } }
+      if (!sourceCat) { setWbsOptionsContext(null); return; }
       const newCatId = `cat_${Date.now()}`;
       const tempCode = `TEMP_${Date.now()}`;
       const newCategory: Category = { ...sourceCat, id: newCatId, name: newName, code: tempCode, isLocked: false };
-
       const analysisIdMap = new Map<string, string>();
       const newAnalysesList = [...analyses];
-      
-      sourceAnalyses.forEach(an => {
-          const newId = Math.random().toString(36).substr(2, 9);
-          analysisIdMap.set(an.id, newId);
-          let newCode = an.code;
-          if (analyses.some(existing => existing.code === newCode)) {
-              newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`;
-          }
-          const clonedAnalysis: PriceAnalysis = {
-              ...an,
-              id: newId,
-              code: newCode,
-              components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) }))
-          };
-          newAnalysesList.push(clonedAnalysis);
-      });
-
-      const newArticlesRaw = sourceArticles.map(art => {
-          const newArtId = Math.random().toString(36).substr(2, 9);
-          let newLinkedAnalysisId = art.linkedAnalysisId;
-          if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) {
-              newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId);
-          }
-
-          let newMeasurements: Measurement[] = [];
-          if (mode === 'full') {
-              newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined }));
-          } else if (mode === 'descriptions') {
-              newMeasurements = art.measurements.map(m => ({ 
-                  ...m, 
-                  id: Math.random().toString(36).substr(2, 9), 
-                  linkedArticleId: undefined,
-                  length: undefined, width: undefined, height: undefined, multiplier: undefined
-              }));
-          } else {
-              newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }];
-          }
-
-          return { 
-              ...art, 
-              id: newArtId, 
-              categoryCode: tempCode, 
-              linkedAnalysisId: newLinkedAnalysisId,
-              measurements: newMeasurements 
-          } as Article;
-      });
-
+      sourceAnalyses.forEach(an => { const newId = Math.random().toString(36).substr(2, 9); analysisIdMap.set(an.id, newId); let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; } const clonedAnalysis: PriceAnalysis = { ...an, id: newId, code: newCode, components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) })) }; newAnalysesList.push(clonedAnalysis); });
+      const newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; if (mode === 'full') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); } else if (mode === 'descriptions') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); } else { newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; } return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements } as Article; });
       const newCatsList = [...categories];
       const targetIdx = wbsOptionsContext.targetCode ? categories.findIndex(c => c.code === wbsOptionsContext.targetCode) : -1;
-      
-      if (targetIdx !== -1) {
-          const insertIdx = wbsOptionsContext.position === 'bottom' ? targetIdx + 1 : targetIdx;
-          newCatsList.splice(insertIdx, 0, newCategory);
-      } else {
-          newCatsList.push(newCategory);
-      }
-
+      if (targetIdx !== -1) { const insertIdx = wbsOptionsContext.position === 'bottom' ? targetIdx + 1 : targetIdx; newCatsList.splice(insertIdx, 0, newCategory); } else { newCatsList.push(newCategory); }
       const allArticlesList = [...articles, ...newArticlesRaw];
       const result = renumberCategories(newCatsList, allArticlesList);
       updateState(result.newArticles, result.newCategories, newAnalysesList);
-      
       const assignedCode = result.codeMap[tempCode];
       setLastMovedItemId(assignedCode);
       setTimeout(() => setLastMovedItemId(null), 3000);
+      playUISound('confirm');
     }
     setWbsOptionsContext(null);
   };
@@ -1695,325 +1688,88 @@ const App: React.FC = () => {
   const handleUpdateArticle = (id: string, field: keyof Article, value: any) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
   const handleArticleEditSave = (id: string, updates: Partial<Article>) => { const updated = articles.map(art => id === art.id ? { ...art, ...updates } : art); updateState(updated); };
   const handleEditArticleDetails = (article: Article) => { setEditingArticle(article); setIsEditArticleModalOpen(true); };
-  
   const handleDeleteArticle = (id: string) => { if (window.confirm("Eliminare la voce?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
-  
   const handleAddMeasurement = (articleId: string) => { 
       const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); 
-      setArticles(prevArticles => {
-          const updated = prevArticles.map(art => { 
-              if (art.id !== articleId) return art; 
-              const lastM = art.measurements.length > 0 ? art.measurements[art.measurements.length - 1] : null;
-              let newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; 
-              if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') { 
-                  newM = { ...newM, description: lastM.description, multiplier: lastM.multiplier, length: lastM.length, width: lastM.width, height: lastM.height, type: lastM.type }; 
-              }
-              return { ...art, measurements: [...art.measurements, newM] }; 
-          }); 
-          return recalculateAllArticles(updated);
-      });
+      setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const lastM = art.measurements.length > 0 ? art.measurements[art.measurements.length - 1] : null; let newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') { newM = { ...newM, description: lastM.description, multiplier: lastM.multiplier, length: lastM.length, width: lastM.width, height: lastM.height, type: lastM.type }; } return { ...art, measurements: [...art.measurements, newM] }; }); return recalculateAllArticles(updated); });
   };
-
   const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { 
-      setArticles(prevArticles => {
-          const updated = prevArticles.map(art => { 
-              if (art.id !== articleId) return art; 
-              const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: value }; }); 
-              return { ...art, measurements: newMeasurements }; 
-          }); 
-          return recalculateAllArticles(updated);
-      });
+      setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: value }; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); });
   };
-
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
-  // FIX: corrected spreading Measurement object. Measurement is not iterable.
   const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(recalculateAllArticles(updated)); };
-  
-  // FIX PER PATTO DI FERRO: Ripristinata funzione Deduzioni corretta
-  const handleToggleDeduction = (articleId: string, mId: string) => { 
-    setArticles(prevArticles => {
-      const updated = prevArticles.map(art => { 
-        if (art.id !== articleId) return art; 
-        const newMeasurements = art.measurements.map(m => { 
-          if (m.id !== mId) return m; 
-          if (m.type === 'subtotal') return m; 
-          const isPositive = m.type === 'positive';
-          const newType = isPositive ? 'deduction' : 'positive'; 
-          let newDesc = m.description;
-          if (newType === 'deduction') {
-              if (!newDesc.toLowerCase().startsWith('a dedurre:')) {
-                  newDesc = `A dedurre: ${newDesc}`;
-              }
-          } else {
-              newDesc = newDesc.replace(/^a dedurre:\s*/i, '');
-          }
-          return { ...m, type: newType, description: newDesc } as Measurement; 
-        }); 
-        return { ...art, measurements: newMeasurements }; 
-      }); 
-      return recalculateAllArticles(updated);
-    });
-  };
-  
+  const handleToggleDeduction = (articleId: string, mId: string) => { setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; if (m.type === 'subtotal') return m; const isPositive = m.type === 'positive'; const newType = isPositive ? 'deduction' : 'positive'; let newDesc = m.description; if (newType === 'deduction') { if (!newDesc.toLowerCase().startsWith('a dedurre:')) { newDesc = `A dedurre: ${newDesc}`; } } else { newDesc = newDesc.replace(/^a dedurre:\s*/i, ''); } return { ...m, type: newType, description: newDesc } as Measurement; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); }); };
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleArticleDragStart = (e: React.DragEvent, article: Article) => { setIsDraggingArticle(true); e.dataTransfer.setData(MIME_ARTICLE, 'true'); e.dataTransfer.setData('type', 'ARTICLE'); e.dataTransfer.setData('articleId', article.id); e.dataTransfer.effectAllowed = 'all'; };
-  const handleArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
-  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); 
-      setLastMovedItemId(articleId);
-      setTimeout(() => setLastMovedItemId(null), 3000);
-  };
+  const handleArticleDragEnd = () => { setIsDraggingArticle(false); setIsDraggingAnalysis(false); setWbsDropTarget(null); };
+  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setIsDraggingAnalysis(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); setLastMovedItemId(articleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
   const handleScrollToArticle = (id: string, fromId?: string) => { const targetArt = articles.find(a => a.id === id); if (!targetArt) return; if (fromId) setReturnPath(fromId); if (selectedCategoryCode !== targetArt.categoryCode) setSelectedCategoryCode(targetArt.categoryCode); setTimeout(() => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'center' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } }, 300); };
   const handleReturnToArticle = () => { if (returnPath) { const id = returnPath; setReturnPath(null); handleScrollToArticle(id); } };
-  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: 'Nuova voce', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0 }; 
-      updateState([...articles, newArticle]); 
-      setLastMovedItemId(newArticleId);
-      setTimeout(() => setLastMovedItemId(null), 3000);
-  };
+  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: 'Nuova voce', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0 }; updateState([...articles, newArticle]); setLastMovedItemId(newArticleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
   const handleOpenRebarCalculator = (articleId: string) => { setRebarTargetArticleId(articleId); setIsRebarModalOpen(true); };
   const handleOpenPaintingCalculator = (articleId: string) => { setPaintingTargetArticleId(articleId); setIsPaintingModalOpen(true); };
   const handleToggleVoiceAutomation = (articleId: string) => { if (voiceAutomationActiveId === articleId) setVoiceAutomationActiveId(null); else setVoiceAutomationActiveId(articleId); };
   const handleToggleSmartRepeat = (articleId: string) => { if (smartRepeatActiveId === articleId) setSmartRepeatActiveId(null); else setSmartRepeatActiveId(articleId); };
-  
-  const handleCycleDisplayMode = () => {
-    const nextMode = (wbsDisplayMode + 1) % 3;
-    setWbsDisplayMode(nextMode);
-    playUISound('cycle');
-    const updated = articles.map(a => a.categoryCode === selectedCategoryCode ? { ...a, displayMode: nextMode } : a);
-    updateState(updated);
-  };
-
+  const handleCycleDisplayMode = () => { const nextMode = (wbsDisplayMode + 1) % 3; setWbsDisplayMode(nextMode); playUISound('cycle'); const updated = articles.map(a => a.categoryCode === selectedCategoryCode ? { ...a, displayMode: nextMode } : a); updateState(updated); };
   const handleToggleSurveyorGuard = () => { setIsSurveyorGuardActive(!isSurveyorGuardActive); playUISound('toggle'); };
-
-  const handleToggleAllCategories = () => {
-    const anyEnabled = categories.some(c => c.isEnabled !== false);
-    const newCats = categories.map(c => ({ ...c, isEnabled: !anyEnabled }));
-    updateState(articles, newCats); playUISound('toggle');
-  };
+  const handleToggleAllCategories = () => { const anyEnabled = categories.some(c => c.isEnabled !== false); const newCats = categories.map(c => ({ ...c, isEnabled: !anyEnabled })); updateState(articles, newCats); playUISound('toggle'); };
   const handleAddWbs = () => { setEditingCategory(null); setCreatingForcedIsSuper(false); setIsCategoryModalOpen(true); };
   const handleAddSuperCategory = () => { setEditingCategory(null); setCreatingForcedIsSuper(true); setIsCategoryModalOpen(true); };
   const handleEditCategory = (cat: Category) => { setEditingCategory(cat); setCreatingForcedIsSuper(undefined); setIsCategoryModalOpen(true); };
+  const handleDeleteCategory = (code: string) => { const cat = categories.find(c => c.code === code); if (cat?.isLocked) { alert("WBS bloccata."); return; } if (window.confirm(`Eliminare definitivamente la WBS ${code}?`)) { const isSuper = cat?.isSuperCategory; let newCats = categories.filter(c => c.code !== code); let newArts = articles.filter(a => a.categoryCode !== code); if (isSuper) { newCats = newCats.map(c => c.parentId === code ? { ...c, parentId: undefined } : c); } const result = renumberCategories(newCats, newArts); updateState(result.newArticles, result.newCategories); if (selectedCategoryCode === code) setSelectedCategoryCode(''); } };
+  const handleToggleCategoryLock = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isLocked: !c.isLocked } : c); updateState(articles, newCats); playUISound('toggle'); };
+  const handleToggleCategoryVisibility = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c); updateState(articles, newCats); playUISound('toggle'); };
+  const handleSaveCategory = (name: string, isSuper: boolean, color: string, soa?: string) => { if (editingCategory) { const newCats = categories.map(c => c.id === editingCategory.id ? { ...c, name, isSuperCategory: isSuper, color, soaCategory: soa } : c); updateState(articles, newCats); } else { const newCode = generateNextWbsCode(categories); const newCat: Category = { id: `cat_${Date.now()}`, code: newCode, name, isEnabled: true, isLocked: false, isSuperCategory: isSuper, type: viewMode === 'SICUREZZA' ? 'safety' : 'work', color: color, soaCategory: soa }; let newCatsList = isSuper ? [newCat, ...categories] : [...categories, newCat]; const result = renumberCategories(newCatsList, articles); updateState(result.newArticles, result.newCategories); setSelectedCategoryCode(newCat.code); const assignedCode = result.codeMap[newCat.code] || newCat.code; setLastMovedItemId(assignedCode); setTimeout(() => setLastMovedItemId(null), 3000); } setIsCategoryModalOpen(false); playUISound('confirm'); };
+  const handleResetProject = () => { window.open(window.location.href, '_blank'); playUISound('newline'); };
   
-  const handleDeleteCategory = (code: string) => {
-    const cat = categories.find(c => c.code === code);
-    if (cat?.isLocked) { alert("WBS bloccata."); return; }
-    if (window.confirm(`Eliminare definitivamente la WBS ${code}?`)) {
-      const isSuper = cat?.isSuperCategory;
-      let newCats = categories.filter(c => c.code !== code);
-      let newArts = articles.filter(a => a.categoryCode !== code);
-      
-      if (isSuper) {
-          newCats = newCats.map(c => c.parentId === code ? { ...c, parentId: undefined } : c);
-      }
-
-      const result = renumberCategories(newCats, newArts);
-      updateState(result.newArticles, result.newCategories);
-      if (selectedCategoryCode === code) setSelectedCategoryCode('');
-    }
-  };
-
-  const handleToggleCategoryLock = (code: string) => {
-    const newCats = categories.map(c => c.code === code ? { ...c, isLocked: !c.isLocked } : c);
-    updateState(articles, newCats); playUISound('toggle');
-  };
-
-  const handleToggleCategoryVisibility = (code: string) => {
-    const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c);
-    updateState(articles, newCats); playUISound('toggle');
-  };
-
-  const handleSaveCategory = (name: string, isSuper: boolean, color: string, soa?: string) => {
-    if (editingCategory) {
-      const newCats = categories.map(c => c.id === editingCategory.id ? { ...c, name, isSuperCategory: isSuper, color, soaCategory: soa } : c);
-      updateState(articles, newCats);
-    } else {
-      const newCode = generateNextWbsCode(categories);
-      const newCat: Category = { id: `cat_${Date.now()}`, code: newCode, name, isEnabled: true, isLocked: false, isSuperCategory: isSuper, type: viewMode === 'SICUREZZA' ? 'safety' : 'work', color: color, soaCategory: soa };
-      let newCatsList = isSuper ? [newCat, ...categories] : [...categories, newCat];
-      const result = renumberCategories(newCatsList, articles);
-      updateState(result.newArticles, result.newCategories); setSelectedCategoryCode(newCat.code);
-      const assignedCode = result.codeMap[newCat.code] || newCat.code;
-      setLastMovedItemId(assignedCode);
-      setTimeout(() => setLastMovedItemId(null), 3000);
-    }
-    setIsCategoryModalOpen(false); playUISound('confirm');
-  };
-
-  const handleResetProject = () => {
-    window.open(window.location.href, '_blank');
-    playUISound('newline');
-  };
-
-  const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { 
-    if (!rebarTargetArticleId) return; 
-    const updated = articles.map(art => { 
-      if (art.id !== rebarTargetArticleId) return art; 
-      const newMeasures: Measurement[] = measurements.map(m => ({
-        id: Math.random().toString(36).substr(2, 9),
-        description: m.description,
-        type: 'positive' as const,
-        multiplier: m.multiplier,
-        length: m.length,
-        width: undefined,
-        height: m.weight
-      }));
-      return { ...art, measurements: [...art.measurements, ...newMeasures] }; 
-    }); 
-    updateState(updated); setIsRebarModalOpen(false); 
-  };
-  
-  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { 
-    if (paintingTargetArticleId) { 
-      const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); 
-      updateState(updated); setIsPaintingModalOpen(false); 
-    } 
-  };
-  
-  const handleDropContent = (rawText: string) => { 
-    if (!canAddArticle()) return; 
-    const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); 
-    const currentCat = categories.find(c => c.code === targetCatCode); 
-    if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } 
-    if (!rawText) return; setIsProcessingDrop(true); 
-    
-    setTimeout(() => { 
-      try { 
-        const parsed = parseDroppedContent(rawText); 
-        if (parsed) { 
-          const newArtId = Math.random().toString(36).substr(2, 9);
-          const newMeasId = Math.random().toString(36).substr(2, 9); 
-          const newArticle: Article = { 
-              id: newArtId, 
-              categoryCode: targetCatCode, 
-              code: parsed.code || 'NP.001', 
-              priceListSource: parsed.priceListSource, 
-              description: parsed.description || 'Voce importata', 
-              unit: parsed.unit || 'cad', 
-              unitPrice: parsed.unitPrice || 0, 
-              laborRate: parsed.laborRate || 0, 
-              soaCategory: activeSoaCategory, 
-              measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], 
-              quantity: 0, 
-              displayMode: 0 
-          }; 
-          updateState([...articles, newArticle]); 
-          setLastMovedItemId(newArtId);
-          setTimeout(() => setLastMovedItemId(null), 3000);
-        } 
-      } catch (e) { 
-          console.error("Drop Parser Error", e); 
-      } finally { 
-          setIsProcessingDrop(false); 
-      } 
-    }, 100); 
-  };
-
-  const handleBulkGenerateLocal = async (description: string) => {
-    if (!canAddArticle()) return;
-    setIsGenerating(true);
-    try {
-      const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories);
-      if (generatedItems && generatedItems.length > 0) {
-        const newArticles: Article[] = generatedItems.map(item => {
-          const qty = item.quantity || 1;
-          return {
-            id: Math.random().toString(36).substr(2, 9),
-            categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'),
-            code: item.code || 'NP.001',
-            priceListSource: item.priceListSource || 'Generato da IA',
-            description: item.description || 'Voce generata',
-            unit: item.unit || 'cad',
-            unitPrice: item.unitPrice || 0,
-            laborRate: item.laborRate || 0,
-            soaCategory: activeSoaCategory,
-            measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }],
-            quantity: qty,
-            displayMode: 0,
-            groundingUrls: (item as any).groundingUrls
-          };
-        });
-        updateState([...articles, ...newArticles]);
-        setIsBulkModalOpen(false);
-      }
-    } catch (e) {
-      console.error("Bulk Generation Error:", e);
-      alert("Si è verificato un errore durante la generazione delle voci.");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-  
+  // FIX: Corrected measurement spreading by removing redundant wrapping array that caused (Measurement | Measurement[])[] type mismatch
+  const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { if (!rebarTargetArticleId) return; const updated = articles.map(art => { if (art.id !== rebarTargetArticleId) return art; const newMeasures: Measurement[] = measurements.map(m => ({ id: Math.random().toString(36).substr(2, 9), description: m.description, type: 'positive' as const, multiplier: m.multiplier, length: m.length, width: undefined, height: m.weight })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsRebarModalOpen(false); };
+  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { if (paintingTargetArticleId) { const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsPaintingModalOpen(false); } };
+  const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: 0 }; updateState([...articles, ...[newArticle]]); setLastMovedItemId(newArtId); setTimeout(() => setLastMovedItemId(null), 3000); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
+  const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: 0, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
   const handleWorkspaceDrop = (e: React.DragEvent) => { 
     e.preventDefault(); e.stopPropagation(); 
-    if (draggedCategoryCode) {
-        setIsWorkspaceDragOver(false);
-        return; 
-    }
+    if (draggedCategoryCode) { setIsWorkspaceDragOver(false); return; }
     setIsWorkspaceDragOver(false);
-    
-    const textData = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text'); 
-    const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE) || e.dataTransfer.types.includes(MIME_MEASUREMENT) || e.dataTransfer.types.includes('articleId'); 
-    
-    if (textData && !isInternal) {
-        try {
-            const payload = JSON.parse(textData);
-            if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') {
-                 return;
-            }
-        } catch (err) {}
-        handleDropContent(textData); 
-    }
-  };
-
-  const handleWorkspaceDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); e.stopPropagation();
-    if (draggedCategoryCode) {
-        e.dataTransfer.dropEffect = 'none';
-        if (isWorkspaceDragOver) setIsWorkspaceDragOver(false);
+    const analysisId = e.dataTransfer.getData(MIME_ANALYSIS_DRAG);
+    if (analysisId) {
+        // Se droppo nel foglio di lavoro principale, uso la WBS attiva o la prima
+        const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
+        const analysis = analyses.find(a => a.id === analysisId);
+        if (analysis) {
+            handleImportAnalysisToArticle(analysis, targetCode);
+            playUISound('confirm');
+        }
+        setIsDraggingAnalysis(false); setDraggedAnalysisId(null);
         return;
     }
-    const isExternal = !e.dataTransfer.types.includes(MIME_ARTICLE) && !e.dataTransfer.types.includes(MIME_MEASUREMENT);
-    if (isExternal && !isWorkspaceDragOver) setIsWorkspaceDragOver(true);
-    e.dataTransfer.dropEffect = 'copy';
+    const textData = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text'); 
+    const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE) || e.dataTransfer.types.includes(MIME_MEASUREMENT) || e.dataTransfer.types.includes('articleId'); 
+    if (textData && !isInternal) { try { const payload = JSON.parse(textData); if (payload && payload.type === 'CROSS_TAB_WBS_BUNDLE') { setWbsOptionsContext({ type: 'import', payload, initialName: payload.category.name, position: 'bottom' }); return; } } catch (err) {} handleDropContent(textData); }
   };
-
+  const handleWorkspaceDragOver = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if (draggedCategoryCode) { e.dataTransfer.dropEffect = 'none'; if (isWorkspaceDragOver) setIsWorkspaceDragOver(false); return; } const isExternal = !e.dataTransfer.types.includes(MIME_ARTICLE) && !e.dataTransfer.types.includes(MIME_MEASUREMENT); if (isExternal && !isWorkspaceDragOver) setIsWorkspaceDragOver(true); e.dataTransfer.dropEffect = 'copy'; };
   const handleToolbarMouseDown = (e: React.MouseEvent) => { setIsDraggingToolbar(true); dragOffset.current = { x: e.clientX - toolbarPos.x, y: e.clientY - toolbarPos.y }; };
-  
-  useEffect(() => { 
-    const handleGlobalMouseMove = (e: MouseEvent) => { if (isDraggingToolbar) { let nextX = e.clientX - dragOffset.current.x; let nextY = e.clientY - dragOffset.current.y; setToolbarPos({ x: nextX, y: nextY }); } }; 
-    const handleGlobalMouseUp = () => setIsDraggingToolbar(false); 
-    if (isDraggingToolbar) { window.addEventListener('mousemove', handleGlobalMouseMove); window.addEventListener('mouseup', handleGlobalMouseUp); } 
-    return () => { window.removeEventListener('mousemove', handleGlobalMouseMove); window.removeEventListener('mouseup', handleGlobalMouseUp); }; 
-  }, [isDraggingToolbar]);
-  
+  useEffect(() => { const handleGlobalMouseMove = (e: MouseEvent) => { if (isDraggingToolbar) { let nextX = e.clientX - dragOffset.current.x; let nextY = e.clientY - dragOffset.current.y; setToolbarPos({ x: nextX, y: nextY }); } }; const handleGlobalMouseUp = () => setIsDraggingToolbar(false); if (isDraggingToolbar) { window.addEventListener('mousemove', handleGlobalMouseMove); window.addEventListener('mouseup', handleGlobalMouseUp); } return () => { window.removeEventListener('mousemove', handleGlobalMouseMove); window.removeEventListener('mouseup', handleGlobalMouseUp); }; }, [isDraggingToolbar]);
   const getFullProjectExportData = () => { return JSON.stringify({ gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); };
-  const handleSmartSave = async (silent: boolean = false) => { 
-    const jsonString = getFullProjectExportData(); 
-    if ('showSaveFilePicker' in window) { 
-      try { 
-        let handle = currentFileHandle; 
-        if (!handle) { if (silent) return; handle = await (window as any).showSaveFilePicker({ suggestedName: `${projectInfo.title || 'Progetto'}.json`, types: [{ description: 'JSON Project File', accept: { 'application/json': ['.json'] }, }], }); setCurrentFileHandle(handle); } 
-        if (silent) setIsAutoSaving(true); const writable = await handle.createWritable(); await writable.write(jsonString); await writable.close(); 
-      } catch (err: any) { if (err.name !== 'AbortError' && !silent) { setIsSaveModalOpen(true); } } finally { if (silent) setTimeout(() => setIsAutoSaving(false), 500); } 
-    } else { if (!silent) setIsSaveModalOpen(true); } 
-  };
-  
+  const handleSmartSave = async (silent: boolean = false) => { const jsonString = getFullProjectExportData(); if ('showSaveFilePicker' in window) { try { let handle = currentFileHandle; if (!handle) { if (silent) return; handle = await (window as any).showSaveFilePicker({ suggestedName: `${projectInfo.title || 'Progetto'}.json`, types: [{ description: 'JSON Project File', accept: { 'application/json': ['.json'] }, }], }); setCurrentFileHandle(handle); } if (silent) setIsAutoSaving(true); const writable = await handle.createWritable(); await writable.write(jsonString); await writable.close(); } catch (err: any) { if (err.name !== 'AbortError' && !silent) { setIsSaveModalOpen(true); } } finally { if (silent) setTimeout(() => setIsAutoSaving(false), 500); } } else { if (!silent) setIsSaveModalOpen(true); } };
   useEffect(() => { if (!currentFileHandle) return; const timeoutId = setTimeout(() => { handleSmartSave(true); }, 3000); return () => clearTimeout(timeoutId); }, [articles, categories, projectInfo, analyses, currentFileHandle]);
-
-  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => { 
-    const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); 
-    reader.onload = (event) => { try { const content = event.target?.result as string; const data = JSON.parse(content); if (data.gecolaData) { setProjectInfo(data.gecolaData.projectInfo); updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); } else { alert("Formato non valido."); } setCurrentFileHandle(null); } catch (error) { alert("Errore caricamento."); } }; 
-    reader.readAsText(file); e.target.value = ''; 
-  };
-
+  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (event) => { try { const content = event.target?.result as string; const data = JSON.parse(content); if (data.gecolaData) { setProjectInfo(data.gecolaData.projectInfo); updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); } else { alert("Formato non valido."); } setCurrentFileHandle(null); } catch (error) { alert("Errore caricamento."); } }; reader.readAsText(file); e.target.value = ''; };
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter') { const target = e.target as HTMLElement; if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') { if (target.tagName === 'TEXTAREA' && e.shiftKey) return; e.preventDefault(); const inputs = Array.from(document.querySelectorAll('input:not([disabled]), textarea:not([disabled])')); const index = inputs.indexOf(target as HTMLInputElement | HTMLTextAreaElement); if (index > -1 && index < inputs.length - 1) (inputs[index + 1] as HTMLElement).focus(); } } };
   const toggleSuperCollapse = (code: string) => { playUISound('toggle'); setCollapsedSuperCodes(prev => { const next = new Set(prev); if (next.has(code)) next.delete(code); else next.add(code); return next; }); };
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
-  const filteredCategories = useMemo(() => { if (viewMode === 'SICUREZZA') return categories.filter(c => c.type === 'safety'); if (viewMode === 'COMPUTO') return categories.filter(c => c.type !== 'safety'); return categories; }, [categories, viewMode]);
+  
+  // PATTO DI FERRO: Il filtraggio ora dipende da activeWbsContext per persistere in Analisi
+  const filteredCategories = useMemo(() => { 
+    return activeWbsContext === 'safety' 
+      ? categories.filter(c => c.type === 'safety') 
+      : categories.filter(c => c.type !== 'safety'); 
+  }, [categories, activeWbsContext]);
+  
   const topLevelCategories = useMemo(() => filteredCategories.filter(c => !c.parentId), [filteredCategories]);
 
   return (
@@ -2047,7 +1803,6 @@ const App: React.FC = () => {
                         <span className="truncate max-w-[320px] text-xl tracking-tight font-black uppercase italic">{projectInfo.title}</span>
                         <Settings className="w-7 h-7 text-slate-400 group-hover:text-blue-400 group-hover:rotate-90 transition-all duration-500" />
                     </div>
-                    
                     <div className="group/tophelp relative">
                          <HelpCircle className="w-4 h-4 text-orange-400 hover:text-orange-200 cursor-help transition-colors" />
                          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 w-80 bg-slate-900 text-white p-6 rounded-3xl shadow-[0_25px_50px_rgba(0,0,0,0.5)] opacity-0 group-hover/tophelp:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
@@ -2060,7 +1815,6 @@ const App: React.FC = () => {
                             </div>
                          </div>
                     </div>
-
                     <div className="flex items-center bg-slate-800/30 rounded-full px-2 py-1 gap-1">
                         <button onClick={handleUndo} disabled={history.length === 0} className="p-1 text-slate-300 hover:text-white disabled:opacity-20 transition-all hover:scale-110"><Undo2 className="w-4 h-4" /></button>
                         <div className="w-px h-4 bg-slate-600"></div>
@@ -2100,84 +1854,56 @@ const App: React.FC = () => {
           )}
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
-                <div className="w-[24rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
-                
-                <div 
-                    onMouseEnter={() => startScroll(-3)} 
-                    onMouseLeave={stopScroll} 
-                    onDragOver={(e) => { e.preventDefault(); startScroll(-3); }}
-                    onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }}
-                    onDragLeave={stopScroll}
-                    className="absolute top-[12rem] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"
-                >
-                    <ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle ? 'opacity-50' : 'opacity-100'}`} />
+                <div className="w-[20.4rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
+                <div onMouseEnter={() => startScroll(-3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(-3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }} onDragLeave={stopScroll} className="absolute top-[calc(12rem-10px)] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto">
+                    <ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} />
                 </div>
-                <div 
-                    onMouseEnter={() => startScroll(3)} 
-                    onMouseLeave={stopScroll} 
-                    onDragOver={(e) => { e.preventDefault(); startScroll(3); }}
-                    onDragEnter={(e) => { e.preventDefault(); startScroll(3); }}
-                    onDragLeave={stopScroll}
-                    className="absolute bottom-0 left-0 right-0 h-16 z-[100] cursor-s-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"
-                >
-                    <ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle ? 'opacity-50' : 'opacity-100'}`} />
+                <div onMouseEnter={() => startScroll(3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(3); }} onDragLeave={stopScroll} className="absolute bottom-0 left-0 right-0 h-16 z-[100] cursor-s-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto">
+                    <ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} />
                 </div>
-
-                <div className="p-2 bg-slate-300/40 border-b border-slate-400 grid grid-cols-5 gap-1">
-                    <button onClick={() => setViewMode('COMPUTO')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><HardHat className="w-3 h-3" /> Lavori</button>
-                    <button onClick={() => setViewMode('SICUREZZA')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-500 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><ShieldAlert className="w-3 h-3" /> Sicur.</button>
-                    <button onClick={() => setViewMode('ANALISI')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><TestTubes className="w-3 h-3" /> Analisi</button>
-                    <button onClick={() => setViewMode('SUMMARY')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Layers className="w-3 h-3" /> Riepil.</button>
-                    <button onClick={() => setViewMode('CRONOPROGRAMMA')} className={`py-2 text-[7px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'CRONOPROGRAMMA' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Calendar className="w-3 h-3" /> Crono</button>
-                </div>
-                <div className="px-3 py-2 border-b border-slate-300 bg-slate-50/50">
-                    <div className="flex items-center justify-between bg-gradient-to-r from-indigo-700 to-indigo-600 rounded-xl px-4 py-2 shadow-lg ring-1 ring-indigo-800">
-                        <span className="text-[10px] font-black text-indigo-100 uppercase tracking-widest">NETTO OPERE</span>
-                        <span className="font-mono font-black text-white text-lg">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span>
+                <div className="px-4 py-2.5 bg-slate-300 border-b border-slate-400 flex justify-between items-center shrink-0 shadow-sm">
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">TOTALE:</span>
+                        <span className="font-mono font-black text-slate-900 text-sm tracking-tighter">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span>
                     </div>
-                </div>
-                
-                <div 
-                    ref={sidebarRef}
-                    className={`flex-1 overflow-y-auto scrollbar-hide overflow-x-visible ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20' : 'bg-transparent'}`} 
-                    onDrop={(e) => handleWbsDrop(e, null)}
-                >
-                    <div className={`p-4 border-b flex flex-col gap-4 sticky top-0 z-50 shadow-sm backdrop-blur-md ${viewMode === 'SICUREZZA' ? 'bg-orange-50 border-orange-200 text-orange-800' : 'bg-white border-slate-200 text-slate-500'}`}>
-                        <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em]">Sezioni Progetto</span>
-                            <div className="group/wbshelp relative">
-                                 <HelpCircle className="w-4 h-4 text-slate-300 hover:text-blue-500 cursor-help transition-colors" />
-                                 <div className="absolute top-0 left-full ml-4 w-72 bg-slate-900 text-white p-5 rounded-3xl shadow-[0_25px_60px_rgba(0,0,0,0.6)] opacity-0 group-hover/wbshelp:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
-                                    <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-3 flex items-center gap-2"><LayoutList className="w-4 h-4" /> Gestione Struttura</h4>
-                                    <div className="space-y-3">
-                                        <p className="text-[10px] font-black leading-relaxed italic text-white/80">"AGGANCIO PERFETTO: Trascina una voce da gecola.it su qualsiasi capitolo per importarla all'istante con tutti i parametri tecnici."</p>
-                                        <p className="text-[10px] leading-relaxed"><span className="text-white font-black">FISARMONICA:</span> I capitoli inattivi sono compatti. Clicca su uno per espanderlo, vedere il totale e attivare l'evidenziazione ambra.</p>
-                                        <p className="text-[10px] leading-relaxed"><span className="text-white font-black">SUPER CATEGORIE:</span> Raccoglitori logici. Puoi trascinare le WBS al primo posto assoluto anche sopra di esse.</p>
-                                    </div>
-                                 </div>
-                            </div>
+                    <div className="group/wbshelp relative">
+                        <HelpCircle className="w-4 h-4 text-slate-400 hover:text-blue-600 cursor-help transition-colors" />
+                        <div className="absolute top-0 left-full ml-4 w-72 bg-slate-900 text-white p-5 rounded-3xl shadow-[0_25px_60px_rgba(0,0,0,0.6)] opacity-0 group-hover/wbshelp:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
+                        <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-3 flex items-center gap-2"><LayoutList className="w-4 h-4" /> Gestione Struttura</h4>
+                        <div className="space-y-3">
+                            <p className="text-[10px] font-black leading-relaxed italic text-white/80">"AGGANCIO PERFETTO: Trascina una voce da gecola.it o un'analisi tecnica su qualsiasi capitolo per importarla all'istante."</p>
+                            <p className="text-[10px] leading-relaxed"><span className="text-white font-black">FISARMONICA:</span> I capitoli inattivi sono compatti. Clicca su uno per espanderlo e vedere il totale.</p>
                         </div>
-                        
-                        <div className="grid grid-cols-4 gap-2">
-                             <button onClick={handleToggleAllCategories} title="ACCENDI/SPEGNI" className="flex flex-col items-center gap-1.5 p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-400 hover:text-yellow-500 group">
-                                {categories.some(c => c.isEnabled !== false) ? <Lightbulb className="w-5 h-5" /> : <LightbulbOff className="w-5 h-5" />}
-                                <span className="text-[7px] font-black uppercase tracking-tighter text-slate-400 group-hover:text-yellow-600">Luci</span>
-                             </button>
-                             <button onClick={handleAddWbs} title="NUOVA WBS" className="flex flex-col items-center gap-1.5 p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-400 hover:text-blue-600 group">
-                                <PlusCircle className="w-5 h-5" />
-                                <span className="text-[7px] font-black uppercase tracking-tighter text-slate-400 group-hover:text-blue-600">WBS</span>
-                             </button>
-                             <button onClick={handleAddSuperCategory} title="SUPER CATEGORIA" className="flex flex-col items-center gap-1.5 p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-400 hover:text-orange-600 group">
-                                <FolderPlus className="w-5 h-5" />
-                                <span className="text-[7px] font-black uppercase tracking-tighter text-slate-400 group-hover:text-orange-600">Super</span>
-                             </button>
-                             <button onClick={handleToggleSurveyorGuard} title="SENTINELLA ATTIVA" className={`flex flex-col items-center gap-1.5 p-2 rounded-xl border transition-all group ${isSurveyorGuardActive ? 'bg-emerald-50 border-emerald-200 text-emerald-600 shadow-inner' : 'bg-white border-slate-200 text-slate-400 hover:text-emerald-500'}`}>
-                                <ShieldCheck className="w-5 h-5" />
-                                <span className={`text-[7px] font-black uppercase tracking-tighter ${isSurveyorGuardActive ? 'text-emerald-500 font-black' : 'text-slate-400 group-hover:text-emerald-600'}`}>Sentinella</span>
-                             </button>
                         </div>
                     </div>
-                    <ul className="p-3 space-y-2 pb-20">
+                </div>
+                <div className="p-1 bg-slate-300/40 border-b border-slate-400 grid grid-cols-5 gap-1 shrink-0">
+                    <button onClick={() => { setViewMode('COMPUTO'); setActiveWbsContext('work'); }} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><HardHat className="w-3.5 h-3.5" /> Lavori</button>
+                    <button onClick={() => { setViewMode('SICUREZZA'); setActiveWbsContext('safety'); }} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-50/20 text-orange-600 shadow-lg border-orange-200' : 'text-slate-600 hover:bg-white'}`}><ShieldAlert className="w-3.5 h-3.5" /> Sicur.</button>
+                    <button onClick={() => setViewMode('ANALISI')} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><TestTubes className="w-3.5 h-3.5" /> Analisi</button>
+                    <button onClick={() => setViewMode('SUMMARY')} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Layers className="w-3.5 h-3.5" /> Riepil.</button>
+                    <button onClick={() => setViewMode('CRONOPROGRAMMA')} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'CRONOPROGRAMMA' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Calendar className="w-3.5 h-3.5" /> Crono</button>
+                </div>
+                <div className="p-1 bg-slate-300/20 border-b border-slate-400 grid grid-cols-4 gap-1 shrink-0">
+                    <button onClick={handleToggleAllCategories} title="ACCENDI/SPEGNI" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-400 hover:text-yellow-500 flex flex-col items-center justify-center gap-1">
+                        <Lightbulb className="w-3.5 h-3.5" />
+                        <span className="text-[6.5px] font-black uppercase text-slate-400">Luci</span>
+                    </button>
+                    <button onClick={handleAddWbs} title="NUOVA WBS" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-400 hover:text-blue-600 flex flex-col items-center justify-center gap-1">
+                        <PlusCircle className="w-3.5 h-3.5" />
+                        <span className="text-[6.5px] font-black uppercase text-slate-400">WBS</span>
+                    </button>
+                    <button onClick={handleAddSuperCategory} title="SUPER CATEGORIA" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-400 hover:text-orange-600 flex flex-col items-center justify-center gap-1">
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        <span className="text-[6.5px] font-black uppercase text-slate-400">Super</span>
+                    </button>
+                    <button onClick={handleToggleSurveyorGuard} title="SENTINELLA ATTIVA" className={`py-1.5 rounded-lg border transition-all flex flex-col items-center justify-center gap-1 ${isSurveyorGuardActive ? 'bg-emerald-50 border-emerald-200 text-emerald-600 shadow-inner' : 'bg-white border-slate-200 text-slate-400 hover:text-emerald-500'}`}>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span className={`text-[6.5px] font-black uppercase ${isSurveyorGuardActive ? 'text-emerald-500 font-black' : 'text-slate-400'}`}>Sentry</span>
+                    </button>
+                </div>
+                <div ref={sidebarRef} className={`flex-1 overflow-y-auto scrollbar-hide overflow-x-visible ${activeWbsContext === 'safety' ? 'bg-orange-50/20' : 'bg-transparent'}`} onDrop={(e) => handleWbsDrop(e, null)}>
+                    <ul className="p-3 space-y-2 pb-5">
                         {topLevelCategories.map((cat, idx) => {
                         const isInsideDropTarget = wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside';
                         const childCategories = filteredCategories.filter(c => c.parentId === cat.code);
@@ -2186,14 +1912,8 @@ const App: React.FC = () => {
                         if (cat.isSuperCategory) {
                             return (
                                 <li key={cat.id} className={`relative group/super transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${lastMovedItemId === cat.code ? 'highlight-move' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
-                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'top' && (
-                                        <div className="absolute -top-1 left-0 right-0 h-1 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
-                                    )}
-                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside' && (
-                                        <div className="absolute inset-0 border-2 border-orange-500 rounded-2xl bg-orange-500/10 pointer-events-none z-50 animate-pulse">
-                                            <div className="absolute top-8 left-6 right-6 h-1 bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
-                                        </div>
-                                    )}
+                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -top-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
+                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside' && (<div className="absolute inset-0 border-2 border-orange-500 rounded-2xl bg-orange-500/10 pointer-events-none z-50 animate-pulse"><div className="absolute top-8 left-6 right-6 h-1 bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full"></div></div>)}
                                     <div className="flex flex-row items-end group" draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)}>
                                         <div onClick={() => toggleSuperCollapse(cat.code)} className={`px-4 py-1.5 rounded-t-xl border-t border-x text-[8px] font-black uppercase tracking-[0.2em] transition-all flex flex-row items-center gap-2 cursor-pointer select-none shadow-sm text-white max-w-[80%] overflow-hidden`} style={{ backgroundColor: isInsideDropTarget ? '#F97316' : (cat.color || '#CBD5E1'), borderColor: isInsideDropTarget ? '#EA580C' : (cat.color || '#94A3B8'), borderLeftWidth: isChildSelected ? '4px' : '1px', borderLeftColor: 'white' }}>
                                           <GripVertical className="w-3 h-3 opacity-30" />
@@ -2210,24 +1930,20 @@ const App: React.FC = () => {
                                                 <div className="flex flex-col gap-1.5">
                                                   {childCategories.map(child => {
                                                     const isSelectedChild = selectedCategoryCode === child.code;
+                                                    const isTargeted = wbsDropTarget?.code === child.code;
                                                     return (
                                                     <div 
-                                                      key={child.id} 
-                                                      draggable 
+                                                      key={child.id} draggable 
                                                       onDragStart={(e) => handleWbsDragStart(e, child.code)} 
                                                       onDragOver={(e) => handleWbsDragOver(e, child.code)}
-                                                      className={`rounded-xl border-l-4 transition-all duration-300 cursor-pointer flex flex-col group/child relative overflow-visible ${isSelectedChild ? 'bg-amber-50 shadow-lg translate-x-1 border-amber-500 p-3' : 'bg-white border-slate-100 hover:border-slate-300 px-3 py-1.5'} ${lastMovedItemId === child.code ? 'highlight-move' : ''} ${isDraggingArticle && wbsDropTarget?.code === child.code ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`}
+                                                      onDrop={(e) => handleWbsDrop(e, child.code)}
+                                                      className={`rounded-xl border-l-4 transition-all duration-300 cursor-pointer flex flex-col group/child relative overflow-visible ${isSelectedChild ? 'bg-amber-50 shadow-lg translate-x-1 border-amber-500 p-3' : 'bg-white border-slate-100 hover:border-slate-300 px-3 py-1.5'} ${lastMovedItemId === child.code ? 'highlight-move' : ''} ${(isDraggingArticle || isDraggingAnalysis) && isTargeted ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`}
                                                     >
-                                                      {wbsDropTarget?.code === child.code && wbsDropTarget?.position === 'top' && !isDraggingArticle && (
-                                                          <div className="absolute -top-1 left-0 right-0 h-1 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
-                                                      )}
+                                                      {isTargeted && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -top-1.5 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
                                                       <div className="flex justify-between items-center" onClick={() => setSelectedCategoryCode(prev => prev === child.code ? '' : child.code)}>
                                                           <div className="flex flex-col max-w-[65%]">
-                                                              <div className="flex items-center gap-2">
-                                                                  <span className={`text-[8px] font-black font-mono ${isSelectedChild ? 'text-amber-700' : 'text-slate-400'}`}>{child.code}</span>
-                                                                  {child.soaCategory && <span className={`text-[7px] font-black bg-slate-100 px-1 rounded ${isSelectedChild ? 'text-amber-800 bg-amber-200/50' : 'text-slate-50'}`}>{child.soaCategory}</span>}
-                                                              </div>
-                                                              <span className={`font-black uppercase leading-none truncate ${isSelectedChild ? 'text-amber-900 text-[10px]' : 'text-slate-600 text-[9px]'}`}>{child.name}</span>
+                                                              <div className="flex items-center gap-2"><span className={`text-[8px] font-black font-mono ${isSelectedChild ? 'text-amber-700' : 'text-slate-400'}`}>{child.code}</span>{child.soaCategory && <span className={`text-[7px] font-black bg-slate-100 px-1 rounded ${isSelectedChild ? 'text-amber-800 bg-amber-200/50' : 'text-slate-50'}`}>{child.soaCategory}</span>}</div>
+                                                              <span className={`font-black uppercase leading-none truncate ${isSelectedChild ? 'text-amber-900 text-[10px]' : 'text-slate-600 text-[10px]'}`}>{child.name}</span>
                                                           </div>
                                                           <div className="flex flex-col items-end gap-1 flex-shrink-0">
                                                             <span className={`font-mono font-black text-[10px] ${isSelectedChild ? 'text-amber-700' : 'text-slate-400'}`}>{formatCurrency(categoryTotals[child.code] || 0)}</span>
@@ -2237,9 +1953,7 @@ const App: React.FC = () => {
                                                             </div>
                                                           </div>
                                                       </div>
-                                                      {wbsDropTarget?.code === child.code && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && (
-                                                          <div className="absolute -bottom-1 left-0 right-0 h-1 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,0.9)] rounded-full"></div>
-                                                      )}
+                                                      {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -bottom-1.5 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
                                                     </div>
                                                   )})}
                                                 </div>
@@ -2250,38 +1964,39 @@ const App: React.FC = () => {
                             );
                         }
                         const isSelected = selectedCategoryCode === cat.code;
+                        const isTargeted = wbsDropTarget?.code === cat.code;
                         return (
                         <li key={cat.id} className={`relative transition-all group/wbsrow-container ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${lastMovedItemId === cat.code ? 'highlight-move' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
-                            {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'top' && !isDraggingArticle && (
-                                <div className="absolute -top-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_15px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>
-                            )}
+                            {isTargeted && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -top-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_15px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
                             <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(prev => prev === cat.code ? '' : cat.code)}>
-                                <div className={`w-full text-left rounded-2xl border transition-all duration-300 flex flex-col relative overflow-visible shadow-sm ${isSelected ? 'bg-amber-50 border-l-[8px] border-amber-500 shadow-xl scale-[1.02] py-3.5' : 'bg-slate-50 border-slate-200 hover:bg-white py-1.5'} ${isDraggingArticle && wbsDropTarget?.code === cat.code ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`} style={{ borderLeftColor: isSelected ? undefined : (cat.color || 'transparent') }}>
+                                <div className={`w-full text-left rounded-2xl border transition-all duration-300 flex flex-col relative overflow-visible shadow-sm ${isSelected ? 'bg-amber-50 border-l-[8px] border-amber-500 shadow-xl scale-[1.02] py-3.5' : 'bg-slate-50 border-slate-200 hover:bg-white py-1.5'} ${(isDraggingArticle || isDraggingAnalysis) && isTargeted ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`} style={{ borderLeftColor: isSelected ? undefined : (cat.color || 'transparent') }}>
                                     <div className="px-3.5 h-full flex flex-col justify-between">
                                         <div className="flex flex-row justify-between items-start">
                                             <div className="flex-1 overflow-hidden">
-                                                <div className="flex items-center gap-2 mb-0.5">
-                                                    <span className={`text-[8px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm text-white`} style={{ backgroundColor: isSelected ? '#F59E0B' : (cat.color || '#3B82F6') }}>{cat.code}</span>
-                                                    {cat.soaCategory && <span className={`text-[7px] font-black uppercase px-1 rounded border ${isSelected ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-slate-200 bg-white text-slate-400'}`}>{cat.soaCategory}</span>}
-                                                    {cat.isLocked && <Lock className="w-2.5 h-2.5 text-red-500" />}
-                                                </div>
+                                                <div className="flex items-center gap-2 mb-0.5"><span className={`text-[8px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm text-white`} style={{ backgroundColor: isSelected ? '#F59E0B' : (cat.color || '#3B82F6') }}>{cat.code}</span>{cat.soaCategory && <span className={`text-[7px] font-black uppercase px-1 rounded border ${isSelected ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-slate-200 bg-white text-slate-400'}`}>{cat.soaCategory}</span>}{cat.isLocked && <Lock className="w-2.5 h-2.5 text-red-500" />}</div>
                                                 <span className={`font-black block whitespace-normal uppercase leading-tight transition-all ${isSelected ? 'text-amber-900 text-[11px]' : 'text-slate-600 text-[9px] truncate'}`}>{cat.name}</span>
                                             </div>
                                             <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
                                                 <span className={`font-mono font-black text-[12px] ${isSelected ? 'text-amber-700' : 'text-slate-500'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span>
-                                                <div className="flex gap-1 opacity-0 group-hover/wbsrow-container:opacity-100 transition-opacity">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-500 hover:text-white transition-all"><Settings className="w-3.3 h-3.3" /></button>
-                                                </div>
+                                                <div className="flex gap-1 opacity-0 group-hover/wbsrow-container:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-500 hover:text-white transition-all"><Settings className="w-3.3 h-3.3" /></button></div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-                            {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && (
-                                <div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_15px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>
-                            )}
+                            {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_15px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
                         </li>
                         )})}
+                        {/* ZONA DI DROP FINALE IN BASSO (PATTO DI FERRO) */}
+                        <li 
+                            onDragOver={(e) => handleWbsDragOver(e, 'WBS_BOTTOM_TARGET')} 
+                            onDrop={(e) => handleWbsDrop(e, null)}
+                            className={`h-24 transition-all flex flex-col justify-start pt-2 ${wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' ? 'bg-blue-600/5' : ''}`}
+                        >
+                            {wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' && (
+                                <div className="h-1.5 bg-blue-600 shadow-[0_0_12px_blue] rounded-full animate-pulse mx-4" />
+                            )}
+                        </li>
                     </ul>
                 </div>
                 </div>
@@ -2317,9 +2032,9 @@ const App: React.FC = () => {
                          }}
                        />
                    </div>
-               ) : (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && activeCategory ? (
+               ) : (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' || viewMode === 'ANALISI') && activeCategory ? (
                    <>
-                   {!isFocusMode && (
+                   {viewMode !== 'ANALISI' && !isFocusMode && (
                        <div className={`flex items-center justify-between p-5 bg-slate-50 rounded-t-3xl border-2 border-b-0 shadow-lg animate-in slide-in-from-top-2 duration-300 transition-all z-[60] ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
                             <div className="flex items-center gap-5">
                                  <div className="flex flex-col items-center">
@@ -2384,31 +2099,67 @@ const App: React.FC = () => {
                                             <h4 className="font-black uppercase text-xs tracking-widest text-blue-400">Sistema Drag & Drop</h4>
                                         </div>
                                         <div className="space-y-4">
-                                            <div className="flex gap-4">
-                                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-black text-blue-500 border border-slate-700 shrink-0">1</div>
-                                                <p className="text-[11px] font-medium leading-relaxed">Apri i listini su <span className="text-blue-400 font-black">gecola.it</span> e seleziona la voce d'interesse.</p>
-                                            </div>
-                                            <div className="flex gap-4">
-                                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-black text-blue-500 border border-slate-700 shrink-0">2</div>
-                                                <p className="text-[11px] font-medium leading-relaxed">Tieni premuto il tasto sinistro sul testo della voce e <span className="text-blue-400 font-black">trascinalo</span> verso questa scheda.</p>
-                                            </div>
-                                            <div className="flex gap-4">
-                                                <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-black text-blue-500 border border-slate-700 shrink-0">3</div>
-                                                <p className="text-[11px] font-medium leading-relaxed">Rilascia il contenuto nel <span className="text-blue-400 font-black">"rotolo"</span> qui sotto. GeCoLa caricherà istantaneamente tutti i dati.</p>
-                                            </div>
+                                            <div className="flex gap-4"><div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-black text-blue-500 border border-slate-700 shrink-0">1</div><p className="text-[11px] font-medium leading-relaxed">Apri i listini su <span className="text-blue-400 font-black">gecola.it</span> e seleziona la voce d'interesse.</p></div>
+                                            <div className="flex gap-4"><div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-black text-blue-500 border border-slate-700 shrink-0">2</div><p className="text-[11px] font-medium leading-relaxed">Tieni premuto il tasto sinistro sul testo della voce e <span className="text-blue-400 font-black">trascinalo</span> verso questa scheda.</p></div>
+                                            <div className="flex gap-4"><div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center font-black text-blue-500 border border-slate-700 shrink-0">3</div><p className="text-[11px] font-medium leading-relaxed">Rilascia il contenuto nel <span className="text-blue-400 font-black">"rotolo"</span> qui sotto. GeCoLa caricherà istantaneamente tutti i dati.</p></div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                        </div>
                    )}
-                   <div 
-                      className={`flex-1 overflow-y-auto overflow-x-hidden shadow-[inset_0_15px_50px_rgba(0,0,0,0.1),inset_0_-15px_50px_rgba(0,0,0,0.1)] border-x border-gray-400 flex flex-col relative scroll-smooth bg-white ${isWorkspaceDragOver ? 'ring-8 ring-blue-400 ring-inset animate-pulse bg-blue-50/50' : ''}`} 
-                      onKeyDown={handleInputKeyDown} 
-                      onDragOver={handleWorkspaceDragOver} 
-                      onDragLeave={() => setIsWorkspaceDragOver(false)} 
-                      onDrop={handleWorkspaceDrop}
-                   >
+                   
+                   {viewMode === 'ANALISI' ? (
+                    <div className="p-10 bg-[#f4f6f8] min-h-full flex-1 overflow-y-auto">
+                        <div className="flex justify-between items-end mb-8 border-b-2 border-purple-200 pb-6"><div className="flex items-center gap-6"><div className="bg-purple-600 p-4 rounded-xl shadow-lg ring-4 ring-purple-100"><Database className="w-8 h-8 text-white" /></div><div><h2 className="text-3xl font-black text-slate-800 tracking-tight uppercase italic">Gestionale Analisi Prezzi</h2><p className="text-[10px] font-bold text-purple-600 uppercase tracking-widest mt-1">Archivio Giustificazioni Analitiche • Drag & Drop Attivo</p></div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl flex items-center gap-3 transition-all transform active:scale-95"><Plus className="w-5 h-5" /> Nuova Analisi</button></div>
+                        <div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden ring-1 ring-slate-300/50">
+                          <table className="w-full text-left border-collapse table-fixed">
+                            <thead className="bg-slate-100 border-b-2 border-purple-100 text-slate-500 text-[10px] font-black uppercase tracking-widest">
+                                <tr>
+                                    <th className="p-4 w-12 text-center border-r border-slate-200">#</th>
+                                    <th className="p-4 w-14 text-center border-r border-slate-200">D&D</th>
+                                    <th className="p-4 w-28 border-r border-slate-200">Codice</th>
+                                    <th className="p-4 border-r border-slate-200">Oggetto dell'Analisi</th>
+                                    <th className="p-4 w-24 text-center border-r border-slate-200">U.M.</th>
+                                    <th className="p-4 w-36 text-right border-r border-slate-200">Unitario €</th>
+                                    <th className="p-4 w-52 text-center bg-slate-50">Gestionale</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {analyses.map((analysis, index) => {
+                                  const isCurrentlyDragging = draggedAnalysisId === analysis.id;
+                                  const isDragOver = analysisDragOverId === analysis.id;
+                                  return (
+                                    <tr 
+                                      key={analysis.id} draggable onDragStart={(e) => handleAnalysisRowDragStart(e, analysis.id)} onDragOver={(e) => handleAnalysisRowDragOver(e, analysis.id)} onDragLeave={() => setAnalysisDragOverId(null)} onDrop={(e) => handleAnalysisRowDrop(e, analysis.id)}
+                                      onDragEnd={() => { setDraggedAnalysisId(null); setIsDraggingAnalysis(false); }}
+                                      className={`group transition-all ${isCurrentlyDragging ? 'opacity-30' : 'hover:bg-slate-50/80'} ${isDragOver ? (analysisDropPosition === 'top' ? 'border-t-4 border-t-purple-600' : 'border-b-4 border-b-purple-600') : ''} ${lastMovedItemId === analysis.id ? 'highlight-move' : ''}`}
+                                    >
+                                        <td className="p-4 text-center font-mono text-[10px] text-slate-400 bg-slate-50/50 border-r border-slate-100">{index + 1}</td>
+                                        <td className="p-4 text-center border-r border-slate-100"><GripVertical className="w-5 h-5 mx-auto text-slate-300 group-hover:text-purple-600 cursor-grab active:cursor-grabbing" /></td>
+                                        <td className="p-4 border-r border-slate-100"><span className="bg-purple-50 text-purple-700 border border-purple-200 font-black font-mono text-xs px-3 py-1 rounded-lg shadow-sm">{analysis.code}</span></td>
+                                        <td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700 text-xs leading-relaxed line-clamp-2 uppercase tracking-tighter">{analysis.description}</p></td>
+                                        <td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase px-2 py-1 bg-slate-100 rounded border border-slate-200">{analysis.unit}</span></td>
+                                        <td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-800 font-mono tracking-tighter leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td>
+                                        <td className="p-4 text-center bg-slate-50/30">
+                                            <div className="flex items-center justify-center gap-1.5 px-2">
+                                              <button onClick={() => handleImportAnalysisToArticle(analysis)} className="bg-emerald-600 text-white p-2 rounded-lg shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2 px-3 transform active:scale-90" title="Importa in Computo"><ArrowRight className="w-3.5 h-3.5" /><span className="text-[9px] font-black uppercase">Importa</span></button>
+                                              <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="bg-white border border-slate-200 text-slate-600 hover:text-purple-600 hover:border-purple-300 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Modifica"><PenLine className="w-4 h-4" /></button>
+                                              <button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-lg border transition-all transform active:scale-90 ${analysis.isLocked ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-400 bg-white border-slate-200 hover:text-blue-600'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button>
+                                              <button onClick={() => handleDeleteAnalysis(analysis.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Elimina"><Trash2 className="w-4 h-4" /></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                  );
+                                })}
+                                {analyses.length === 0 && (<tr><td colSpan={7} className="p-24 text-center"><div className="flex flex-col items-center gap-4 opacity-30"><Database className="w-20 h-20 text-slate-300" /><p className="uppercase font-black text-xl italic tracking-widest text-slate-400">Archivio Analisi Vuoto</p></div></td></tr>)}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="mt-8 flex items-center gap-4 bg-white/50 border border-slate-200 rounded-xl p-5 shadow-inner"><div className="bg-purple-100 p-3 rounded-full text-purple-600 shadow-sm"><Info className="w-6 h-6" /></div><p className="text-xs text-slate-500 font-bold leading-relaxed"><span className="text-purple-700 font-black uppercase">Consiglio Operativo:</span> Puoi trascinare qualsiasi riga di questa tabella direttamente sulla sidebar sinistra sopra una WBS o nell'area di lavoro per aggiungere la voce al computo. Le analisi bloccate (Lucchetto Rosso) impediscono modifiche accidentali ma possono comunque essere importate.</p></div>
+                    </div>
+                   ) : (
+                   <div className={`flex-1 overflow-y-auto overflow-x-hidden shadow-[inset_0_15px_50px_rgba(0,0,0,0.1),inset_0_-15px_50px_rgba(0,0,0,0.1)] border-x border-gray-400 flex flex-col relative scroll-smooth bg-white ${isWorkspaceDragOver ? 'ring-8 ring-blue-400 ring-inset animate-pulse bg-blue-50/50' : ''}`} onKeyDown={handleInputKeyDown} onDragOver={handleWorkspaceDragOver} onDragLeave={() => setIsWorkspaceDragOver(false)} onDrop={handleWorkspaceDrop}>
                       <div className="flex-1 flex flex-col min-h-full px-6 py-8 relative">
                             <table className="w-full text-left border-collapse table-fixed relative bg-white">
                                 <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
@@ -2420,76 +2171,12 @@ const App: React.FC = () => {
                                     ))
                                 )}
                             </table>
-                            <div className="h-[200vh] w-full flex flex-col items-center justify-start pt-32 pointer-events-none opacity-20">
-                                <div className="flex flex-col items-center">
-                                    <div className="bg-slate-100 p-12 rounded-[4rem] mb-8 shadow-inner border border-slate-200">
-                                        <Calculator className="w-24 h-24 text-slate-400" />
-                                    </div>
-                                    <h3 className="text-2xl font-black uppercase tracking-[0.5em] text-slate-500">Fine Rotolo</h3>
-                                    <p className="text-xs font-bold text-slate-400 mt-4 italic">"Scorri liberamente per visualizzare il progetto nel suo insieme"</p>
-                                </div>
-                            </div>
+                            <div className="h-[200vh] w-full flex flex-col items-center justify-start pt-32 pointer-events-none opacity-20"><div className="flex flex-col items-center"><div className="bg-slate-100 p-12 rounded-[4rem] mb-8 shadow-inner border border-slate-200"><Calculator className="w-24 h-24 text-slate-400" /></div><h3 className="text-2xl font-black uppercase tracking-[0.5em] text-slate-500">Fine Rotolo</h3><p className="text-xs font-bold text-slate-400 mt-4 italic">"Scorri liberamente per visualizzare il progetto nel suo insieme"</p></div></div>
                       </div>
                    </div>
+                   )}
                    </>
-               ) : viewMode === 'ANALISI' ? (
-                    <div className="p-12 bg-slate-50 min-h-full flex-1 overflow-y-auto">
-                        <div className="flex justify-between items-center mb-10"><div className="flex items-center gap-4"><h2 className="text-3xl font-black text-slate-800 tracking-tighter uppercase italic">Archivio Analisi Prezzi</h2><div className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-purple-200 flex items-center gap-2"><GripVertical className="w-3 h-3" /> Trascina per Riordinare</div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-2xl font-black uppercase text-xs shadow-xl flex items-center gap-3 transition-all"><Plus className="w-5 h-5" /> Nuova Analisi</button></div>
-                        
-                        <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 overflow-hidden">
-                          <table className="w-full text-left border-collapse">
-                            <thead className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">
-                                <tr>
-                                    <th className="p-4 w-12 text-center border-r border-slate-700">#</th>
-                                    <th className="p-4 w-16 text-center border-r border-slate-700">D&D</th>
-                                    <th className="p-4 w-24 border-r border-slate-700">Codice</th>
-                                    <th className="p-4 border-r border-slate-700">Descrizione dell'Analisi Prezzi</th>
-                                    <th className="p-4 w-24 text-center border-r border-slate-700">U.M.</th>
-                                    <th className="p-4 w-32 text-right border-r border-slate-700">Prezzo €</th>
-                                    <th className="p-4 w-40 text-center">Strumenti</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {analyses.map((analysis, index) => {
-                                  const isDragging = draggedAnalysisId === analysis.id;
-                                  const isDragOver = analysisDragOverId === analysis.id;
-                                  return (
-                                    <tr 
-                                      key={analysis.id} 
-                                      draggable 
-                                      onDragStart={(e) => handleAnalysisRowDragStart(e, analysis.id)}
-                                      onDragOver={(e) => handleAnalysisRowDragOver(e, analysis.id)}
-                                      onDragLeave={() => setAnalysisDragOverId(null)}
-                                      onDrop={(e) => handleAnalysisRowDrop(e, analysis.id)}
-                                      className={`group border-b border-slate-100 transition-all ${isDragging ? 'opacity-20 grayscale' : ''} ${isDragOver ? (analysisDropPosition === 'top' ? 'border-t-4 border-t-purple-600' : 'border-b-4 border-b-purple-600') : 'hover:bg-slate-50'} ${lastMovedItemId === analysis.id ? 'highlight-move' : ''}`}
-                                    >
-                                        <td className="p-4 text-center font-mono text-[10px] text-slate-400 bg-slate-50 border-r border-slate-100">{index + 1}</td>
-                                        <td className="p-4 text-center border-r border-slate-100"><GripVertical className="w-4 h-4 mx-auto text-slate-300 group-hover:text-purple-600 cursor-move" /></td>
-                                        <td className="p-4 border-r border-slate-100"><span className="bg-purple-600 text-white font-black font-mono text-[10px] px-3 py-1 rounded-full">{analysis.code}</span></td>
-                                        <td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-800 text-xs leading-snug line-clamp-2">{analysis.description}</p></td>
-                                        <td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase">{analysis.unit}</span></td>
-                                        <td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-700 font-mono leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td>
-                                        <td className="p-4 text-center">
-                                            <div className="flex items-center justify-center gap-1 opacity-0 group-hover/opacity-100 transition-opacity">
-                                              <button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-xl transition-all ${analysis.isLocked ? 'text-red-500 bg-red-50' : 'text-gray-400 hover:text-blue-600 hover:bg-white'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button>
-                                              <button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="p-2 text-gray-400 hover:text-purple-600 hover:bg-white rounded-xl transition-all" title="Modifica"><PenLine className="w-4 h-4" /></button>
-                                              <button onClick={() => handleImportAnalysisToArticle(analysis)} className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-white rounded-xl transition-all" title="Importa in Computo"><ArrowRight className="w-4 h-4" /></button>
-                                              <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 text-gray-400 hover:text-red-600 bg-red-50 rounded-xl" title="Elimina"><Trash2 className="w-4 h-4" /></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                  );
-                                })}
-                                {analyses.length === 0 && (
-                                  <tr><td colSpan={7} className="p-20 text-center text-slate-400 uppercase font-black opacity-20 text-xl italic">Nessuna analisi presente</td></tr>
-                                )}
-                            </tbody>
-                          </table>
-                        </div>
-                    </div>
-               ) : (
-                   <div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona una sezione</div>
-               )}
+               ) : (<div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona una sezione</div>)}
             </div>
           </div>
           <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
@@ -2498,6 +2185,7 @@ const App: React.FC = () => {
           <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '' }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
           <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
           <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
+          {wbsOptionsContext && <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} initialName={wbsOptionsContext?.initialName || ''} isImport={wbsOptionsContext?.type === 'import'} />}
           <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
           <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerateLocal} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
           <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />

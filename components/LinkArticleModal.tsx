@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
 import { X, Link, Coins, Ruler, Search } from 'lucide-react';
+import React, { useState } from 'react';
 import { Article } from '../types';
 
 interface LinkArticleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  articles: Article[]; // Now receives ALL articles
+  articles: Article[]; 
   currentArticleId: string;
   onLink: (sourceArticle: Article, type: 'quantity' | 'amount') => void;
 }
@@ -21,7 +21,6 @@ const LinkArticleModal: React.FC<LinkArticleModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Filter available articles across ALL WBS
   const availableArticles = articles.filter(a => 
     a.id !== currentArticleId && 
     (a.code.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -44,9 +43,8 @@ const LinkArticleModal: React.FC<LinkArticleModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl overflow-hidden border border-gray-300 flex flex-col max-h-[90vh]">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-6xl overflow-hidden border border-gray-300 flex flex-col max-h-[90vh]">
         
-        {/* Header */}
         <div className="bg-[#2c3e50] px-5 py-4 flex justify-between items-center border-b border-gray-600 flex-shrink-0">
           <div>
             <h3 className="text-white font-semibold text-lg flex items-center gap-2">
@@ -60,7 +58,6 @@ const LinkArticleModal: React.FC<LinkArticleModalProps> = ({
           </button>
         </div>
 
-        {/* Search Bar */}
         <div className="p-4 bg-gray-50 border-b border-gray-200 flex-shrink-0">
           <div className="relative">
             <Search className="w-4 h-4 absolute top-3 left-3 text-gray-400" />
@@ -75,7 +72,6 @@ const LinkArticleModal: React.FC<LinkArticleModalProps> = ({
           </div>
         </div>
         
-        {/* List */}
         <div className="overflow-y-auto p-0 flex-1">
           {availableArticles.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
@@ -89,16 +85,15 @@ const LinkArticleModal: React.FC<LinkArticleModalProps> = ({
                   <th className="p-3 border-b border-gray-300 w-16 text-center">N.</th>
                   <th className="p-3 border-b border-gray-300 w-32">Codice</th>
                   <th className="p-3 border-b border-gray-300">Descrizione</th>
+                  <th className="p-3 border-b border-gray-300 w-16 text-center">U.M.</th>
                   <th className="p-3 border-b border-gray-300 text-right w-24">Quantità</th>
                   <th className="p-3 border-b border-gray-300 text-right w-32">Importo Tot.</th>
                   <th className="p-3 border-b border-gray-300 text-center w-40">Azioni</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {availableArticles.map((article, index) => {
+                {availableArticles.map((article) => {
                   const totalAmount = article.quantity * article.unitPrice;
-                  
-                  // Calculate hierarchical index: find index of this article within its OWN category
                   const categoryArticles = articles.filter(a => a.categoryCode === article.categoryCode);
                   const localIndex = categoryArticles.findIndex(a => a.id === article.id) + 1;
                   const wbsNum = getWbsNumber(article.categoryCode);
@@ -109,7 +104,8 @@ const LinkArticleModal: React.FC<LinkArticleModalProps> = ({
                       <td className="p-3 text-center text-xs font-bold text-gray-500 bg-gray-50/50 align-top">{article.categoryCode}</td>
                       <td className="p-3 text-center text-gray-700 font-bold align-top">{hierarchicalNum}</td>
                       <td className="p-3 font-mono font-bold text-gray-700 align-top">{article.code}</td>
-                      <td className="p-3 text-gray-600 align-top line-clamp-2 text-xs">{article.description.substring(0, 150)}...</td>
+                      <td className="p-3 text-gray-600 align-top line-clamp-2 text-xs">{article.description}</td>
+                      <td className="p-3 text-center font-black text-slate-500 bg-gray-50/30 align-middle uppercase text-[10px]">{article.unit}</td>
                       <td className="p-3 text-right font-mono bg-gray-50 align-middle font-bold">{formatNumber(article.quantity)}</td>
                       <td className="p-3 text-right font-mono text-blue-800 align-middle">{formatCurrency(totalAmount)}</td>
                       <td className="p-2 text-center align-middle">

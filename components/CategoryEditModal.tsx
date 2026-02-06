@@ -1,4 +1,3 @@
-
 import { 
   X, Save, Folder, Tag, Palette, Check, Info, ListFilter, LayoutGrid, Sparkles,
   Lock, Unlock, Lightbulb, LightbulbOff, Trash2, Copy, AlertTriangle, Zap,
@@ -131,7 +130,7 @@ const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
                         <button 
                             type="button"
                             onClick={() => handleActionWithAutoClose(onToggleEnabled!)}
-                            className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${initialData.isEnabled !== false ? 'bg-amber-500 border-amber-600 shadow-inner' : 'bg-white/10 border-white/10 hover:bg-white/20'}`}
+                            className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${initialData.isEnabled !== false ? 'bg-amber-50 border-amber-600 shadow-inner' : 'bg-white/10 border-white/10 hover:bg-white/20'}`}
                         >
                             {initialData.isEnabled !== false ? <Lightbulb className="w-4 h-4 text-white" /> : <LightbulbOff className="w-4 h-4 text-slate-300" />}
                             <span className="text-[8px] font-black uppercase tracking-widest">Stato</span>
@@ -140,7 +139,7 @@ const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
                         <button 
                             type="button"
                             onClick={() => { if(initialData) { onDuplicate?.(initialData.code); onClose(); } }}
-                            className="p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border bg-white/10 border-white/10 hover:bg-blue-600 hover:border-blue-500"
+                            className="p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border bg-white/10 border-white/10 hover:bg-blue-600 hover:border-blue-50"
                         >
                             <Copy className="w-4 h-4 text-slate-300" />
                             <span className="text-[8px] font-black uppercase tracking-widest">Copia</span>

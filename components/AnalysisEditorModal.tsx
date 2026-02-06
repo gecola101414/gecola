@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Save, Plus, Trash2, Calculator, Coins, Hammer, Truck, Package, Scale, Maximize2, Minimize2, Lock } from 'lucide-react';
 import { PriceAnalysis, AnalysisComponent } from '../types';
@@ -18,7 +17,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
     code: '',
     description: '',
     unit: 'cad',
-    analysisQuantity: 0, // MODIFICA: Default 0
+    analysisQuantity: 0, 
     components: [],
     generalExpensesRate: 15,
     profitRate: 10,
@@ -50,8 +49,8 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
             id: Math.random().toString(36).substr(2, 9),
             code: nextCode || 'AP.01',
             description: '',
-            unit: 'cad',
-            analysisQuantity: 0, // MODIFICA: Default 0
+            unit: 'm²',
+            analysisQuantity: 1, 
             components: [
                 { id: Math.random().toString(36).substr(2, 9), type: 'labor', description: 'Operaio Specializzato', unit: 'h', unitPrice: 35.50, quantity: 1 }
             ],
@@ -100,7 +99,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
         id: Math.random().toString(36).substr(2, 9),
         type,
         description: '',
-        unit: type === 'labor' || type === 'equipment' ? 'h' : 'cad',
+        unit: type === 'labor' || type === 'equipment' ? 'h' : 'm²',
         unitPrice: 0,
         quantity: 1
     };
@@ -116,7 +115,6 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
             
             const updated = { ...c, [field]: value };
 
-            // AUTOFILL LOGIC: Se cambia la descrizione, cerchiamo nel catalogo corrispondente
             if (field === 'description') {
                 let catalog: any[] = [];
                 if (c.type === 'labor') catalog = LABOR_CATALOG;
@@ -161,7 +159,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
   };
 
   const formatEuro = (n: number) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR', useGrouping: true }).format(n);
-  const formatNum = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: true });
+  const formatNum = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true });
 
   return (
     <div className="fixed inset-0 z-[180] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -318,51 +316,51 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
             </div>
 
             <div className="w-80 bg-gray-50 flex flex-col border-l border-gray-200 shadow-inner overflow-y-auto">
-                <div className="p-4 border-b border-gray-200 bg-white">
-                    <h4 className="text-[10px] font-black uppercase text-gray-400 mb-4 tracking-widest flex items-center gap-2"><Scale className="w-3 h-3"/> Costi Totali Lotto</h4>
-                    <div className="space-y-2 text-sm">
-                        <div className="flex justify-between"><span className="text-gray-600 flex items-center gap-1"><Package className="w-3 h-3 text-orange-400" /> Materiali</span><span className="font-mono font-bold">{formatEuro(calculatedTotals.mat)}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-600 flex items-center gap-1"><Hammer className="w-3 h-3 text-blue-400" /> Manodopera</span><span className="font-mono font-bold">{formatEuro(calculatedTotals.lab)}</span></div>
-                        <div className="flex justify-between"><span className="text-gray-600 flex items-center gap-1"><Truck className="w-3 h-3 text-green-400" /> Noli</span><span className="font-mono font-bold">{formatEuro(calculatedTotals.eq)}</span></div>
-                        <div className="border-t border-gray-300 pt-1 mt-1 flex justify-between font-black text-gray-800 uppercase text-xs"><span>Costo Tecnico</span><span>{formatEuro(calculatedTotals.costoTecnico)}</span></div>
+                <div className="p-2 border-b border-gray-200 bg-white">
+                    <h4 className="text-[9px] font-black uppercase text-gray-400 mb-1 tracking-widest flex items-center gap-2"><Scale className="w-3 h-3"/> Costi Totali Lotto</h4>
+                    <div className="space-y-0.5 text-sm">
+                        <div className="flex justify-between"><span className="text-gray-600 flex items-center gap-1 text-[11px]"><Package className="w-3 h-3 text-orange-400" /> Materiali</span><span className="font-mono font-bold text-[11px]">{formatEuro(calculatedTotals.mat)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-600 flex items-center gap-1 text-[11px]"><Hammer className="w-3 h-3 text-blue-400" /> Manodopera</span><span className="font-mono font-bold text-[11px]">{formatEuro(calculatedTotals.lab)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-600 flex items-center gap-1 text-[11px]"><Truck className="w-3 h-3 text-green-400" /> Noli</span><span className="font-mono font-bold text-[11px]">{formatEuro(calculatedTotals.eq)}</span></div>
+                        <div className="border-t border-gray-300 pt-1 mt-1 flex justify-between font-black text-gray-800 uppercase text-[9px]"><span>Costo Tecnico</span><span>{formatEuro(calculatedTotals.costoTecnico)}</span></div>
                     </div>
                 </div>
 
-                <div className="p-4 border-b border-gray-200 bg-white">
-                    <div className="mb-4">
-                        <label className="flex justify-between text-[10px] font-black uppercase text-gray-400 mb-1 tracking-widest">
+                <div className="p-2 border-b border-gray-200 bg-white">
+                    <div className="mb-1">
+                        <label className="flex justify-between text-[9px] font-black uppercase text-gray-400 mb-0.5 tracking-widest">
                             <span>Spese Generali</span>
                             <div className="flex items-center">
-                                <input readOnly={isLocked} type="number" value={formData.generalExpensesRate} onChange={e => setFormData({...formData, generalExpensesRate: parseFloat(e.target.value)})} className={`w-10 text-right border-b border-gray-300 focus:outline-none text-purple-600 font-bold ${isLocked ? 'cursor-not-allowed' : ''}`} />
-                                <span>%</span>
+                                <input readOnly={isLocked} type="number" value={formData.generalExpensesRate} onChange={e => setFormData({...formData, generalExpensesRate: parseFloat(e.target.value)})} className={`w-7 text-right border-b border-gray-200 focus:outline-none text-purple-600 font-bold text-xs ${isLocked ? 'cursor-not-allowed' : ''}`} />
+                                <span className="text-[10px]">%</span>
                             </div>
                         </label>
-                        <div className="text-right font-mono text-gray-700 text-sm font-bold">{formatEuro(calculatedTotals.spese)}</div>
+                        <div className="text-right font-mono text-gray-700 text-xs font-bold">{formatEuro(calculatedTotals.spese)}</div>
                     </div>
                     <div>
-                        <label className="flex justify-between text-[10px] font-black uppercase text-gray-400 mb-1 tracking-widest">
+                        <label className="flex justify-between text-[9px] font-black uppercase text-gray-400 mb-0.5 tracking-widest">
                             <span>Utile d'Impresa</span>
                             <div className="flex items-center">
-                                <input readOnly={isLocked} type="number" value={formData.profitRate} onChange={e => setFormData({...formData, profitRate: parseFloat(e.target.value)})} className={`w-10 text-right border-b border-gray-300 focus:outline-none text-purple-600 font-bold ${isLocked ? 'cursor-not-allowed' : ''}`} />
-                                <span>%</span>
+                                <input readOnly={isLocked} type="number" value={formData.profitRate} onChange={e => setFormData({...formData, profitRate: parseFloat(e.target.value)})} className={`w-7 text-right border-b border-gray-200 focus:outline-none text-purple-600 font-bold text-xs ${isLocked ? 'cursor-not-allowed' : ''}`} />
+                                <span className="text-[10px]">%</span>
                             </div>
                         </label>
-                        <div className="text-right font-mono text-gray-700 text-sm font-bold">{formatEuro(calculatedTotals.utile)}</div>
+                        <div className="text-right font-mono text-gray-700 text-xs font-bold">{formatEuro(calculatedTotals.utile)}</div>
                     </div>
-                    <div className="border-t border-gray-300 pt-2 mt-2 flex justify-between font-black text-gray-900 uppercase text-xs"><span>Totale Lotto</span><span>{formatEuro(calculatedTotals.totalBatch)}</span></div>
+                    <div className="border-t border-gray-300 pt-1 mt-1 flex justify-between font-black text-gray-900 uppercase text-[9px]"><span>Totale Lotto</span><span>{formatEuro(calculatedTotals.totalBatch)}</span></div>
                 </div>
 
-                <div className="p-6 bg-purple-50 flex-1 flex flex-col justify-center items-center text-center">
-                     <span className="text-[10px] font-black uppercase text-purple-800 mb-2 block tracking-[0.2em]">Prezzo Unitario Finale</span>
-                     <div className="text-4xl font-black font-mono text-purple-700 mb-1 bg-white px-4 py-3 rounded-2xl shadow-xl border border-purple-100 ring-4 ring-purple-100">
+                <div className="p-3 bg-purple-50 flex-1 flex flex-col justify-center items-center text-center">
+                     <span className="text-[8px] font-black uppercase text-purple-800 mb-1 block tracking-[0.2em]">Prezzo Unitario Finale</span>
+                     <div className="text-2xl font-black font-mono text-purple-700 mb-0.5 bg-white px-3 py-1.5 rounded-xl shadow-lg border border-purple-100 ring-2 ring-purple-100">
                         {formatNum(calculatedTotals.unitPrice)}
                      </div>
-                     <div className="text-[10px] text-purple-400 font-black mt-3 uppercase tracking-widest">per {formData.unit}</div>
+                     <div className="text-[8px] text-purple-400 font-black mt-1 uppercase tracking-widest">per {formData.unit}</div>
                 </div>
 
-                <div className="p-4 border-t border-gray-200 bg-white sticky bottom-0 z-20 shadow-[0_-4px_15px_rgba(0,0,0,0.05)]">
-                     <button onClick={isLocked ? onClose : handleSave} disabled={!formData.code || (calculatedTotals.totalBatch === 0 && !isLocked)} className={`w-full py-4 rounded-2xl font-black uppercase text-xs shadow-lg flex items-center justify-center gap-2 transform transition-all active:scale-95 text-white ${isLocked ? 'bg-gray-400 hover:bg-gray-500' : 'bg-[#8e44ad] hover:bg-[#9b59b6] shadow-purple-200'}`}>
-                         {isLocked ? <><X className="w-5 h-5" /> CHIUDI VISUALIZZAZIONE</> : <><Save className="w-5 h-5" /> CONFERMA ANALISI</>}
+                <div className="p-2 border-t border-gray-200 bg-white sticky bottom-0 z-20 shadow-[0_-4px_15px_rgba(0,0,0,0.05)]">
+                     <button onClick={isLocked ? onClose : handleSave} disabled={!formData.code || (calculatedTotals.totalBatch === 0 && !isLocked)} className={`w-full py-2.5 rounded-xl font-black uppercase text-[9px] shadow-lg flex items-center justify-center gap-2 transform transition-all active:scale-95 text-white ${isLocked ? 'bg-gray-400 hover:bg-gray-500' : 'bg-[#8e44ad] hover:bg-[#9b59b6] shadow-purple-200'}`}>
+                         {isLocked ? <><X className="w-3.5 h-3.5" /> CHIUDI</> : <><Save className="w-3.5 h-3.5" /> CONFERMA ANALISI</>}
                      </button>
                 </div>
             </div>

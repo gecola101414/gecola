@@ -1,4 +1,3 @@
-
 import { Article, Category, ProjectInfo, PriceAnalysis } from './types';
 
 export const REGIONS = [
@@ -11,7 +10,7 @@ export const REGIONS = [
 export const YEARS = ["2025", "2024", "2023", "2022"];
 
 export const COMMON_UNITS = [
-    'cad', 'm', 'm²', 'm³', 'kg', 'q', 't', 'h', 'cm', 'mm', 'l', 'a corpo'
+    'm', 'm²', 'm³', 'kg', 'q', 't', 'cad', 'h', 'l', 'a corpo', 'cm', 'mm'
 ];
 
 export const VIVID_COLORS = [
@@ -34,7 +33,7 @@ export const WBS_SUGGESTIONS = [
   "Tramezzature e Divisioni Interne",
   "Intonaci e Finiture Grezze",
   "Sottofondi e Massetti",
-  "Pavimenti Interni ed Esterni",
+  "Pavimenti Interni ed EstERNi",
   "Rivestimenti Bagni e Cucine",
   "Lattoneria e Smaltimento Acque",
   "Opere in Pietra e Marmi",
