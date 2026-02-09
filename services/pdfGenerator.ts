@@ -42,6 +42,7 @@ const getWbsNumber = (code: string) => {
     return code;
 };
 
+// Task 3: Forza sempre l'uso dei separatori di migliaia con it-IT
 const formatCurrency = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
@@ -49,6 +50,7 @@ const formatCurrency = (val: number | undefined | null) => {
 
 const formatNumber = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
+  // Se è esattamente 0 mostriamo 0,00 per coerenza finanziaria se richiesto, altrimenti seguiamo la logica esistente
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
 };
 
@@ -108,6 +110,7 @@ const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumbe
 
 const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined, pageTotal: number | undefined, pageWidth: number, pageHeight: number, isTotalCurrency: boolean = true, isLastPageOfTable: boolean = false) => {
     const footerY = pageHeight - 15;
+    // Task 2: Elimina "A RIPORTARE" nell'ultima pagina della tabella
     if (!isLastPageOfTable && grandTotal !== undefined && pageTotal !== undefined) {
         const currentCumulative = grandTotal + pageTotal;
         doc.setFontSize(9);
@@ -170,10 +173,9 @@ const drawTableFrame = (doc: any, startY: number, endY: number) => {
     doc.rect(10, startY, 190, endY - startY);
 };
 
-// PATTO DI FERRO: appendWbsToPdfBody ora gestisce il globalIndex e restituisce il valore aggiornato
-const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[], globalIndexStart: number): number => {
+const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]) => {
     const catArticles = articles.filter(a => a.categoryCode === cat.code);
-    if (catArticles.length === 0) return globalIndexStart;
+    if (catArticles.length === 0) return;
 
     const isSafety = cat.type === 'safety';
     const fillColor = isSafety ? [255, 200, 150] : [240, 240, 240];
@@ -192,31 +194,16 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         { content: '', styles: { isWbs: true, lineWidth: 0 } }
     ]);
 
-    let currentGlobal = globalIndexStart;
-
     catArticles.forEach((art, artIndex) => {
         const wbsN = getWbsNumber(cat.code);
-        const hierarchicalNum = `${wbsN}.${artIndex + 1}`;
-        
-        // PATTO DI FERRO: Doppia numerazione in Num.Ord (Globale sopra in GRASSETTO, Hierarchical sotto)
+        const artNum = `${wbsN}.${artIndex + 1}`;
         tableBody.push([
-            { 
-              content: `${currentGlobal}\n${hierarchicalNum}`, 
-              styles: { 
-                isArt: true, 
-                fontStyle: 'bold', // Impone grassetto su tutta la cella per risalto
-                halign: 'center', 
-                cellPadding: { top: 3, bottom: 1 }, 
-                fontSize: 8.5 // Aumentato font per visibilità immediata richiesta
-              } 
-            },
+            { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', cellPadding: { top: 3, bottom: 1 } } },
             { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
             { content: art.description, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
             '', '', '', '', '', '', ''
         ]);
         
-        currentGlobal++;
-
         tableBody.push([
             '', '', 
             { content: 'ELENCO DELLE MISURE', styles: { fontStyle: 'bold', fontSize: 7.5, textColor: [40, 40, 40], cellPadding: { left: 3, top: 1, bottom: 1 } } },
@@ -247,8 +234,6 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         tableBody.push([ '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: formatNumber(art.unitPrice), styles: { halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'right', textColor: [0, 0, 120], cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } } ]);
         tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
     });
-
-    return currentGlobal;
 };
 
 export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[], filterType: 'work' | 'safety' = 'work') => {
@@ -262,7 +247,6 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
 
     let globalTotalForClosing = 0;
-    let globalCounter = 1; // Inizializzazione contatore globale
     const topLevels = categories.filter(c => !c.parentId);
     
     topLevels.forEach(root => {
@@ -276,18 +260,20 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
                 ]);
                 children.forEach(child => {
                     if (child.isEnabled === false) return;
-                    globalCounter = appendWbsToPdfBody(tableBody, child, articles, globalCounter);
+                    appendWbsToPdfBody(tableBody, child, articles);
                     const catArticles = articles.filter(a => a.categoryCode === child.code);
                     globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
                 });
             }
         } else if (root.type === filterType) {
-            globalCounter = appendWbsToPdfBody(tableBody, root, articles, globalCounter);
+            appendWbsToPdfBody(tableBody, root, articles);
             const catArticles = articles.filter(a => a.categoryCode === root.code);
             globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
         }
     });
 
+    // Task: Riga di chiusura "TOTALE COMPUTO"
+    // Riga 1: Etichetta e Valore numerico (impegna ultime 3 colonne)
     tableBody.push([
         { content: '', colSpan: 2, styles: { lineWidth: 0 } },
         { content: 'TOTALE COMPUTO', colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fontSize: 10, cellPadding: 4, fillColor: [245, 245, 245] } },
@@ -297,6 +283,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
             styles: { fontStyle: 'bold', halign: 'right', fontSize: 10, cellPadding: 4, fillColor: [245, 245, 245], textColor: [0, 0, 150] } 
         }
     ]);
+    // Riga 2: Valore in lettere (impegna ultime 5 colonne)
     tableBody.push([
         { content: '', colSpan: 5, styles: { lineWidth: 0 } },
         { 
@@ -315,7 +302,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
       theme: 'plain', 
       styles: { fontSize: 8, valign: 'top', cellPadding: 1.2, lineWidth: 0, overflow: 'linebreak', font: 'helvetica' },
       columnStyles: { 
-          0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' }, // Forza grassetto sulla colonna numerica
+          0: { cellWidth: 10, halign: 'center' }, 
           1: { cellWidth: 22 }, 
           2: { cellWidth: 60 }, 
           3: { cellWidth: 10, halign: 'center' }, 
@@ -336,6 +323,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
               doc.setLineWidth(0.15); doc.line(xStart, data.cell.y + data.cell.height + 0.6, xEnd, data.cell.y + data.cell.height + 0.6);
               doc.setLineWidth(0.1); 
           }
+          // Calcolo pageTotal includendo la riga del totale computo (ora inizia a colonna 7 con colSpan 3)
           if (data.section === 'body' && (data.column.index === 9 || (data.column.index === 7 && data.cell.colSpan === 3))) {
               const raw = data.cell.raw;
               let val = 0;
@@ -359,8 +347,10 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
           const currentTableStartY = data.pageNumber === 1 ? 44 : 38; const tableEndY = pageHeight - 25;
           drawHeader(doc, projectInfo, title, data.pageNumber, grandTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
           drawGridLines(doc, currentTableStartY, tableEndY); drawTableFrame(doc, currentTableStartY, tableEndY);
+          
           const isLastPageOfTable = Math.abs((grandTotal + pageTotal) - globalTotalForClosing) < 0.05;
           drawFooter(doc, data.pageNumber, grandTotal, pageTotal, doc.internal.pageSize.width, doc.internal.pageSize.height, true, isLastPageOfTable);
+          
           grandTotal += pageTotal; pageTotal = 0;
       }
     });
@@ -375,6 +365,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         const catArticles = articles.filter(a => a.categoryCode === cat.code);
         const catTotal = catArticles.reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
         const catLabor = catArticles.reduce((sum, a) => sum + ((a.quantity * a.unitPrice) * (a.laborRate / 100)), 0);
+        
         if (catTotal > 0 || catArticles.length > 0) {
             totalLavoriSum += catTotal;
             totalLaborSum += catLabor;
@@ -427,8 +418,6 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
         const { jsPDF, autoTable } = await getLibs();
         const doc = new jsPDF();
         const tableBody: any[] = [];
-        let globalCounter = 1; // Contatore globale
-
         categories.forEach((cat) => {
             if (cat.isSuperCategory) return;
             if (!cat.isEnabled) return;
@@ -436,18 +425,7 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
             if (catArticles.length === 0) return;
             tableBody.push([{ content: `${cat.code} - ${cat.name}`, colSpan: 5, styles: { fillColor: [230, 230, 230], fontStyle: 'bold' } }]);
             catArticles.forEach((art, artIndex) => {
-                const hierarchicalNum = `${getWbsNumber(cat.code)}.${artIndex + 1}`;
-                tableBody.push([
-                    { 
-                      content: `${globalCounter}\n${hierarchicalNum}`, 
-                      styles: { halign: 'center', fontStyle: 'bold', fontSize: 9 } // Grassetto e dimensione aumentata
-                    }, 
-                    { content: art.code, styles: { fontStyle: 'bold' } }, 
-                    { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, 
-                    { content: art.unit, styles: { halign: 'center' } }, 
-                    { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } }
-                ]);
-                globalCounter++;
+                tableBody.push([{ content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, { content: art.code, styles: { fontStyle: 'bold' } }, { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, { content: art.unit, styles: { halign: 'center' } }, { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } }]);
             });
         });
         autoTable(doc, { head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'U.M.', 'PREZZO UNITARIO']], body: tableBody, startY: 40, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5 }, headStyles: { fillColor: [60, 60, 60] }, didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI", data.pageNumber); } });
@@ -462,8 +440,6 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
         const doc = new jsPDF();
         const tableBody: any[] = [];
         let totalLaborSum = 0;
-        let globalCounter = 1; // Contatore globale
-
         categories.forEach((cat) => {
             if (cat.isSuperCategory) return;
             if (!cat.isEnabled) return;
@@ -474,19 +450,7 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
                 const totalItem = art.quantity * art.unitPrice;
                 const laborPart = totalItem * (art.laborRate / 100);
                 totalLaborSum += laborPart;
-                const hierarchicalNum = `${getWbsNumber(cat.code)}.${artIndex + 1}`;
-                tableBody.push([ 
-                    { 
-                      content: `${globalCounter}\n${hierarchicalNum}`, 
-                      styles: { halign: 'center', fontStyle: 'bold', fontSize: 9 } // Grassetto e dimensione aumentata
-                    }, 
-                    art.code, 
-                    { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, 
-                    { content: formatNumber(art.quantity), styles: { halign: 'right' } }, 
-                    { content: `${art.laborRate}%`, styles: { halign: 'center' } }, 
-                    { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } 
-                ]);
-                globalCounter++;
+                tableBody.push([ { content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, art.code, { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, { content: formatNumber(art.quantity), styles: { halign: 'right' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } ]);
             });
         });
         tableBody.push([{ content: 'TOTALE GENERALE INCIDENZA MANODOPERA', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }, { content: formatCurrency(totalLaborSum), styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }]);
@@ -624,6 +588,7 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
         doc.setLineWidth(0.5);
         doc.rect(margin, headerHeight, pageWidth - margin * 2, contentBottomY - headerHeight);
 
+        // --- RELAZIONE TECNICA ESSENZIALE (Patto di Ferro) ---
         let reportY = contentBottomY + 15;
         if (reportY > pageHeight - 80) { doc.addPage(); reportY = margin + 10; }
         
@@ -671,6 +636,7 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
             noteY += (splitNote.length * 4) + 2;
         });
         
+        // Firma in calce
         const sigX = pageWidth - margin - 70;
         const sigY = noteY + 10;
         doc.setFont("helvetica", "normal"); doc.setFontSize(9);

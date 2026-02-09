@@ -228,7 +228,6 @@ const TableHeader: React.FC<TableHeaderProps> = ({ activeColumn, tariffWidth }) 
 interface ArticleGroupProps {
   article: Article;
   index: number;
-  globalIndex: number;
   allArticles: Article[];
   isPrintMode: boolean;
   isCategoryLocked?: boolean;
@@ -266,7 +265,7 @@ interface ArticleGroupProps {
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, globalIndex, allArticles, isPrintMode, isCategoryLocked, isSurveyorGuardActive, projectSettings, lastMovedItemId, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, onToggleVoiceAutomation, onToggleSmartRepeat, voiceAutomationActiveId, smartRepeatActiveId } = props;
+   const { article, index, allArticles, isPrintMode, isCategoryLocked, isSurveyorGuardActive, projectSettings, lastMovedItemId, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onAddVoiceMeasurement, onUpdateMeasurement, onDeleteMeasurement, onToggleDeduction, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, onToggleVoiceAutomation, onToggleSmartRepeat, voiceAutomationActiveId, smartRepeatActiveId } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -758,12 +757,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             onDragEnd={handleArticleHeaderDragEnd}
             onClick={handleCycleLocal}
          >
-            <td className={`text-center py-2 border-r border-gray-200 select-none font-mono ${isIndustrialMode ? 'bg-slate-100/50' : 'bg-white'}`}>
-                <div className="flex flex-col items-center leading-none">
-                    <span className="text-[11px] font-black text-slate-800">{globalIndex}</span>
-                    <span className="text-[8px] font-bold text-slate-400 opacity-60">{hierarchicalNumber}</span>
-                </div>
-            </td>
+            <td className={`text-center py-2 text-xs font-bold border-r border-gray-200 select-none font-mono ${isIndustrialMode ? 'text-indigo-400 bg-slate-100/50' : 'text-gray-500 bg-white'}`}>{hierarchicalNumber}</td>
             <td className={`p-1 border-r border-gray-200 align-top ${isIndustrialMode ? 'bg-slate-100/50' : 'bg-white'}`} style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}>
                <div className="flex flex-col relative">
                 <textarea 
@@ -884,7 +878,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                     <td className="border-r border-gray-200"></td>
                     <td className="p-0 border-r border-gray-200 bg-gray-50/30 text-center relative align-middle">
                         {!isPrintMode && !areControlsDisabled && (
-                            <div className="flex justify-center items-center gap-1.5 px-1 h-full py-1.5">
+                            <div className="flex justify-center items-center gap-1.5 opacity-0 group-hover/row:opacity-100 transition-opacity px-1 h-full py-1.5">
                                 {!isSubtotal ? (
                                     <>
                                         <button onClick={() => onOpenLinkModal(article.id, m.id)} className={`rounded p-0.5 transition-colors ${m.linkedArticleId ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-gray-300 hover:text-blue-600 hover:bg-blue-50'}`} title={m.linkedArticleId ? "Modifica Collegamento" : "Vedi Voce (Collega)"}><LinkIcon className="w-4 h-4" /></button>
@@ -1110,6 +1104,7 @@ const App: React.FC = () => {
   const [analysisDragOverId, setAnalysisDragOverId] = useState<string | null>(null);
   const [analysisDropPosition, setAnalysisDropPosition] = useState<'top' | 'bottom' | null>(null);
   const [activeWbsContext, setActiveWbsContext] = useState<'work' | 'safety'>('work');
+  const [isOnline, setIsOnline] = useState(true);
 
   const [lastMovedItemId, setLastMovedItemId] = useState<string | null>(null);
 
@@ -1126,6 +1121,21 @@ const App: React.FC = () => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => { 
         setUser(firebaseUser as FirebaseUser);
         setAuthLoading(false); 
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Monitoraggio connessione Server Firebase (PATTO DI FERRO)
+  useEffect(() => {
+    if (!db) return;
+    const connectedRef = ref(db, ".info/connected");
+    const unsubscribe = onValue(connectedRef, (snap) => {
+        if (snap.val() === true) {
+            setIsOnline(true);
+        } else {
+            // Se non è collegato a Firebase, stacca il funzionamento
+            setIsOnline(false);
+        }
     });
     return () => unsubscribe();
   }, []);
@@ -1407,7 +1417,6 @@ const App: React.FC = () => {
       // PATTO DI FERRO: Priorità al targetWbsOverride (per il Drag & Drop puntuale)
       const targetCode = targetWbsOverride || activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       
-      // Fixed: changed matchingAn to analysis
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
       const newArticle: Article = {
           id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0
@@ -1489,7 +1498,6 @@ const App: React.FC = () => {
           if (draggedCategoryCode === targetCode) { setWbsDropTarget(null); return; }
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
           
-          // PATTO DI FERRO: Logica per la Linea Blu interna ed esterna
           if (targetCat?.isSuperCategory) {
               if (e.clientY < (rect.top + 15)) { 
                   setWbsDropTarget({ code: targetCode, position: 'top' }); 
@@ -1497,7 +1505,6 @@ const App: React.FC = () => {
                   setWbsDropTarget({ code: targetCode, position: 'inside' }); 
               }
           } else {
-             // Se è un figlio o una WBS standard
              const midPoint = rect.top + rect.height / 2;
              setWbsDropTarget({ code: targetCode, position: e.clientY < midPoint ? 'top' : 'bottom' });
           }
@@ -1518,7 +1525,6 @@ const App: React.FC = () => {
           }
           const analysis = analyses.find(a => a.id === analysisId);
           if (analysis) {
-             // PATTO DI FERRO: Importa nell'attuale targetCode del Drop, non in quello attivo
              handleImportAnalysisToArticle(analysis, targetCode);
              playUISound('confirm');
           }
@@ -1587,10 +1593,8 @@ const App: React.FC = () => {
           let finalTargetIdx: number;
           let targetParentId: string | undefined = undefined;
 
-          // PATTO DI FERRO: Miracolo della cartella - Posizionamento tassativo indicato dalla linea blu
           if (pos === 'inside' && targetCat?.isSuperCategory) {
               targetParentId = targetCode;
-              // Trova l'indice dopo la testata della cartella o dopo l'ultimo figlio
               const lastChildIdx = [...newCatsOrder].reverse().findIndex(c => c.parentId === targetCode);
               if (lastChildIdx !== -1) {
                   finalTargetIdx = newCatsOrder.length - lastChildIdx;
@@ -1598,7 +1602,6 @@ const App: React.FC = () => {
                   finalTargetIdx = newCatsOrder.findIndex(c => c.code === targetCode) + 1;
               }
           } else {
-              // Segue la linea blu (Sopra o Sotto un rigo esistente, figlio o radice)
               targetParentId = targetCat?.parentId;
               finalTargetIdx = newCatsOrder.findIndex(c => c.code === targetCode);
               if (pos === 'bottom') finalTargetIdx++;
@@ -1702,7 +1705,7 @@ const App: React.FC = () => {
   const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { 
       setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: value }; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); });
   };
-  const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, ...[newM]] }; }); updateState(updated); };
+  const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleAddVoiceMeasurement = (articleId: string, data: Partial<Measurement>) => { const newId = Math.random().toString(36).substr(2, 9); setLastAddedMeasurementId(newId); const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: newId, description: data.description || '', type: 'positive', length: data.length, width: data.width, height: data.height, multiplier: data.multiplier }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(recalculateAllArticles(updated)); };
   const handleToggleDeduction = (articleId: string, mId: string) => { setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; if (m.type === 'subtotal') return m; const isPositive = m.type === 'positive'; const newType = isPositive ? 'deduction' : 'positive'; let newDesc = m.description; if (newType === 'deduction') { if (!newDesc.toLowerCase().startsWith('a dedurre:')) { newDesc = `A dedurre: ${newDesc}`; } } else { newDesc = newDesc.replace(/^a dedurre:\s*/i, ''); } return { ...m, type: newType, description: newDesc } as Measurement; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); }); };
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
@@ -1731,7 +1734,8 @@ const App: React.FC = () => {
   const handleToggleCategoryVisibility = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c); updateState(articles, newCats); playUISound('toggle'); };
   const handleSaveCategory = (name: string, isSuper: boolean, color: string, soa?: string) => { if (editingCategory) { const newCats = categories.map(c => c.id === editingCategory.id ? { ...c, name, isSuperCategory: isSuper, color, soaCategory: soa } : c); updateState(articles, newCats); } else { const newCode = generateNextWbsCode(categories); const newCat: Category = { id: `cat_${Date.now()}`, code: newCode, name, isEnabled: true, isLocked: false, isSuperCategory: isSuper, type: viewMode === 'SICUREZZA' ? 'safety' : 'work', color: color, soaCategory: soa }; let newCatsList = isSuper ? [newCat, ...categories] : [...categories, newCat]; const result = renumberCategories(newCatsList, articles); updateState(result.newArticles, result.newCategories); setSelectedCategoryCode(newCat.code); const assignedCode = result.codeMap[newCat.code] || newCat.code; setLastMovedItemId(assignedCode); setTimeout(() => setLastMovedItemId(null), 3000); } setIsCategoryModalOpen(false); playUISound('confirm'); };
   const handleResetProject = () => { window.open(window.location.href, '_blank'); playUISound('newline'); };
-  const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { if (!rebarTargetArticleId) return; const updated = articles.map(art => { if (art.id !== rebarTargetArticleId) return art; const newMeasures: Measurement[] = measurements.map(m => ({ id: Math.random().toString(36).substr(2, 9), description: m.description, type: 'positive' as const, multiplier: m.multiplier, length: m.length, width: undefined, height: m.weight })); return { ...art, measurements: [...art.measurements, ...[newMeasures]] }; }); updateState(updated); setIsRebarModalOpen(false); };
+  
+  const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { if (!rebarTargetArticleId) return; const updated = articles.map(art => { if (art.id !== rebarTargetArticleId) return art; const newMeasures: Measurement[] = measurements.map(m => ({ id: Math.random().toString(36).substr(2, 9), description: m.description, type: 'positive' as const, multiplier: m.multiplier, length: m.length, width: undefined, height: m.weight })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsRebarModalOpen(false); };
   const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { if (paintingTargetArticleId) { const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsPaintingModalOpen(false); } };
   const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: 0 }; updateState([...articles, ...[newArticle]]); setLastMovedItemId(newArtId); setTimeout(() => setLastMovedItemId(null), 3000); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
   const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: 0, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
@@ -1741,7 +1745,6 @@ const App: React.FC = () => {
     setIsWorkspaceDragOver(false);
     const analysisId = e.dataTransfer.getData(MIME_ANALYSIS_DRAG);
     if (analysisId) {
-        // Se droppo nel foglio di lavoro principale, uso la WBS attiva o la prima
         const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
         const analysis = analyses.find(a => a.id === analysisId);
         if (analysis) {
@@ -1767,7 +1770,6 @@ const App: React.FC = () => {
   const activeCategory = useMemo(() => categories.find(c => c.code === selectedCategoryCode), [categories, selectedCategoryCode]);
   const activeArticles = useMemo(() => articles.filter(a => a.categoryCode === selectedCategoryCode), [articles, selectedCategoryCode]);
   
-  // PATTO DI FERRO: Il filtraggio ora dipende da activeWbsContext per persistere in Analisi
   const filteredCategories = useMemo(() => { 
     return activeWbsContext === 'safety' 
       ? categories.filter(c => c.type === 'safety') 
@@ -1776,24 +1778,33 @@ const App: React.FC = () => {
   
   const topLevelCategories = useMemo(() => filteredCategories.filter(c => !c.parentId), [filteredCategories]);
 
-  // PATTO DI FERRO: Calcolo indici globali per numerazione unica
-  const articleGlobalIndices = useMemo(() => {
-    const indices: Record<string, number> = {};
-    let count = 1;
-    // Iteriamo su tutte le categorie (anche quelle non attive al momento ma abilitate)
-    categories.forEach(cat => {
-        if (cat.isSuperCategory) return;
-        // Troviamo tutti gli articoli per questa WBS in ordine
-        articles.filter(a => a.categoryCode === cat.code).forEach(art => {
-            indices[art.id] = count++;
-        });
-    });
-    return indices;
-  }, [articles, categories]);
-
   return (
     <div className="h-screen flex flex-col bg-[#2c3e50] font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={() => { if(!globalAudioCtx) globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); globalAudioCtx.resume(); setIsSaveMenuOpen(false); setIsPrintMenuOpen(false); }}>
       <input type="file" ref={fileInputRef} onChange={handleLoadProject} className="hidden" accept=".json" />
+      
+      {/* OVERLAY DI SICUREZZA PER CONNESSIONE SERVER INTERROTTA (PATTO DI FERRO) */}
+      {!isOnline && user && user !== 'visitor' && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-500">
+            <div className="bg-red-600 p-8 rounded-[3rem] shadow-[0_0_80px_rgba(220,38,38,0.4)] mb-10 animate-pulse border-4 border-white/20">
+                <ShieldAlert className="w-24 h-24 text-white" />
+            </div>
+            <h2 className="text-5xl font-black text-white uppercase tracking-tighter mb-4 italic">Security Link Broken</h2>
+            <div className="h-1.5 w-32 bg-red-600 rounded-full mb-6"></div>
+            <p className="text-slate-400 max-w-lg text-xl font-bold leading-relaxed mb-12">
+                Connessione con il server GeCoLa interrotta.<br/>
+                <span className="text-red-500 uppercase tracking-widest font-black">Il software è temporaneamente sospeso</span><br/>
+                per garantire l'integrità del database.
+            </p>
+            <div className="flex flex-col items-center gap-4">
+                <div className="flex items-center gap-3 bg-slate-800/80 px-8 py-4 rounded-full border border-slate-700 shadow-2xl">
+                    <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                    <span className="text-sm font-black uppercase tracking-[0.2em] text-blue-100">Riconnessione al Cloud GeCoLa...</span>
+                </div>
+                <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest">Engineering Safety Protocol Active</p>
+            </div>
+        </div>
+      )}
+
       {authLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 text-white">
            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
@@ -2006,7 +2017,6 @@ const App: React.FC = () => {
                             {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_15px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
                         </li>
                         )})}
-                        {/* ZONA DI DROP FINALE IN BASSO (PATTO DI FERRO) */}
                         <li 
                             onDragOver={(e) => handleWbsDragOver(e, 'WBS_BOTTOM_TARGET')} 
                             onDrop={(e) => handleWbsDrop(e, null)}
@@ -2020,7 +2030,6 @@ const App: React.FC = () => {
                 </div>
                 </div>
             )}
-            {/* WORKSPACE AREA */}
             <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''} ${draggedCategoryCode ? 'pointer-events-none select-none' : ''}`}>
                {isFocusMode && (
                   <div style={{ left: 15, top: 15 }} className="fixed z-[300] flex items-center gap-3 bg-slate-900/90 backdrop-blur-md border border-slate-700 p-2 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in slide-in-from-top-4 duration-500 group select-none transition-all">
@@ -2186,7 +2195,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed border-blue-100 bg-slate-50/30 text-center space-y-4`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white text-blue-200 border border-blue-50`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3><p className="text-slate-400 font-medium italic">"Trascina le voci dai listini o aggiungi da Analisi Prezzi"</p></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={articleGlobalIndices[article.id] || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={paintingTargetArticleId === article.id} isRebarAutomationActive={rebarTargetArticleId === article.id} />
+                                      <ArticleGroup key={article.id} article={article} index={artIndex} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onAddVoiceMeasurement={handleAddVoiceMeasurement} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onToggleDeduction={handleToggleDeduction} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={handleToggleVoiceAutomation} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={voiceAutomationActiveId} smartRepeatActiveId={smartRepeatActiveId} isPaintingAutomationActive={paintingTargetArticleId === article.id} isRebarAutomationActive={rebarTargetArticleId === article.id} />
                                     ))
                                 )}
                             </table>

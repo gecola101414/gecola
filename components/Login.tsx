@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
@@ -62,7 +61,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     <Calculator className="w-7 h-7 text-white" />
                 </div>
                 <h1 className="text-3xl font-black text-slate-800 tracking-tighter uppercase leading-none">
-                  GeCoLa <span className="text-orange-500">Cloud</span>
+                  GeCoLa <span className="text-orange-500">WEB</span>
                 </h1>
               </div>
               
@@ -106,7 +105,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                   disabled={loading}
                   className="w-full bg-[#2c3e50] hover:bg-[#1e293b] text-white font-black py-3 px-6 rounded-xl shadow-xl transform transition-all active:scale-95 flex items-center justify-center gap-3 uppercase text-xs tracking-widest"
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Lock className="w-4 h-4" /> Entra nel Progetto</>}
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Lock className="w-4 h-4" /> LOGIN</>}
                 </button>
               </div>
             </form>
@@ -173,7 +172,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     <ul className="space-y-3">
                         <li className="flex items-center gap-3">
                             <div className="bg-blue-100 p-2 rounded-xl text-blue-600"><CheckCircle2 className="w-4 h-4" /></div>
-                            <span className="text-[9px] font-black text-slate-700 uppercase tracking-tighter">Standard Regionali 2025</span>
+                            <span className="text-[9px] font-black text-slate-700 uppercase tracking-tighter">prezzari regionali</span>
                         </li>
                         <li className="flex items-center gap-3">
                             <div className="bg-orange-100 p-2 rounded-xl text-orange-600"><Zap className="w-4 h-4" /></div>
@@ -189,12 +188,12 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     </h4>
                     <div className="space-y-3 relative z-10">
                         <div className="flex items-center gap-3">
-                            <Phone className="w-3.5 h-3.5 text-orange-400" />
-                            <span className="text-xs font-mono font-bold text-slate-100 tracking-tighter">351 9822401</span>
+                            <Phone className="w-4 h-4 text-orange-400" />
+                            <span className="text-[14.5px] font-mono font-bold text-slate-100 tracking-tighter">351 9822401</span>
                         </div>
                         <div className="flex items-center gap-3">
-                            <Mail className="w-3.5 h-3.5 text-orange-400" />
-                            <span className="text-[10px] font-mono font-bold text-slate-100 truncate">gecolakey@gmail.com</span>
+                            <Mail className="w-4 h-4 text-orange-400" />
+                            <span className="text-xs font-mono font-bold text-slate-100 truncate">gecolakey@gmail.com</span>
                         </div>
                     </div>
                 </div>
@@ -215,7 +214,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                     
                     <div className="mt-6 text-center">
                          <p className="text-[8px] text-slate-400 font-black uppercase tracking-[0.2em]">
-                           © 2026 GeCoLa Cloud Professional
+                           © 2026 GeCoLa WEB Professional
                          </p>
                     </div>
                 </div>
