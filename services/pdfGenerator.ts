@@ -1,3 +1,4 @@
+
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
@@ -42,7 +43,6 @@ const getWbsNumber = (code: string) => {
     return code;
 };
 
-// Task 3: Forza sempre l'uso dei separatori di migliaia con it-IT
 const formatCurrency = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
@@ -50,7 +50,6 @@ const formatCurrency = (val: number | undefined | null) => {
 
 const formatNumber = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
-  // Se è esattamente 0 mostriamo 0,00 per coerenza finanziaria se richiesto, altrimenti seguiamo la logica esistente
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
 };
 
@@ -110,7 +109,6 @@ const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumbe
 
 const drawFooter = (doc: any, pageNumber: number, grandTotal: number | undefined, pageTotal: number | undefined, pageWidth: number, pageHeight: number, isTotalCurrency: boolean = true, isLastPageOfTable: boolean = false) => {
     const footerY = pageHeight - 15;
-    // Task 2: Elimina "A RIPORTARE" nell'ultima pagina della tabella
     if (!isLastPageOfTable && grandTotal !== undefined && pageTotal !== undefined) {
         const currentCumulative = grandTotal + pageTotal;
         doc.setFontSize(9);
@@ -173,32 +171,30 @@ const drawTableFrame = (doc: any, startY: number, endY: number) => {
     doc.rect(10, startY, 190, endY - startY);
 };
 
-const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]) => {
+const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[], allArticles: Article[], globalCounter: { current: number }) => {
     const catArticles = articles.filter(a => a.categoryCode === cat.code);
     if (catArticles.length === 0) return;
 
     const isSafety = cat.type === 'safety';
     const fillColor = isSafety ? [255, 200, 150] : [240, 240, 240];
-    const textColor = [0, 0, 0];
 
     tableBody.push([
         { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
         { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-        { content: `${cat.code} - ${cat.name}`, styles: { fillColor, textColor, fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } },
-        { content: '', styles: { isWbs: true, lineWidth: 0 } }
+        { content: `${cat.code} - ${cat.name}`, styles: { fillColor, fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
+        '', '', '', '', '', '', ''
     ]);
 
     catArticles.forEach((art, artIndex) => {
         const wbsN = getWbsNumber(cat.code);
         const artNum = `${wbsN}.${artIndex + 1}`;
+        const gNum = globalCounter.current++;
+
         tableBody.push([
-            { content: artNum, styles: { isArt: true, fontStyle: 'bold', halign: 'center', cellPadding: { top: 3, bottom: 1 } } },
+            { 
+              content: `${gNum}\n(${artNum})`, 
+              styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
+            },
             { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
             { content: art.description, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
             '', '', '', '', '', '', ''
@@ -213,15 +209,29 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         let runningPartial = 0;
         art.measurements.forEach(m => {
             let val = 0;
+            let displayDesc = m.description;
+            const isDeduction = m.type === 'deduction';
+            
             if (m.linkedArticleId) {
-                const linkedArt = articles.find(a => a.id === m.linkedArticleId);
+                const linkedArt = allArticles.find(a => a.id === m.linkedArticleId);
                 if (linkedArt) {
                     const base = m.linkedType === 'amount' ? (linkedArt.quantity * linkedArt.unitPrice) : linkedArt.quantity;
                     val = calculateMeasurementValue(m, base);
+                    
+                    const catArts = allArticles.filter(a => a.categoryCode === linkedArt.categoryCode);
+                    const localIdx = catArts.findIndex(a => a.id === linkedArt.id) + 1;
+                    const wbsPrefix = getWbsNumber(linkedArt.categoryCode);
+                    const linkRef = `(Vedi voce n. ${wbsPrefix}.${localIdx})`;
+                    
+                    const prefix = isDeduction ? 'A DEDURRE: ' : '';
+                    if (!displayDesc) displayDesc = `${prefix}${linkRef}`;
+                    else if (!displayDesc.includes(linkRef)) displayDesc = `${prefix}${displayDesc} ${linkRef}`;
+                    else if (isDeduction && !displayDesc.startsWith('A DEDURRE')) displayDesc = `${prefix}${displayDesc}`;
                 }
             } else {
                 val = calculateMeasurementValue(m);
             }
+            
             let displayVal = val;
             if (m.type === 'subtotal') {
                 displayVal = runningPartial;
@@ -229,7 +239,28 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
             } else {
                 runningPartial += val;
             }
-            tableBody.push([ '', '', { content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, styles: { fontStyle: m.type === 'subtotal' ? 'bold' : 'normal', halign: m.type === 'subtotal' ? 'right' : 'left', textColor: m.type === 'deduction' ? [200, 0, 0] : [60, 60, 60], cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, fontSize: 8 } }, { content: formatNumber(m.multiplier), styles: { halign: 'center' } }, { content: formatNumber(m.length), styles: { halign: 'center' } }, { content: formatNumber(m.width), styles: { halign: 'center' } }, { content: formatNumber(m.height), styles: { halign: 'center' } }, { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: 'normal', cellPadding: { left: 1.5 }, fontSize: 8 } }, '', '' ]);
+            
+            const rowTextColor = isDeduction ? [200, 0, 0] : [60, 60, 60];
+
+            tableBody.push([ 
+                '', '', 
+                { 
+                  content: m.type === 'subtotal' ? 'Sommano parziali' : displayDesc, 
+                  styles: { 
+                    fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', 
+                    halign: m.type === 'subtotal' ? 'right' : 'left', 
+                    textColor: rowTextColor, 
+                    cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, 
+                    fontSize: 8 
+                  } 
+                }, 
+                { content: formatNumber(m.multiplier), styles: { halign: 'center', textColor: rowTextColor } }, 
+                { content: formatNumber(m.length), styles: { halign: 'center', textColor: rowTextColor } }, 
+                { content: formatNumber(m.width), styles: { halign: 'center', textColor: rowTextColor } }, 
+                { content: formatNumber(m.height), styles: { halign: 'center', textColor: rowTextColor } }, 
+                { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', cellPadding: { left: 1.5 }, fontSize: 8, textColor: rowTextColor } }, 
+                '', '' 
+            ]);
         });
         tableBody.push([ '', '', { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, '', '', '', '', { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: formatNumber(art.unitPrice), styles: { halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, { content: art.quantity * art.unitPrice, styles: { fontStyle: 'bold', halign: 'right', textColor: [0, 0, 120], cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } } ]);
         tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
@@ -248,6 +279,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
 
     let globalTotalForClosing = 0;
     const topLevels = categories.filter(c => !c.parentId);
+    const globalCounter = { current: 1 };
     
     topLevels.forEach(root => {
         if (root.isEnabled === false) return;
@@ -260,20 +292,18 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
                 ]);
                 children.forEach(child => {
                     if (child.isEnabled === false) return;
-                    appendWbsToPdfBody(tableBody, child, articles);
+                    appendWbsToPdfBody(tableBody, child, articles, articles, globalCounter);
                     const catArticles = articles.filter(a => a.categoryCode === child.code);
                     globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
                 });
             }
         } else if (root.type === filterType) {
-            appendWbsToPdfBody(tableBody, root, articles);
+            appendWbsToPdfBody(tableBody, root, articles, articles, globalCounter);
             const catArticles = articles.filter(a => a.categoryCode === root.code);
             globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
         }
     });
 
-    // Task: Riga di chiusura "TOTALE COMPUTO"
-    // Riga 1: Etichetta e Valore numerico (impegna ultime 3 colonne)
     tableBody.push([
         { content: '', colSpan: 2, styles: { lineWidth: 0 } },
         { content: 'TOTALE COMPUTO', colSpan: 5, styles: { fontStyle: 'bold', halign: 'right', fontSize: 10, cellPadding: 4, fillColor: [245, 245, 245] } },
@@ -283,7 +313,6 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
             styles: { fontStyle: 'bold', halign: 'right', fontSize: 10, cellPadding: 4, fillColor: [245, 245, 245], textColor: [0, 0, 150] } 
         }
     ]);
-    // Riga 2: Valore in lettere (impegna ultime 5 colonne)
     tableBody.push([
         { content: '', colSpan: 5, styles: { lineWidth: 0 } },
         { 
@@ -315,6 +344,30 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
       },
       headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.5 }, lineColor: [0,0,0] },
       didDrawCell: (data: any) => {
+          // GESTIONE NUMERAZIONE COLONNA 0 (Patto di Ferro)
+          if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+                const textStr = data.cell.raw.content;
+                const lines = textStr.split('\n');
+                if (lines.length >= 2) {
+                    const x = data.cell.x + data.cell.width / 2;
+                    let y = data.cell.y + 4.5;
+                    
+                    // Progressivo: Bold + Grande
+                    doc.setFont("helvetica", 'bold');
+                    doc.setFontSize(10.5);
+                    doc.text(lines[0], x, y, { align: 'center' });
+                    
+                    // Relativo: Normal + Piccolo
+                    y += 4.5;
+                    doc.setFont("helvetica", 'normal');
+                    doc.setFontSize(7.5);
+                    doc.text(lines[1], x, y, { align: 'center' });
+                    
+                    // Interrompi rendering automatico per evitare ombreggiature
+                    return false;
+                }
+          }
+
           if (data.section === 'body' && data.cell.styles.isTotalRow && data.column.index === 7) {
               doc.setDrawColor(150, 150, 150); 
               const leftPadding = 1.5; const xStart = data.cell.x + leftPadding; const xEnd = data.cell.x + data.cell.width;
@@ -323,7 +376,6 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
               doc.setLineWidth(0.15); doc.line(xStart, data.cell.y + data.cell.height + 0.6, xEnd, data.cell.y + data.cell.height + 0.6);
               doc.setLineWidth(0.1); 
           }
-          // Calcolo pageTotal includendo la riga del totale computo (ora inizia a colonna 7 con colSpan 3)
           if (data.section === 'body' && (data.column.index === 9 || (data.column.index === 7 && data.cell.colSpan === 3))) {
               const raw = data.cell.raw;
               let val = 0;
@@ -337,6 +389,10 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
           }
       },
       didParseCell: (data: any) => {
+          // PATTO DI FERRO: Svuota testo nativo per colonna numerazione per prevenire ombreggiature
+          if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+              data.cell.text = []; 
+          }
           if (data.section === 'body' && data.column.index === 9) {
                const raw = data.cell.raw;
                if (typeof raw === 'number') data.cell.text = [formatCurrency(raw)];
@@ -373,7 +429,7 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
                 { content: cat.code, styles: { fontStyle: 'bold', halign: 'center' } },
                 { content: cat.name.toUpperCase(), styles: { halign: 'left' } },
                 { content: formatCurrency(catTotal), styles: { halign: 'right', fontStyle: 'bold' } },
-                { content: formatCurrency(catLabor), styles: { halign: 'right' } }
+                { content: formatCurrency(totalLaborSum), styles: { halign: 'right' } }
             ]);
         }
     });
@@ -418,6 +474,7 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
         const { jsPDF, autoTable } = await getLibs();
         const doc = new jsPDF();
         const tableBody: any[] = [];
+        const globalCounter = { current: 1 };
         categories.forEach((cat) => {
             if (cat.isSuperCategory) return;
             if (!cat.isEnabled) return;
@@ -425,10 +482,49 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
             if (catArticles.length === 0) return;
             tableBody.push([{ content: `${cat.code} - ${cat.name}`, colSpan: 5, styles: { fillColor: [230, 230, 230], fontStyle: 'bold' } }]);
             catArticles.forEach((art, artIndex) => {
-                tableBody.push([{ content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, { content: art.code, styles: { fontStyle: 'bold' } }, { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, { content: art.unit, styles: { halign: 'center' } }, { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } }]);
+                const artNum = `${getWbsNumber(cat.code)}.${artIndex + 1}`;
+                const gNum = globalCounter.current++;
+                tableBody.push([
+                  { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true } }, 
+                  { content: art.code, styles: { fontStyle: 'bold' } }, 
+                  { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, 
+                  { content: art.unit, styles: { halign: 'center' } }, 
+                  { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } }
+                ]);
             });
         });
-        autoTable(doc, { head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'U.M.', 'PREZZO UNITARIO']], body: tableBody, startY: 40, theme: 'grid', styles: { fontSize: 8, cellPadding: 2.5 }, headStyles: { fillColor: [60, 60, 60] }, didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI", data.pageNumber); } });
+        autoTable(doc, { 
+            head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'U.M.', 'PREZZO UNITARIO']], 
+            body: tableBody, 
+            startY: 40, 
+            theme: 'grid', 
+            styles: { fontSize: 8, cellPadding: 2.5 }, 
+            headStyles: { fillColor: [60, 60, 60] }, 
+            didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI", data.pageNumber); },
+            didDrawCell: (data: any) => {
+                if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+                    const textStr = data.cell.raw.content;
+                    const lines = textStr.split('\n');
+                    if (lines.length >= 2) {
+                        const x = data.cell.x + data.cell.width / 2;
+                        let y = data.cell.y + 4.5;
+                        doc.setFont("helvetica", 'bold');
+                        doc.setFontSize(10);
+                        doc.text(lines[0], x, y, { align: 'center' });
+                        y += 4.5;
+                        doc.setFont("helvetica", 'normal');
+                        doc.setFontSize(7);
+                        doc.text(lines[1], x, y, { align: 'center' });
+                        return false;
+                    }
+                }
+            },
+            didParseCell: (data: any) => {
+                if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+                    data.cell.text = [];
+                }
+            }
+        });
         drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Elenco Prezzi."); }
@@ -440,6 +536,7 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
         const doc = new jsPDF();
         const tableBody: any[] = [];
         let totalLaborSum = 0;
+        const globalCounter = { current: 1 };
         categories.forEach((cat) => {
             if (cat.isSuperCategory) return;
             if (!cat.isEnabled) return;
@@ -450,11 +547,44 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
                 const totalItem = art.quantity * art.unitPrice;
                 const laborPart = totalItem * (art.laborRate / 100);
                 totalLaborSum += laborPart;
-                tableBody.push([ { content: `${getWbsNumber(cat.code)}.${artIndex + 1}`, styles: { halign: 'center' } }, art.code, { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, { content: formatNumber(art.quantity), styles: { halign: 'right' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } ]);
+                const artNum = `${getWbsNumber(cat.code)}.${artIndex + 1}`;
+                const gNum = globalCounter.current++;
+                tableBody.push([ { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true } }, art.code, { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, { content: formatNumber(art.quantity), styles: { halign: 'right' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } ]);
             });
         });
         tableBody.push([{ content: 'TOTALE GENERALE INCIDENZA MANODOPERA', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }, { content: formatCurrency(totalLaborSum), styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }]);
-        autoTable(doc, { head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'QUANTITÀ', '% M.O.', 'IMPORTO M.O.']], body: tableBody, startY: 40, theme: 'grid', styles: { fontSize: 8, cellPadding: 2 }, headStyles: { fillColor: [41, 128, 185] }, didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "STIMA INCIDENZA MANODOPERA", data.pageNumber); } });
+        autoTable(doc, { 
+            head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'QUANTITÀ', '% M.O.', 'IMPORTO M.O.']], 
+            body: tableBody, 
+            startY: 40, 
+            theme: 'grid', 
+            styles: { fontSize: 8, cellPadding: 2 }, 
+            headStyles: { fillColor: [41, 128, 185] }, 
+            didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "STIMA INCIDENZA MANODOPERA", data.pageNumber); },
+            didDrawCell: (data: any) => {
+                if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+                    const textStr = data.cell.raw.content;
+                    const lines = textStr.split('\n');
+                    if (lines.length >= 2) {
+                        const x = data.cell.x + data.cell.width / 2;
+                        let y = data.cell.y + 4.5;
+                        doc.setFont("helvetica", 'bold');
+                        doc.setFontSize(10);
+                        doc.text(lines[0], x, y, { align: 'center' });
+                        y += 4.5;
+                        doc.setFont("helvetica", 'normal');
+                        doc.setFontSize(7);
+                        doc.text(lines[1], x, y, { align: 'center' });
+                        return false;
+                    }
+                }
+            },
+            didParseCell: (data: any) => {
+                if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+                    data.cell.text = [];
+                }
+            }
+        });
         drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY);
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Manodopera."); }
@@ -588,7 +718,6 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
         doc.setLineWidth(0.5);
         doc.rect(margin, headerHeight, pageWidth - margin * 2, contentBottomY - headerHeight);
 
-        // --- RELAZIONE TECNICA ESSENZIALE (Patto di Ferro) ---
         let reportY = contentBottomY + 15;
         if (reportY > pageHeight - 80) { doc.addPage(); reportY = margin + 10; }
         
@@ -636,7 +765,6 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
             noteY += (splitNote.length * 4) + 2;
         });
         
-        // Firma in calce
         const sigX = pageWidth - margin - 70;
         const sigY = noteY + 10;
         doc.setFont("helvetica", "normal"); doc.setFontSize(9);
