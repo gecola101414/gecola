@@ -244,26 +244,34 @@ interface ArticleGroupProps {
   onAddSubtotal: (articleId: string) => void;
   onOpenLinkModal: (articleId: string, measurementId: string) => void;
   onScrollToArticle: (id: string, fromId?: string) => void;
-  onReorderMeasurements: (articleId: string, startIndex: number, endIndex: number) => void;
-  onArticleDragStart: (e: React.DragEvent, article: Article) => void;
-  onArticleDrop: (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom') => void;
-  onArticleDragEnd: () => void;
-  lastAddedMeasurementId: string | null;
-  onColumnFocus: (col: string | null) => void;
   onViewAnalysis: (analysisId: string) => void; 
   onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
   onOpenRebarCalculator: (articleId: string) => void;
   onOpenPaintingCalculator: (articleId: string) => void;
-  onToggleVoiceAutomation: (articleId: string) => void;
   onToggleSmartRepeat: (articleId: string) => void;
-  voiceAutomationActiveId: string | null;
   smartRepeatActiveId: string | null;
   onDeleteArticle: (id: string) => void;
+  // --- FIXED: Added missing props to interface ---
+  onArticleDragStart: (e: React.DragEvent, article: Article) => void;
+  onArticleDrop: (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom') => void;
+  onArticleDragEnd: () => void;
+  lastAddedMeasurementId: string | null;
+  onColumnFocus: (column: string | null) => void;
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   const { article, index, globalIndex, allArticles, isPrintMode, isCategoryLocked, isSurveyorGuardActive, projectSettings, lastMovedItemId, onUpdateArticle, onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, onUpdateMeasurement, onDeleteMeasurement, onOpenLinkModal, onScrollToArticle, onReorderMeasurements, onArticleDragStart, onArticleDrop, onArticleDragEnd, lastAddedMeasurementId, onColumnFocus, onViewAnalysis, onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, onOpenPaintingCalculator, onToggleVoiceAutomation, onToggleSmartRepeat, voiceAutomationActiveId, smartRepeatActiveId } = props;
+   // --- FIXED: Added missing destructuring of props ---
+   const { 
+     article, index, globalIndex, allArticles, isPrintMode, isCategoryLocked, 
+     isSurveyorGuardActive, projectSettings, lastMovedItemId, onUpdateArticle, 
+     onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, 
+     onUpdateMeasurement, onDeleteMeasurement, onOpenLinkModal, onScrollToArticle, 
+     onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, 
+     onOpenPaintingCalculator, onToggleSmartRepeat, smartRepeatActiveId, 
+     onViewAnalysis, lastAddedMeasurementId, onColumnFocus,
+     onArticleDragStart, onArticleDrop, onArticleDragEnd 
+   } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
@@ -276,16 +284,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const isArticleLocked = article.isLocked || false;
    const areControlsDisabled = isCategoryLocked || isArticleLocked;
-   const isVoiceActive = voiceAutomationActiveId === article.id;
-
-   const [activeAutomationRowId, setActiveAutomationRowId] = useState<string | null>(null);
-   const [activeAutomationFieldIndex, setActiveAutomationFieldIndex] = useState(0); 
-   const automationFields = ['description', 'multiplier', 'length', 'width', 'height'];
-   const isSafetyCategory = article.categoryCode.startsWith('S.');
 
    const individualDisplayMode = article.displayMode || 0;
    const isIndustrialMode = individualDisplayMode === 2; // Patto d'Acciaio
    const isConciseMode = individualDisplayMode === 1;   // Revisione
+
+   // --- FIXED: Defined isSafetyCategory used in JSX below ---
+   const isSafetyCategory = article.categoryCode.startsWith('S.');
 
    const handleCycleLocal = () => {
        if (isCategoryLocked) return;
@@ -358,16 +363,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
          addBtnRef.current?.focus();
      }
    }, [lastAddedMeasurementId, article.id]);
-
-   const syncAutomationPoint = (rowId: string, fieldName: string) => {
-      if (!isVoiceActive) return;
-      setActiveAutomationRowId(rowId);
-      const idx = automationFields.indexOf(fieldName);
-      if (idx !== -1) {
-          setActiveAutomationFieldIndex(idx);
-          playUISound('move'); 
-      }
-   };
 
    const handleMeasKeyDown = (e: React.KeyboardEvent, mId: string, currentField: string, isLastRow: boolean) => {
       const fieldList = ['description', 'multiplier', 'length', 'width', 'height'];
@@ -461,47 +456,12 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const hierarchicalNumber = `${wbsNumber}.${index + 1}`;
    const isAnalysisLinked = !!article.linkedAnalysisId;
 
-   const handleMeasDragStart = (e: React.DragEvent, index: number) => {
-       e.stopPropagation(); 
-       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
-           e.preventDefault();
-           return;
-       }
-       e.dataTransfer.setData('type', 'MEASUREMENT');
-       e.dataTransfer.setData('index', index.toString());
-       e.dataTransfer.effectAllowed = "move";
-   };
-
-   const handleMeasDragOver = (e: React.DragEvent, mId: string) => {
-       e.preventDefault(); 
-       e.stopPropagation();
-       e.dataTransfer.dropEffect = 'move';
-       if (measurementDragOverId !== mId) setMeasurementDragOverId(mId);
-   };
-
-   const handleMeasDrop = (e: React.DragEvent, dropIndex: number) => {
-       e.preventDefault();
-       e.stopPropagation();
-       setMeasurementDragOverId(null);
-       const type = e.dataTransfer.getData('type');
-       if (type !== 'MEASUREMENT') return;
-       const startIndexStr = e.dataTransfer.getData('index');
-       if (!startIndexStr) return;
-       const startIndex = parseInt(startIndexStr, 10);
-       if (startIndex !== dropIndex) onReorderMeasurements(article.id, startIndex, dropIndex);
-   };
-
    const handleArticleHeaderDragStart = (e: React.DragEvent) => {
       if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
         e.preventDefault();
         return;
       }
       onArticleDragStart(e, article);
-   };
-
-   const handleArticleHeaderDragEnd = (e: React.DragEvent) => {
-       onArticleDragEnd();
-       setArticleDropPosition(null);
    };
 
    const handleTbodyDragOver = (e: React.DragEvent) => {
@@ -543,11 +503,10 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           return;
       }
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
-      const articleId = e.dataTransfer.getData('articleId');
+      const droppedId = e.dataTransfer.getData('articleId');
       const textData = e.dataTransfer.getData('text/plain');
-      const isAnalysisDrag = e.dataTransfer.types.includes(MIME_ANALYSIS_DRAG);
 
-      if (isInternal && articleId) {
+      if (isInternal && droppedId) {
           onArticleDrop(e, article.id, articleDropPosition || 'bottom');
       } else if (textData) {
           const insertionIndex = articleDropPosition === 'bottom' ? index + 1 : index;
@@ -568,7 +527,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
        const newType = m.type === 'deduction' ? 'positive' : 'deduction';
        
        let newDesc = m.description;
-       const prefix = 'Adedurre: ';
+       const prefix = 'A dedurre: ';
        if (newType === 'deduction') {
            if (!newDesc.startsWith(prefix)) newDesc = prefix + newDesc;
        } else {
@@ -580,7 +539,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
        playUISound('toggle');
    };
 
-   const numFontSize = 13.5; 
    const descFontSize = 15.5; 
 
    return (
@@ -600,7 +558,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             className={`align-top ${!isPrintMode ? 'cursor-pointer hover:bg-slate-50' : ''} ${isArticleDragOver ? 'bg-blue-50/20' : ''} ${isIndustrialMode ? 'bg-slate-100 border-l-4 border-indigo-600 shadow-sm' : ''} transition-all duration-300`}
             draggable={!isPrintMode && !areControlsDisabled}
             onDragStart={handleArticleHeaderDragStart}
-            onDragEnd={handleArticleHeaderDragEnd}
+            onDragEnd={onArticleDragEnd}
             onClick={handleCycleLocal}
          >
             <td className={`text-center py-2 text-xs font-bold border-r border-gray-200 select-none font-mono ${isIndustrialMode ? 'text-indigo-400 bg-slate-100/50' : 'text-gray-500 bg-white'}`}>
@@ -689,7 +647,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 const linkedArt = getLinkedInfo(m);
                 const isSubtotal = m.type === 'subtotal';
                 const isDeduction = m.type === 'deduction';
-                const isVoiceFocused = isVoiceActive && activeAutomationRowId === m.id;
                 const guard = getSurveyorWarning(m);
                 const isError = guard?.severity === 'error';
                 const isLastMeasRow = idx === processedMeasurements.length - 1;
@@ -698,7 +655,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 const missingFields = guard?.isVisible ? guard.missingFields : [];
 
                 return (
-                <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} onDragStart={(e) => handleMeasDragStart(e, idx)} onDragOver={(e) => handleMeasDragOver(e, m.id)} onDragLeave={() => setMeasurementDragOverId(null)} onDrop={(e) => handleMeasDrop(e, idx)} className={`group/row cursor-default transition-all ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : (isDeduction ? 'bg-red-50' : 'bg-white'))} ${isArticleLocked ? 'opacity-70' : ''}`} style={{ fontSize: `${numFontSize}px` }}>
+                <tr key={m.id} draggable={!isPrintMode && !areControlsDisabled} className={`group/row cursor-default transition-all ${isSubtotal ? 'bg-yellow-50 font-bold' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-green-500 bg-green-50' : (isSubtotal ? 'bg-yellow-50' : (isDeduction ? 'bg-red-50' : 'bg-white'))} ${isArticleLocked ? 'opacity-70' : ''}`} style={{ fontSize: `13.5px` }}>
                     <td className="border-r border-gray-200"></td>
                     <td className="p-0 border-r border-gray-200 bg-gray-50/30 text-center relative align-middle">
                         {!isPrintMode && !areControlsDisabled && (
@@ -720,10 +677,10 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 {m.linkedArticleId && linkedArt ? (
                                 <div className="flex items-center space-x-2">
                                     <button onClick={() => onScrollToArticle(linkedArt.id, article.id)} className="flex items-center space-x-1 px-1 py-0.5 rounded hover:bg-blue-50 group/link transition-colors text-left">
-                                        <span className={`font-bold hover:underline cursor-pointer ${isDeduction ? 'text-red-800' : 'text-blue-600'}`} style={{ fontSize: `${numFontSize - 1}px` }}>
+                                        <span className={`font-bold hover:underline cursor-pointer ${isDeduction ? 'text-red-800' : 'text-blue-600'}`} style={{ fontSize: `12.5px` }}>
                                             {isDeduction ? 'A dedurre: ' : ''}Vedi voce n. {getLinkedArticleNumber(linkedArt)}
                                         </span>
-                                        <span className={`${isDeduction ? 'text-red-500/60' : 'text-gray-500'}`} style={{ fontSize: `${numFontSize - 2}px` }}>
+                                        <span className={`${isDeduction ? 'text-red-500/60' : 'text-gray-500'}`} style={{ fontSize: `11.5px` }}>
                                             ({m.linkedType === 'amount' ? formatCurrency(linkedArt.quantity * linkedArt.unitPrice) : `${formatResult(linkedArt.quantity)} ${linkedArt.unit}`})
                                         </span>
                                         <LinkIcon className={`w-4 h-4 opacity-0 group-hover/link:opacity-100 transition-opacity ${isDeduction ? 'text-red-400' : 'text-blue-400'}`} />
@@ -737,12 +694,12 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                             data-m-id={m.id}
                                             data-field="description"
                                             autoFocus={m.id === lastAddedMeasurementId} 
-                                            onFocus={() => { onColumnFocus('desc'); syncAutomationPoint(m.id, 'description'); handleFocusRow(m.id); }} 
+                                            onFocus={() => { onColumnFocus('desc'); handleFocusRow(m.id); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                             onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'description', isLastMeasRow)}
                                             className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-gray-300 disabled:cursor-not-allowed ${isDeduction ? 'text-red-800 font-bold' : 'text-gray-800'}`} 
-                                            style={{ fontSize: `${numFontSize}px` }} 
+                                            style={{ fontSize: `13.5px` }} 
                                             placeholder={"Descrizione misura..."} 
                                             disabled={areControlsDisabled}
                                             />
@@ -763,26 +720,25 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                             </>
                         )}
                     </td>
-                    <td className={`border-r border-gray-200 p-0 transition-colors ${isVoiceFocused && activeAutomationRowId === m.id && activeAutomationFieldIndex === 1 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : (isDeduction ? 'bg-red-50' : 'bg-gray-50')}`}>
-                        {!isPrintMode && !isSubtotal ? <input type="number" data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); syncAutomationPoint(m.id, 'multiplier'); handleFocusRow(m.id); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-gray-300 disabled:cursor-not-allowed h-full ${isVoiceFocused && activeAutomationFieldIndex === 1 ? 'font-black text-purple-900' : (isDeduction ? 'text-red-800 font-black' : '')}`} style={{ fontSize: `${numFontSize}px` }} value={m.multiplier === undefined ? '' : m.multiplier} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : (m.multiplier && <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{m.multiplier}</div>)}
+                    <td className={`border-r border-gray-200 p-0 transition-colors ${isDeduction ? 'bg-red-50' : 'bg-gray-50'}`}>
+                        {!isPrintMode && !isSubtotal ? <input type="number" data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-gray-300 disabled:cursor-not-allowed h-full ${isDeduction ? 'text-red-800 font-black' : ''}`} style={{ fontSize: `13.5px` }} value={m.multiplier === undefined ? '' : m.multiplier} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : (m.multiplier && <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{m.multiplier}</div>)}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-all duration-300 relative 
-                        ${isVoiceFocused && activeAutomationRowId === m.id && activeAutomationFieldIndex === 2 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 
-                          (inheritedFields.includes('length') ? 'bg-slate-100' : 
+                        ${inheritedFields.includes('length') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
-                          (missingFields.includes('length') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50'))))}`}>
+                          (missingFields.includes('length') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50')))}`}>
                         {isSubtotal ? <div className="text-center text-gray-300">-</div> : (
                              !isPrintMode ? <input type="number" data-m-id={m.id} data-field="length" 
                                 disabled={areControlsDisabled || inheritedFields.includes('length')} 
-                                onFocus={() => { onColumnFocus('len'); syncAutomationPoint(m.id, 'length'); handleFocusRow(m.id); }} 
+                                onFocus={() => { onColumnFocus('len'); handleFocusRow(m.id); }} 
                                 onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                 onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'length', isLastMeasRow)} 
                                 className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full 
-                                    ${isVoiceFocused && activeAutomationFieldIndex === 2 ? 'font-black text-purple-900' : (isDeduction ? 'text-red-800 font-black' : '')} 
+                                    ${isDeduction ? 'text-red-800 font-black' : ''} 
                                     ${isSurveyorGuardActive && guard?.isVisible && guard?.isExcess && m.length ? 'excess-error' : ''}
                                     ${inheritedFields.includes('length') ? 'text-slate-400 italic font-bold' : ''}
                                     ${missingFields.includes('length') ? 'placeholder:text-blue-300 font-black' : ''}`} 
-                                style={{ fontSize: `${numFontSize}px` }} 
+                                style={{ fontSize: `13.5px` }} 
                                 placeholder={missingFields.includes('length') ? "!" : ""}
                                 value={m.length === undefined ? '' : m.length} 
                                 onChange={(e) => onUpdateMeasurement(article.id, m.id, 'length', e.target.value === '' ? undefined : parseFloat(e.target.value))} 
@@ -790,22 +746,21 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-all duration-300 relative 
-                        ${isVoiceFocused && activeAutomationRowId === m.id && activeAutomationFieldIndex === 3 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 
-                          (inheritedFields.includes('width') ? 'bg-slate-100' : 
+                        ${inheritedFields.includes('width') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
-                          (missingFields.includes('width') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50'))))}`}>
+                          (missingFields.includes('width') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50')))}`}>
                         {isSubtotal ? <div className="text-center text-gray-300">-</div> : (
                              !isPrintMode ? <input type="number" data-m-id={m.id} data-field="width" 
                                 disabled={areControlsDisabled || inheritedFields.includes('width')} 
-                                onFocus={() => { onColumnFocus('wid'); syncAutomationPoint(m.id, 'width'); handleFocusRow(m.id); }} 
+                                onFocus={() => { onColumnFocus('wid'); handleFocusRow(m.id); }} 
                                 onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                 onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'width', isLastMeasRow)} 
                                 className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full 
-                                    ${isVoiceFocused && activeAutomationFieldIndex === 3 ? 'font-black text-purple-900' : (isDeduction ? 'text-red-800 font-black' : '')} 
+                                    ${isDeduction ? 'text-red-800 font-black' : ''} 
                                     ${isSurveyorGuardActive && guard?.isVisible && guard?.isExcess && m.width ? 'excess-error' : ''}
                                     ${inheritedFields.includes('width') ? 'text-slate-400 italic font-bold' : ''}
                                     ${missingFields.includes('width') ? 'placeholder:text-blue-300 font-black' : ''}`} 
-                                style={{ fontSize: `${numFontSize}px` }} 
+                                style={{ fontSize: `13.5px` }} 
                                 placeholder={missingFields.includes('width') ? "!" : ""}
                                 value={m.width === undefined ? '' : m.width} 
                                 onChange={(e) => onUpdateMeasurement(article.id, m.id, 'width', e.target.value === '' ? undefined : parseFloat(e.target.value))} 
@@ -813,24 +768,23 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-all duration-300 relative 
-                        ${isVoiceFocused && activeAutomationRowId === m.id && activeAutomationFieldIndex === 4 ? 'bg-purple-100 ring-2 ring-purple-600 shadow-lg' : 
-                          (inheritedFields.includes('height') ? 'bg-slate-100' : 
+                        ${inheritedFields.includes('height') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
-                          (missingFields.includes('height') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50'))))}`}>
+                          (missingFields.includes('height') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50')))}`}>
                         {isSubtotal ? <div className="text-center text-gray-300">-</div> : (
                              !isPrintMode ? (
                                     <div className="h-full w-full relative">
                                         <input type="number" data-m-id={m.id} data-field="height" data-last-meas-field="true" 
                                             disabled={areControlsDisabled || inheritedFields.includes('height')} 
-                                            onFocus={() => { onColumnFocus('h'); syncAutomationPoint(m.id, 'height'); handleFocusRow(m.id); }} 
+                                            onFocus={() => { onColumnFocus('h'); handleFocusRow(m.id); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'height', isLastMeasRow)} 
                                             className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full 
-                                                ${isVoiceFocused && activeAutomationFieldIndex === 4 ? 'font-black text-purple-900' : (isDeduction ? 'text-red-800 font-black' : '')} 
+                                                ${isDeduction ? 'text-red-800 font-black' : ''} 
                                                 ${isSurveyorGuardActive && guard?.isVisible && guard?.isExcess && m.height ? 'excess-error' : ''}
                                                 ${inheritedFields.includes('height') ? 'text-slate-400 italic font-bold' : ''}
                                                 ${missingFields.includes('height') ? 'placeholder:text-blue-300 font-black' : ''}`} 
-                                            style={{ fontSize: `${numFontSize}px` }} 
+                                            style={{ fontSize: `13.5px` }} 
                                             placeholder={missingFields.includes('height') ? "!" : ""}
                                             value={m.height === undefined ? '' : m.height} 
                                             onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} 
@@ -839,7 +793,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 ) : <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{formatResult(m.height)}</div>
                         )}
                     </td>
-                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400 font-black' : (isDeduction ? 'bg-red-100 text-red-900 font-black' : 'bg-white')} ${m.linkedArticleId ? 'font-bold' : ''} text-gray-600`} style={{ fontSize: `${numFontSize}px` }}>{formatResult(m.displayValue)}</td>
+                    <td className={`border-r border-gray-200 text-right font-mono pr-1 ${isSubtotal ? 'bg-yellow-100 text-black border-t border-b border-gray-400 font-black' : (isDeduction ? 'bg-red-100 text-red-900 font-black' : 'bg-white')} ${m.linkedArticleId ? 'font-bold' : ''} text-gray-600`} style={{ fontSize: `13.5px` }}>{formatResult(m.displayValue)}</td>
                     <td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td><td className="border-r border-gray-200"></td>
                 </tr>
                 );})}
@@ -872,7 +826,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              <td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td>
              <td className={`text-right pr-1 font-mono border-r font-black ${isIndustrialMode ? 'bg-slate-100/50 border-slate-200' : 'bg-gray-50 border-gray-200'}`}>{formatResult(article.quantity)}</td>
              <td className={`border-l border-r text-right pr-1 font-mono ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}>{isPrintMode ? formatResult(article.unitPrice) : <input readOnly type="number" value={article.unitPrice} className="w-full text-right bg-transparent border-none focus:ring-0 disabled:cursor-not-allowed cursor-not-allowed font-black" disabled={true} />}</td>
-             <td className={`border-r text-right pr-1 font-mono font-black ${isIndustrialMode ? 'text-indigo-700 border-slate-200' : 'text-blue-900 border-gray-300'}`} style={{ fontSize: `${numFontSize}px` }}>{formatResult(totalAmount)}</td>
+             <td className={`border-r text-right pr-1 font-mono font-black ${isIndustrialMode ? 'text-indigo-700 border-slate-200' : 'text-blue-900 border-gray-300'}`} style={{ fontSize: `13.5px` }}>{formatResult(totalAmount)}</td>
              <td className={`border-r text-right pr-1 font-mono text-gray-500 font-normal ${isIndustrialMode ? 'border-slate-200' : 'border-gray-200'}`}>
                  <div className="flex flex-col items-end leading-none py-1"><span>{formatCurrency(laborValue)}</span><span className="text-[9px] text-gray-400">({article.laborRate}%)</span></div>
              </td>
@@ -1034,10 +988,6 @@ const App: React.FC = () => {
         scrollFrameRef.current = null;
     }
   }, []);
-
-  const handleSidebarScroll = () => {
-    // Funzione placeholder per futuri sync o animazioni
-  };
 
   const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
     if (!isVisitor) return true;
@@ -1217,7 +1167,19 @@ const App: React.FC = () => {
       const newArticle: Article = {
           id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0
       };
-      updateState([...articles, newArticle], categories, analyses);
+      
+      // PATTO DI FERRO: Inserimento in coda alla WBS specifica per mantenere l'ordine cronologico
+      const lastIdx = [...articles].reverse().findIndex(a => a.categoryCode === targetCode);
+      let updatedArticles;
+      if (lastIdx !== -1) {
+          const insertPos = articles.length - lastIdx;
+          updatedArticles = [...articles];
+          updatedArticles.splice(insertPos, 0, newArticle);
+      } else {
+          updatedArticles = [...articles, newArticle];
+      }
+      
+      updateState(updatedArticles, categories, analyses);
       handleScrollToArticle(newArticle.id);
       if (viewMode === 'ANALISI') setViewMode('COMPUTO');
       setIsImportAnalysisModalOpen(false); 
@@ -1228,16 +1190,39 @@ const App: React.FC = () => {
       if (analysis) { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); } else { alert("Analisi non trovata."); }
   };
 
+  // --- FIXED: Added handleConvertArticleToAnalysis implementation ---
   const handleConvertArticleToAnalysis = (article: Article) => {
-      const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`;
-      const newAnalysisId = Math.random().toString(36).substr(2, 9);
+      const newId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
-          id: newAnalysisId, code: nextAnalysisCode, description: article.description, unit: article.unit, analysisQuantity: 1, generalExpensesRate: 15, profitRate: 10, totalMaterials: 0, totalLabor: 0, totalEquipment: 0, costoTecnico: 0, valoreSpese: 0, valoreUtile: 0, totalBatchValue: 0, totalUnitPrice: 0, components: [{ id: Math.random().toString(36).substr(2, 9), type: 'general', description: 'Stima a corpo', unit: 'cad', unitPrice: article.unitPrice, quantity: 1 }]
+          id: newId,
+          code: `AP.${(analyses.length + 1).toString().padStart(2, '0')}`,
+          description: article.description,
+          unit: article.unit,
+          analysisQuantity: 1,
+          components: [],
+          generalExpensesRate: 15,
+          profitRate: 10,
+          totalMaterials: 0,
+          totalLabor: 0,
+          totalEquipment: 0,
+          costoTecnico: 0,
+          valoreSpese: 0,
+          valoreUtile: 0,
+          totalBatchValue: article.unitPrice,
+          totalUnitPrice: article.unitPrice,
+          isLocked: false
       };
-      const updatedArticles = articles.map(a => { if (a.id === article.id) return { ...a, code: nextAnalysisCode, linkedAnalysisId: newAnalysisId, priceListSource: `Da Analisi ${nextAnalysisCode}` }; return a; });
+      
+      const updatedArticles = articles.map(art => 
+          art.id === article.id ? { 
+              ...art, 
+              linkedAnalysisId: newId,
+              priceListSource: `Da Analisi ${newAnalysis.code}` 
+          } : art
+      );
+      
       updateState(updatedArticles, categories, [...analyses, newAnalysis]);
       setEditingAnalysis(newAnalysis);
-      setViewMode('ANALISI');
       setIsAnalysisEditorOpen(true);
   };
 
@@ -1458,8 +1443,8 @@ const App: React.FC = () => {
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
   const handleArticleDragStart = (e: React.DragEvent, article: Article) => { setIsDraggingArticle(true); e.dataTransfer.setData(MIME_ARTICLE, 'true'); e.dataTransfer.setData('type', 'ARTICLE'); e.dataTransfer.setData('articleId', article.id); e.dataTransfer.effectAllowed = 'all'; };
-  const handleArticleDragEnd = () => { setIsDraggingArticle(false); setIsDraggingAnalysis(false); setWbsDropTarget(null); };
-  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setIsDraggingAnalysis(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); setLastMovedItemId(articleId); setTimeout(() => setLastMovedItemId(null), 3000); };
+  const onArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
+  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); setLastMovedItemId(articleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
   const handleScrollToArticle = (id: string, fromId?: string) => { const targetArt = articles.find(a => a.id === id); if (!targetArt) return; if (fromId) setReturnPath(fromId); if (selectedCategoryCode !== targetArt.categoryCode) setSelectedCategoryCode(targetArt.categoryCode); setTimeout(() => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'start' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } }, 300); };
@@ -1504,9 +1489,6 @@ const App: React.FC = () => {
   useEffect(() => { const handleGlobalMouseMove = (e: MouseEvent) => { if (isDraggingToolbar) { let nextX = e.clientX - dragOffset.current.x; let nextY = e.clientY - dragOffset.current.y; setToolbarPos({ x: nextX, y: nextY }); } }; const handleGlobalMouseUp = () => setIsDraggingToolbar(false); if (isDraggingToolbar) { window.addEventListener('mousemove', handleGlobalMouseMove); window.addEventListener('mouseup', handleGlobalMouseUp); } return () => { window.removeEventListener('mousemove', handleGlobalMouseMove); window.removeEventListener('mouseup', handleGlobalMouseUp); }; }, [isDraggingToolbar]);
   const getFullProjectExportData = () => { return JSON.stringify({ gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: "GeCoLa Cloud" }, null, 2); };
   
-  // PATTO DI FERRO: Modificato handleSmartSave per forzare sempre il picker se non in modalità silenziosa (salvataggio manuale)
-  // E sopratutto aggancia il nuovo handle al progetto per i salvataggi automatici successivi.
-  // AGGIORNAMENTO: Sincronizzazione immediata del titolo del progetto con il nome del file scelto.
   const handleSmartSave = async (silent: boolean = false, forcePicker: boolean = false) => { 
     const jsonString = getFullProjectExportData(); 
     if ('showSaveFilePicker' in window) { 
@@ -1515,9 +1497,7 @@ const App: React.FC = () => {
         if (!handle) { 
           if (silent) return; 
           handle = await (window as any).showSaveFilePicker({ suggestedName: `${projectInfo.title || 'Progetto'}.json`, types: [{ description: 'JSON Project File', accept: { 'application/json': ['.json'] }, }], }); 
-          // PATTO DI FERRO: Aggancio permanente del nuovo file handle scelto dall'utente
           setCurrentFileHandle(handle); 
-          // PATTO DI FERRO: Sincronizzazione immediata del nome progetto con il nome del file (senza estensione)
           const pickedName = handle.name.replace(/\.json$/i, '');
           setProjectInfo(prev => ({ ...prev, title: pickedName }));
         } 
@@ -1537,7 +1517,6 @@ const App: React.FC = () => {
   
   useEffect(() => { if (!currentFileHandle) return; const timeoutId = setTimeout(() => { handleSmartSave(true, false); }, 3000); return () => clearTimeout(timeoutId); }, [articles, categories, projectInfo, analyses, currentFileHandle]);
 
-  // PATTO DI FERRO: Aggiornamento funzione apertura per agganciare handle e attivare auto-save
   const handleOpenProject = async () => {
     if ('showOpenFilePicker' in window) {
       try {
@@ -1551,9 +1530,7 @@ const App: React.FC = () => {
         if (data.gecolaData) {
           setProjectInfo(data.gecolaData.projectInfo);
           updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []);
-          // PATTO DI FERRO: Aggancio automatico handle per abilitare salvataggio automatico
           setCurrentFileHandle(handle);
-          // Sincronizzazione nome testata con nome file aperto
           const pickedName = handle.name.replace(/\.json$/i, '');
           setProjectInfo(prev => ({ ...prev, title: pickedName }));
           playUISound('confirm');
@@ -1597,9 +1574,9 @@ const App: React.FC = () => {
           {!isFocusMode && (
             <div className="bg-[#2c3e50] shadow-md z-[100] h-14 flex items-center justify-between px-6 border-b border-slate-600 flex-shrink-0">
                 <div className="flex items-center space-x-3 w-72">
-                    <div className="bg-orange-500 p-1.5 rounded-lg shadow-lg"><Calculator className="w-5 h-5 text-white" /></div>
+                    <div className="bg-orange-500 p-2 rounded-xl shadow-lg"><Calculator className="w-7 h-7 text-white" /></div>
                     <span className="font-bold text-lg text-white">GeCoLa <span className="font-light opacity-80">v12.0.0</span></span>
-                    <button onClick={() => setIsManualOpen(true)} className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative"><HelpCircle className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[9999]">Manuale Operativo</span></button>
+                    <button onClick={() => setIsManualOpen(true)} className="ml-2 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-lg transition-all hover:scale-110 active:scale-95 group relative"><HelpCircle className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 -translate-y-0 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[9999]">Manuale Operativo</span></button>
                 </div>
                 <div className="flex-1 px-6 flex justify-center items-center gap-6">
                     {isVisitor && (
@@ -1609,13 +1586,11 @@ const App: React.FC = () => {
                         </div>
                     )}
                     <div className="flex items-center gap-3 bg-slate-800/50 px-6 py-2 rounded-t-2xl border border-slate-700 text-white font-bold cursor-pointer hover:bg-slate-700 transition-all shadow-inner group" onClick={() => setIsSettingsModalOpen(true)}>
-                        {/* PATTO DI FERRO: Pallino verde sempre attivo se online, lampeggia durante salvataggio */}
                         {isOnline && (
                           <div className={`w-2.5 h-2.5 rounded-full ${isAutoSaving ? 'bg-green-400 animate-pulse' : 'bg-green-600 shadow-[0_0_8px_rgba(22,163,74,0.6)]'}`}></div>
                         )}
                         <div className="flex flex-col items-start leading-none">
                           <span className="truncate max-w-[320px] text-xl tracking-tight font-black uppercase italic">{projectInfo.title}</span>
-                          {/* PATTO DI FERRO: Visualizzazione Username operatore sotto il titolo */}
                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : 'VISITATORE'}</span>
                         </div>
                         <Settings className="w-7 h-7 text-slate-400 group-hover:text-blue-400 group-hover:rotate-90 transition-all duration-500" />
@@ -1628,13 +1603,11 @@ const App: React.FC = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-110 active:scale-95 group relative" title="Nuovo Progetto"><FilePlus2 className="w-6 h-6" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Progetto</span></button>
-                    {/* PATTO DI FERRO: Pulsante apertura con aggancio handle automatico */}
                     <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <div className="relative">
                         <button onClick={(e) => { e.stopPropagation(); setIsSaveMenuOpen(!isSaveMenuOpen); setIsPrintMenuOpen(false); }} className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400"><Save className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isSaveMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-64 bg-white shadow-2xl rounded-lg py-2 z-[100] border border-gray-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                                {/* PATTO DI FERRO: handleSmartSave(false, true) forza sempre il "Salva con nome" */}
                                 <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false, true); playUISound('confirm'); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 flex items-center gap-3 border-b border-gray-100"><Coins className="w-4 h-4 text-blue-600" /><b>Salva (.json)</b></button>
                                 <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-3 text-sm text-gray-700 hover:bg-green-50 flex items-center gap-3 border-b border-gray-100"><FileSpreadsheet className="w-4 h-4 text-green-600" /><b>Excel (.xls)</b></button>
                             </div>
@@ -1659,7 +1632,8 @@ const App: React.FC = () => {
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
                 <div className="w-[20.4rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
-                <div onMouseEnter={() => startScroll(-3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(-3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }} onDragLeave={stopScroll} className="absolute top-[calc(12rem-10px)] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
+                {/* TRIGGER SCROLL SU - PATTO DI FERRO POSIZIONE AGGIORNATA */}
+                <div onMouseEnter={() => startScroll(-3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(-3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }} onDragLeave={stopScroll} className="absolute top-[135px] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
                 <div onMouseEnter={() => startScroll(3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(3); }} onDragLeave={stopScroll} className="absolute bottom-0 left-0 right-0 h-16 z-[100] cursor-s-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
                 <div className="px-4 py-2.5 bg-slate-300 border-b border-slate-400 flex justify-between items-center shrink-0 shadow-sm"><div className="flex items-baseline gap-2"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">TOTALE:</span><span className="font-mono font-black text-slate-900 text-sm tracking-tighter">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span></div></div>
                 <div className="p-1 bg-slate-300/40 border-b border-slate-400 grid grid-cols-5 gap-1 shrink-0">
@@ -1730,7 +1704,7 @@ const App: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-                            {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_15px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
+                            {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_37,99,235,1)] rounded-full animate-pulse"></div>)}
                         </li>
                         )})}
                         <li onDragOver={(e) => handleWbsDragOver(e, 'WBS_BOTTOM_TARGET')} onDrop={(e) => handleWbsDrop(e, null)} className={`h-24 transition-all flex flex-col justify-start pt-2 ${wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' ? 'bg-blue-600/5' : ''}`}>{wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' && (<div className="h-1.5 bg-blue-600 shadow-[0_0_12px_blue] rounded-full animate-pulse mx-4" />)}</li>
@@ -1764,7 +1738,7 @@ const App: React.FC = () => {
                        </div>
                    )}
                    {viewMode === 'ANALISI' ? (
-                    <div className="p-10 bg-[#f4f6f8] min-h-full flex-1 overflow-y-auto"><div className="flex justify-between items-end mb-8 border-b-2 border-purple-200 pb-6"><div className="flex items-center gap-6"><div className="bg-purple-600 p-4 rounded-xl shadow-lg ring-4 ring-purple-100"><Database className="w-8 h-8 text-white" /></div><div><h2 className="text-3xl font-black text-slate-800 tracking-tight uppercase italic">Gestionale Analisi Prezzi</h2></div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl flex items-center gap-3 transition-all transform active:scale-95"><Plus className="w-5 h-5" /> Nuova Analisi</button></div><div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden ring-1 ring-slate-300/50"><table className="w-full text-left border-collapse table-fixed"><thead className="bg-slate-100 border-b-2 border-purple-100 text-slate-500 text-[10px] font-black uppercase tracking-widest"><tr><th className="p-4 w-12 text-center border-r border-slate-200">#</th><th className="p-4 w-14 text-center border-r border-slate-200">D&D</th><th className="p-4 w-28 border-r border-slate-200">Codice</th><th className="p-4 border-r border-slate-200">Oggetto dell'Analisi</th><th className="p-4 w-24 text-center border-r border-slate-200">U.M.</th><th className="p-4 w-36 text-right border-r border-slate-200">Unitario €</th><th className="p-4 w-52 text-center bg-slate-50">Gestionale</th></tr></thead><tbody className="divide-y divide-slate-100">{analyses.map((analysis, index) => { const isCurrentlyDragging = draggedAnalysisId === analysis.id; const isDragOver = analysisDragOverId === analysis.id; return (<tr key={analysis.id} draggable onDragStart={(e) => handleAnalysisRowDragStart(e, analysis.id)} onDragOver={(e) => handleAnalysisRowDragOver(e, analysis.id)} onDragLeave={() => setAnalysisDragOverId(null)} onDrop={(e) => handleAnalysisRowDrop(e, analysis.id)} onDragEnd={() => { setDraggedAnalysisId(null); setIsDraggingAnalysis(false); }} className={`group transition-all ${isCurrentlyDragging ? 'opacity-30' : 'hover:bg-slate-50/80'} ${isDragOver ? (analysisDropPosition === 'top' ? 'border-t-4 border-t-purple-600' : 'border-b-4 border-b-purple-600') : ''} ${lastMovedItemId === analysis.id ? 'highlight-move' : ''}`}><td className="p-4 text-center font-mono text-[10px] text-slate-400 bg-slate-50/50 border-r border-slate-100">{index + 1}</td><td className="p-4 text-center border-r border-slate-100"><GripVertical className="w-5 h-5 mx-auto text-slate-300 group-hover:text-purple-600 cursor-grab active:cursor-grabbing" /></td><td className="p-4 border-r border-slate-100"><span className="bg-purple-50 text-purple-700 border border-purple-200 font-black font-mono text-xs px-3 py-1 rounded-lg shadow-sm">{analysis.code}</span></td><td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700 text-xs leading-relaxed line-clamp-2 uppercase tracking-tighter">{analysis.description}</p></td><td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase px-2 py-1 bg-slate-100 rounded border border-slate-200">{analysis.unit}</span></td><td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-800 font-mono tracking-tighter leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td><td className="p-4 text-center bg-slate-50/30"><div className="flex items-center justify-center gap-1.5 px-2"><button onClick={() => handleImportAnalysisToArticle(analysis)} className="bg-emerald-600 text-white p-2 rounded-lg shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2 px-3 transform active:scale-90" title="Importa in Computo"><ArrowRight className="w-3.5 h-3.5" /><span className="text-[9px] font-black uppercase">Importa</span></button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="bg-white border border-slate-200 text-slate-600 hover:text-purple-600 hover:border-purple-300 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-lg border transition-all transform active:scale-90 ${analysis.isLocked ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-400 bg-white border-slate-200 hover:text-blue-600'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Elimina"><Trash2 className="w-4 h-4" /></button></div></td></tr>); })}</tbody></table></div></div>
+                    <div className="p-10 bg-[#f4f6f8] min-h-full flex-1 overflow-y-auto"><div className="flex justify-between items-end mb-8 border-b-2 border-purple-200 pb-6"><div className="flex items-center gap-6"><div className="bg-purple-600 p-4 rounded-xl shadow-lg ring-4 ring-purple-100"><Database className="w-8 h-8 text-white" /></div><div><h2 className="text-3xl font-black text-slate-800 tracking-tight uppercase italic">Gestionale Analisi Prezzi</h2></div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl flex items-center gap-3 transition-all transform active:scale-90"><Plus className="w-5 h-5" /> Nuova Analisi</button></div><div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden ring-1 ring-slate-300/50"><table className="w-full text-left border-collapse table-fixed"><thead className="bg-slate-100 border-b-2 border-purple-100 text-slate-500 text-[10px] font-black uppercase tracking-widest"><tr><th className="p-4 w-12 text-center border-r border-slate-200">#</th><th className="p-4 w-14 text-center border-r border-slate-200">D&D</th><th className="p-4 w-28 border-r border-slate-200">Codice</th><th className="p-4 border-r border-slate-200">Oggetto dell'Analisi</th><th className="p-4 w-24 text-center border-r border-slate-200">U.M.</th><th className="p-4 w-36 text-right border-r border-slate-200">Unitario €</th><th className="p-4 w-52 text-center bg-slate-50">Gestionale</th></tr></thead><tbody className="divide-y divide-slate-100">{analyses.map((analysis, index) => { const isCurrentlyDragging = draggedAnalysisId === analysis.id; const isDragOver = analysisDragOverId === analysis.id; return (<tr key={analysis.id} draggable onDragStart={(e) => handleAnalysisRowDragStart(e, analysis.id)} onDragOver={(e) => handleAnalysisRowDragOver(e, analysis.id)} onDragLeave={() => setAnalysisDragOverId(null)} onDrop={(e) => handleAnalysisRowDrop(e, analysis.id)} onDragEnd={() => { setDraggedAnalysisId(null); setIsDraggingAnalysis(false); }} className={`group transition-all ${isCurrentlyDragging ? 'opacity-30' : 'hover:bg-slate-50/80'} ${isDragOver ? (analysisDropPosition === 'top' ? 'border-t-4 border-t-purple-600' : 'border-b-4 border-b-purple-600') : ''} ${lastMovedItemId === analysis.id ? 'highlight-move' : ''}`}><td className="p-4 text-center font-mono text-[10px] text-slate-400 bg-slate-50/50 border-r border-slate-100">{index + 1}</td><td className="p-4 text-center border-r border-slate-100"><GripVertical className="w-5 h-5 mx-auto text-slate-300 group-hover:text-purple-600 cursor-grab active:cursor-grabbing" /></td><td className="p-4 border-r border-slate-100"><span className="bg-purple-50 text-purple-700 border border-purple-200 font-black font-mono text-xs px-3 py-1 rounded-lg shadow-sm">{analysis.code}</span></td><td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700 text-xs leading-relaxed line-clamp-2 uppercase tracking-tighter">{analysis.description}</p></td><td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase px-2 py-1 bg-slate-100 rounded border border-slate-200">{analysis.unit}</span></td><td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-800 font-mono tracking-tighter leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td><td className="p-4 text-center bg-slate-50/30"><div className="flex items-center justify-center gap-1.5 px-2"><button onClick={() => handleImportAnalysisToArticle(analysis)} className="bg-emerald-600 text-white p-2 rounded-lg shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2 px-3 transform active:scale-90" title="Importa in Computo"><ArrowRight className="w-3.5 h-3.5" /><span className="text-[9px] font-black uppercase">Importa</span></button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="bg-white border border-slate-200 text-slate-600 hover:text-purple-600 hover:border-purple-300 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-lg border transition-all transform active:scale-90 ${analysis.isLocked ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-400 bg-white border-slate-200 hover:text-blue-600'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Elimina"><Trash2 className="w-4 h-4" /></button></div></td></tr>); })}</tbody></table></div></div>
                    ) : (
                    <div className={`flex-1 overflow-y-auto overflow-x-hidden shadow-[inset_0_15px_50px_rgba(0,0,0,0.1),inset_0_-15px_50px_rgba(0,0,0,0.1)] border-x border-gray-400 flex flex-col relative scroll-smooth bg-white ${isWorkspaceDragOver ? 'ring-8 ring-blue-400 ring-inset animate-pulse bg-blue-50/50' : ''}`} onKeyDown={handleInputKeyDown} onDragOver={handleWorkspaceDragOver} onDragLeave={() => setIsWorkspaceDragOver(false)} onDrop={handleWorkspaceDrop}>
                       <div className="flex-1 flex flex-col min-h-full px-6 py-8 relative">
@@ -1774,7 +1748,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed border-blue-100 bg-slate-50/30 text-center space-y-4`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white text-blue-200 border border-blue-50`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onReorderMeasurements={handleReorderMeasurements} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={handleArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleVoiceAutomation={() => {}} onToggleSmartRepeat={handleToggleSmartRepeat} voiceAutomationActiveId={null} smartRepeatActiveId={smartRepeatActiveId} />
+                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} smartRepeatActiveId={smartRepeatActiveId} />
                                     ))
                                 )}
                             </table>

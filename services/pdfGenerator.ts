@@ -597,10 +597,32 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
         analyses.forEach((an, idx) => {
             if (idx > 0) doc.addPage();
             drawHeaderSimple(doc, projectInfo, "ANALISI DEI PREZZI UNITARI", 1);
-            doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.text(`${an.code} - ${an.description}`, 12, 52);
-            doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.text(`Analisi riferita a ${an.analysisQuantity} ${an.unit}`, 12, 57);
+            
+            // PATTO DI FERRO: Descrizione multilinea giustificata con splitTextToSize
+            doc.setFontSize(11); 
+            doc.setFont("helvetica", "bold");
+            const fullTitle = `${an.code} - ${an.description}`;
+            const splitTitle = doc.splitTextToSize(fullTitle, 180);
+            doc.text(splitTitle, 12, 52);
+            
+            // Calcolo posizione dinamica per il rigo successivo basato sul numero di righe del titolo
+            const titleHeight = splitTitle.length * 5; 
+            const nextY = 52 + titleHeight;
+
+            doc.setFontSize(8); 
+            doc.setFont("helvetica", "normal"); 
+            doc.text(`Analisi riferita a ${an.analysisQuantity} ${an.unit}`, 12, nextY);
+
             const body = an.components.map(c => [c.type.toUpperCase().substring(0,3), c.description, c.unit, formatCurrency(c.unitPrice), formatNumber(c.quantity), formatCurrency(c.unitPrice * c.quantity)]);
-            autoTable(doc, { startY: 62, head: [['TIPO', 'ELEMENTO DI COSTO', 'U.M.', 'PREZZO', 'Q.TÀ', 'IMPORTO']], body: body, theme: 'striped', styles: { fontSize: 8 }, headStyles: { fillColor: [142, 68, 173] } });
+            autoTable(doc, { 
+                startY: nextY + 5, 
+                head: [['TIPO', 'ELEMENTO DI COSTO', 'U.M.', 'PREZZO', 'Q.TÀ', 'IMPORTO']], 
+                body: body, 
+                theme: 'striped', 
+                styles: { fontSize: 8 }, 
+                headStyles: { fillColor: [142, 68, 173] } 
+            });
+
             let finalY = (doc as any).lastAutoTable.finalY + 10;
             const drawRow = (label: string, val: number, bold = false) => {
                 doc.setFont("helvetica", bold ? "bold" : "normal"); doc.text(label, 150, finalY, { align: 'right' });
