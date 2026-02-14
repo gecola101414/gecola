@@ -598,40 +598,106 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
             if (idx > 0) doc.addPage();
             drawHeaderSimple(doc, projectInfo, "ANALISI DEI PREZZI UNITARI", 1);
             
-            // PATTO DI FERRO: Descrizione multilinea giustificata con splitTextToSize
-            doc.setFontSize(11); 
+            // PATTO DI FERRO 1: CODICE IN EVIDENZA
+            doc.setFontSize(24);
             doc.setFont("helvetica", "bold");
-            const fullTitle = `${an.code} - ${an.description}`;
-            const splitTitle = doc.splitTextToSize(fullTitle, 180);
-            doc.text(splitTitle, 12, 52);
+            doc.setTextColor(142, 68, 173); // Purple color
+            doc.text(an.code, 12, 55);
+
+            // PATTO DI FERRO 2: DESCRIZIONE CON ETICHETTA E TESTO GIUSTIFICATO
+            let currentY = 65;
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(0, 0, 0);
+            doc.text("DESCRIZIONE:", 12, currentY);
             
-            // Calcolo posizione dinamica per il rigo successivo basato sul numero di righe del titolo
-            const titleHeight = splitTitle.length * 5; 
-            const nextY = 52 + titleHeight;
+            currentY += 5;
+            doc.setFont("helvetica", "normal");
+            const splitDesc = doc.splitTextToSize(an.description, 185);
+            doc.text(splitDesc, 12, currentY, { align: 'justify', maxWidth: 185 });
+            
+            currentY += (splitDesc.length * 5) + 10;
 
-            doc.setFontSize(8); 
-            doc.setFont("helvetica", "normal"); 
-            doc.text(`Analisi riferita a ${an.analysisQuantity} ${an.unit}`, 12, nextY);
+            // PATTO DI FERRO 3: QUANTITÀ ANALIZZATA IN EVIDENZA
+            doc.setDrawColor(200);
+            doc.setFillColor(245, 245, 255);
+            doc.roundedRect(12, currentY - 6, 185, 12, 2, 2, 'F');
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.text(`QUANTITÀ DI RIFERIMENTO PER L'ANALISI:`, 15, currentY + 1.5);
+            doc.setFontSize(11);
+            doc.text(`${an.analysisQuantity} ${an.unit}`, 190, currentY + 1.5, { align: 'right' });
 
-            const body = an.components.map(c => [c.type.toUpperCase().substring(0,3), c.description, c.unit, formatCurrency(c.unitPrice), formatNumber(c.quantity), formatCurrency(c.unitPrice * c.quantity)]);
+            currentY += 15;
+
+            // TABELLA COMPONENTI
+            const body = an.components.map(c => [
+                c.type.toUpperCase().substring(0,3), 
+                c.description, 
+                c.unit, 
+                formatCurrency(c.unitPrice), 
+                formatNumber(c.quantity), 
+                formatCurrency(c.unitPrice * c.quantity)
+            ]);
+
             autoTable(doc, { 
-                startY: nextY + 5, 
-                head: [['TIPO', 'ELEMENTO DI COSTO', 'U.M.', 'PREZZO', 'Q.TÀ', 'IMPORTO']], 
+                startY: currentY, 
+                head: [['TIPO', 'ELEMENTO DI COSTO', 'U.M.', 'PREZZO €', 'Q.TÀ', 'IMPORTO €']], 
                 body: body, 
                 theme: 'striped', 
-                styles: { fontSize: 8 }, 
-                headStyles: { fillColor: [142, 68, 173] } 
+                styles: { fontSize: 8, cellPadding: 2.5 }, 
+                headStyles: { fillColor: [142, 68, 173], textColor: [255, 255, 255] },
+                columnStyles: {
+                    0: { cellWidth: 15 },
+                    1: { cellWidth: 'auto' },
+                    2: { cellWidth: 15, halign: 'center' },
+                    3: { cellWidth: 25, halign: 'right' },
+                    4: { cellWidth: 20, halign: 'center' },
+                    5: { cellWidth: 25, halign: 'right' }
+                }
             });
 
-            let finalY = (doc as any).lastAutoTable.finalY + 10;
-            const drawRow = (label: string, val: number, bold = false) => {
-                doc.setFont("helvetica", bold ? "bold" : "normal"); doc.text(label, 150, finalY, { align: 'right' });
-                doc.text(formatCurrency(val), 195, finalY, { align: 'right' }); finalY += 6;
+            currentY = (doc as any).lastAutoTable.finalY + 10;
+
+            // RIEPILOGO COSTI TECNICI
+            const drawSummaryRow = (label: string, val: number, isBold = false) => {
+                doc.setFont("helvetica", isBold ? "bold" : "normal");
+                doc.setFontSize(isBold ? 10 : 9);
+                doc.text(label, 150, currentY, { align: 'right' });
+                doc.text(formatCurrency(val), 195, currentY, { align: 'right' });
+                currentY += 6;
             };
-            drawRow("Costo Tecnico", an.costoTecnico); drawRow(`Spese Generali (${an.generalExpensesRate}%)`, an.valoreSpese);
-            drawRow(`Utile d'Impresa (${an.profitRate}%)`, an.valoreUtile); doc.line(130, finalY - 3, 195, finalY - 3);
-            drawRow(`TOTALE ANALISI`, an.totalBatchValue, true);
-            drawSignature(doc, projectInfo, finalY + 10);
+
+            drawSummaryRow("Totale Costo Tecnico (Materiali + M.O. + Noli)", an.costoTecnico);
+            drawSummaryRow(`Spese Generali (${an.generalExpensesRate}%)`, an.valoreSpese);
+            drawSummaryRow(`Utile d'Impresa (${an.profitRate}%)`, an.valoreUtile);
+            
+            doc.setDrawColor(0);
+            doc.setLineWidth(0.5);
+            doc.line(130, currentY - 3, 195, currentY - 3);
+            drawSummaryRow(`Importo Totale Analisi (Lotto)`, an.totalBatchValue, true);
+
+            currentY += 10;
+
+            // PATTO DI FERRO 4: PREZZO UNITARIO FINALE CHIARO (BOX HERO)
+            doc.setDrawColor(142, 68, 173);
+            doc.setFillColor(142, 68, 173);
+            doc.roundedRect(100, currentY, 97, 22, 3, 3, 'F');
+            
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.text("PREZZO UNITARIO FINALE", 105, currentY + 8);
+            
+            doc.setFontSize(18);
+            doc.text(`€ ${formatCurrency(an.totalUnitPrice)}`, 192, currentY + 16, { align: 'right' });
+            
+            doc.setFontSize(7);
+            doc.text(`al netto di ribasso per ${an.unit}`, 105, currentY + 16);
+
+            doc.setTextColor(0, 0, 0); // Reset for signature
+
+            drawSignature(doc, projectInfo, currentY + 30);
         });
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
     } catch (e) { alert("Errore Analisi."); }
