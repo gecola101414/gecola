@@ -9,7 +9,7 @@ import {
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
   Zap, CornerRightDown, ListFilter, EyeOff, ChevronRight, Folder, FolderPlus, Tag, AlertTriangle, Link2Off,
   ShieldCheck, RefreshCw, FilePlus2, Magnet, MoreVertical, LayoutList, List, Database, Info, ChevronUp,
-  Calendar, Minus
+  Calendar, Minus, Mic, MousePointer2
 } from 'lucide-react';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -236,6 +236,7 @@ interface ArticleGroupProps {
   isSurveyorGuardActive: boolean;
   projectSettings: ProjectInfo;
   lastMovedItemId: string | null;
+  recordingArticleId: string | null;
   onUpdateArticle: (id: string, field: keyof Article, value: any) => void;
   onEditArticleDetails: (article: Article) => void;
   onUpdateMeasurement: (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => void;
@@ -250,9 +251,10 @@ interface ArticleGroupProps {
   onOpenRebarCalculator: (articleId: string) => void;
   onOpenPaintingCalculator: (articleId: string) => void;
   onToggleSmartRepeat: (articleId: string) => void;
+  onToggleItemDisplayMode: (articleId: string) => void;
+  onStartVoiceDictation: (articleId: string) => void;
   smartRepeatActiveId: string | null;
   onDeleteArticle: (id: string) => void;
-  // --- FIXED: Added missing props to interface ---
   onArticleDragStart: (e: React.DragEvent, article: Article) => void;
   onArticleDrop: (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom') => void;
   onArticleDragEnd: () => void;
@@ -261,15 +263,14 @@ interface ArticleGroupProps {
 }
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
-   // --- FIXED: Added missing destructuring of props ---
    const { 
      article, index, globalIndex, allArticles, isPrintMode, isCategoryLocked, 
-     isSurveyorGuardActive, projectSettings, lastMovedItemId, onUpdateArticle, 
+     isSurveyorGuardActive, projectSettings, lastMovedItemId, recordingArticleId, onUpdateArticle, 
      onEditArticleDetails, onDeleteArticle, onAddMeasurement, onAddSubtotal, 
      onUpdateMeasurement, onDeleteMeasurement, onOpenLinkModal, onScrollToArticle, 
      onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, 
-     onOpenPaintingCalculator, onToggleSmartRepeat, smartRepeatActiveId, 
-     onViewAnalysis, lastAddedMeasurementId, onColumnFocus,
+     onOpenPaintingCalculator, onToggleSmartRepeat, onStartVoiceDictation, smartRepeatActiveId, 
+     onViewAnalysis, lastAddedMeasurementId, onColumnFocus, onToggleItemDisplayMode,
      onArticleDragStart, onArticleDrop, onArticleDragEnd 
    } = props;
    
@@ -288,15 +289,11 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const individualDisplayMode = article.displayMode || 0;
    const isIndustrialMode = individualDisplayMode === 2; // Patto d'Acciaio
    const isConciseMode = individualDisplayMode === 1;   // Revisione
-
-   // --- FIXED: Defined isSafetyCategory used in JSX below ---
    const isSafetyCategory = article.categoryCode.startsWith('S.');
 
    const handleCycleLocal = () => {
        if (isCategoryLocked) return;
-       const next = (individualDisplayMode + 1) % 3;
-       onUpdateArticle(article.id, 'displayMode', next);
-       playUISound('cycle');
+       onToggleItemDisplayMode(article.id);
    };
 
    const getSurveyorWarning = (m: Measurement): { msg: string, severity: 'error' | 'warning', isVisible: boolean, isExcess: boolean, missingFields: string[] } | null => {
@@ -546,7 +543,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
         ref={tbodyRef}
         id={`article-${article.id}`} 
         style={{ scrollMarginTop: '45px' }}
-        className={`bg-white border-b border-gray-400 group/article transition-all relative ${isArticleLocked ? 'bg-gray-50/50' : ''} ${isArticleDragOver ? 'ring-2 ring-blue-500 ring-inset shadow-[0_0_25px_rgba(59,130,246,0.3)]' : ''} ${lastMovedItemId === article.id ? 'highlight-move' : ''}`}
+        className={`bg-white border-b-4 border-slate-600 group/article transition-all relative ${isArticleLocked ? 'bg-gray-50/50' : ''} ${isArticleDragOver ? 'ring-2 ring-blue-500 ring-inset shadow-[0_0_25px_rgba(59,130,246,0.3)]' : ''} ${lastMovedItemId === article.id ? 'highlight-move' : ''}`}
         onDragOver={handleTbodyDragOver}
         onDragLeave={handleTbodyDragLeave}
         onDrop={handleTbodyDrop}
@@ -555,7 +552,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
              <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-blue-500 -top-0.5 z-50 shadow-[0_0_15px_rgba(59,130,246,0.8)] pointer-events-none animate-pulse"></div></td></tr>
          )}
          <tr 
-            className={`align-top ${!isPrintMode ? 'cursor-pointer hover:bg-slate-50' : ''} ${isArticleDragOver ? 'bg-blue-50/20' : ''} ${isIndustrialMode ? 'bg-slate-100 border-l-4 border-indigo-600 shadow-sm' : ''} transition-all duration-300`}
+            className={`align-top border-t-2 border-slate-600 ${!isPrintMode ? 'cursor-pointer hover:bg-slate-50' : ''} ${isArticleDragOver ? 'bg-blue-50/20' : ''} ${isIndustrialMode ? 'bg-slate-100 border-l-4 border-indigo-600 shadow-sm' : ''} transition-all duration-300`}
             draggable={!isPrintMode && !areControlsDisabled}
             onDragStart={handleArticleHeaderDragStart}
             onDragEnd={onArticleDragEnd}
@@ -638,6 +635,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         <button onClick={() => onOpenPaintingCalculator(article.id)} className="text-gray-400 hover:text-blue-600 p-1 rounded transition-colors" title="Calcolo Automatico Pitturazioni"><Paintbrush className="w-4 h-4" /></button>
                         <button onClick={() => onOpenRebarCalculator(article.id)} className="text-gray-400 hover:text-orange-600 p-1 rounded transition-colors" title="Calcolo Ferri d'Armatura"><Grid3X3 className="w-4 h-4" /></button>
                         <button onClick={() => onToggleSmartRepeat(article.id)} className={`p-1 rounded transition-all ${smartRepeatActiveId === article.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:text-blue-600'}`} title="Smart Repeat (Clona rigo precedente)"><CopyPlus className="w-4 h-4" /></button>
+                        {/* PATTO DI FERRO: RIPRISTINO FUNZIONE CUFFIE */}
+                        <button 
+                            onClick={() => onStartVoiceDictation(article.id)} 
+                            className={`p-1 rounded transition-all ${recordingArticleId === article.id ? 'bg-purple-600 text-white animate-pulse shadow-lg' : 'text-gray-400 hover:text-purple-600 hover:bg-purple-50'}`} 
+                            title="Dettatura Vocale (Cuffie)"
+                        >
+                            <Headset className="w-4 h-4" />
+                        </button>
                     </div>
                 </td>
                 <td colSpan={8} className="border-r border-gray-200"></td>
@@ -800,9 +805,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            </>
          )}
 
-         <tr className={`font-bold text-xs border-t transition-all duration-300 ${isIndustrialMode ? 'bg-slate-100 border-b-2 border-slate-200 text-slate-900' : 'bg-white border-gray-300 shadow-inner'}`}>
-             <td className={`border-r ${isIndustrialMode ? 'border-slate-200 bg-slate-100/50' : 'border-gray-300 bg-white'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200 bg-slate-100/50' : 'border-gray-200 bg-white'}`} style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}></td>
-             <td className={`px-2 py-3 text-left border-r flex items-center gap-3 ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}>
+         <tr className={`font-bold text-xs border-t-2 border-slate-600 transition-all duration-300 ${isIndustrialMode ? 'bg-slate-100 border-b-2 border-slate-200 text-slate-900' : 'bg-white border-gray-300 shadow-inner'}`}>
+             <td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200 bg-slate-100/50' : 'bg-white'}`}></td><td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200 bg-slate-100/50' : 'bg-white'}`} style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}></td>
+             <td className={`px-2 py-3 text-left border-r border-gray-200 flex items-center gap-3 ${isIndustrialMode ? 'border-slate-200' : ''}`}>
                 {!isPrintMode && !isIndustrialMode && !isArticleLocked && (
                    <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button ref={addBtnRef} onClick={(e) => { e.stopPropagation(); onAddMeasurement(article.id); }} className="w-6 h-6 rounded-full flex items-center justify-center text-blue-600 hover:text-white hover:bg-blue-600 transition-all border border-blue-200 hover:border-blue-600 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" title="Aggiungi rigo misura"><Plus className="w-4 h-4" /></button>
@@ -823,15 +828,15 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 )}
                 <span className={`uppercase text-[10px] ml-auto font-black italic tracking-widest ${isIndustrialMode ? 'text-indigo-600' : 'text-gray-400'}`}>Sommano {isPrintMode ? article.unit : <input readOnly value={article.unit} className="w-8 bg-transparent border-b border-dotted border-gray-400 text-center outline-none inline-block disabled:cursor-not-allowed cursor-not-allowed font-black" disabled={true} />}</span>
              </td>
-             <td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td><td className={`border-r ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}></td>
-             <td className={`text-right pr-1 font-mono border-r font-black ${isIndustrialMode ? 'bg-slate-100/50 border-slate-200' : 'bg-gray-50 border-gray-200'}`}>{formatResult(article.quantity)}</td>
-             <td className={`border-l border-r text-right pr-1 font-mono ${isIndustrialMode ? 'border-slate-200' : 'border-gray-300'}`}>{isPrintMode ? formatResult(article.unitPrice) : <input readOnly type="number" value={article.unitPrice} className="w-full text-right bg-transparent border-none focus:ring-0 disabled:cursor-not-allowed cursor-not-allowed font-black" disabled={true} />}</td>
-             <td className={`border-r text-right pr-1 font-mono font-black ${isIndustrialMode ? 'text-indigo-700 border-slate-200' : 'text-blue-900 border-gray-300'}`} style={{ fontSize: `13.5px` }}>{formatResult(totalAmount)}</td>
-             <td className={`border-r text-right pr-1 font-mono text-gray-500 font-normal ${isIndustrialMode ? 'border-slate-200' : 'border-gray-200'}`}>
+             <td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200' : ''}`}></td><td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200' : ''}`}></td><td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200' : ''}`}></td><td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200' : ''}`}></td>
+             <td className={`text-right pr-1 font-mono border-r border-gray-200 font-black ${isIndustrialMode ? 'bg-slate-100/50 border-slate-200' : 'bg-gray-50'}`}>{formatResult(article.quantity)}</td>
+             <td className={`border-r border-gray-200 text-right pr-1 font-mono ${isIndustrialMode ? 'border-slate-200' : ''}`}>{isPrintMode ? formatResult(article.unitPrice) : <input readOnly type="number" value={article.unitPrice} className="w-full text-right bg-transparent border-none focus:ring-0 disabled:cursor-not-allowed cursor-not-allowed font-black" disabled={true} />}</td>
+             <td className={`border-r border-gray-200 text-right pr-1 font-mono font-black ${isIndustrialMode ? 'text-indigo-700 border-slate-200' : 'text-blue-900'}`} style={{ fontSize: `13.5px` }}>{formatResult(totalAmount)}</td>
+             <td className={`border-r border-gray-200 text-right pr-1 font-mono text-gray-500 font-normal ${isIndustrialMode ? 'border-slate-200' : ''}`}>
                  <div className="flex flex-col items-end leading-none py-1"><span>{formatCurrency(laborValue)}</span><span className="text-[9px] text-gray-400">({article.laborRate}%)</span></div>
              </td>
          </tr>
-         <tr className="h-6 bg-transparent border-none"><td colSpan={11} className="border-none"></td></tr>
+         <tr className="h-[8px] bg-transparent border-none"><td colSpan={11} className="border-none"></td></tr>
          {isArticleDragOver && articleDropPosition === 'bottom' && (
              <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-blue-500 top-0 z-50 shadow-[0_0_15px_rgba(59,130,246,0.8)] pointer-events-none animate-pulse"></div></td></tr>
          )}
@@ -859,6 +864,7 @@ const App: React.FC = () => {
   const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
+  const [recordingArticleId, setRecordingArticleId] = useState<string | null>(null);
   const [wbsDisplayMode, setWbsDisplayMode] = useState(0);
   const [isSurveyorGuardActive, setIsSurveyorGuardActive] = useState(true); 
   const [collapsedSuperCodes, setCollapsedSuperCodes] = useState<Set<string>>(new Set());
@@ -1165,10 +1171,9 @@ const App: React.FC = () => {
       const targetCode = targetWbsOverride || activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
       const newArticle: Article = {
-          id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0
+          id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode
       };
       
-      // PATTO DI FERRO: Inserimento in coda alla WBS specifica per mantenere l'ordine cronologico
       const lastIdx = [...articles].reverse().findIndex(a => a.categoryCode === targetCode);
       let updatedArticles;
       if (lastIdx !== -1) {
@@ -1190,7 +1195,6 @@ const App: React.FC = () => {
       if (analysis) { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); } else { alert("Analisi non trovata."); }
   };
 
-  // --- FIXED: Added handleConvertArticleToAnalysis implementation ---
   const handleConvertArticleToAnalysis = (article: Article) => {
       const newId = Math.random().toString(36).substr(2, 9);
       const newAnalysis: PriceAnalysis = {
@@ -1233,7 +1237,7 @@ const App: React.FC = () => {
       if (parsed) {
           const newArticleId = Math.random().toString(36).substr(2, 9);
           const newArticle: Article = {
-              id: newArticleId, categoryCode: targetCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: 0
+              id: newArticleId, categoryCode: targetCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode
           };
           updateState([...articles, newArticle]);
           handleScrollToArticle(newArticleId);
@@ -1413,7 +1417,7 @@ const App: React.FC = () => {
       const analysisIdMap = new Map<string, string>();
       const newAnalysesList = [...analyses];
       sourceAnalyses.forEach(an => { const newId = Math.random().toString(36).substr(2, 9); analysisIdMap.set(an.id, newId); let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; } const clonedAnalysis: PriceAnalysis = { ...an, id: newId, code: newCode, components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) })) }; newAnalysesList.push(clonedAnalysis); });
-      const newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; if (mode === 'full') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); } else if (mode === 'descriptions') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); } else { newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; } return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements } as Article; });
+      const newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; if (mode === 'full') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); } else if (mode === 'descriptions') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); } else { newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; } return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
       const newCatsList = [...categories];
       const targetIdx = wbsOptionsContext.targetCode ? categories.findIndex(c => c.code === wbsOptionsContext.targetCode) : -1;
       if (targetIdx !== -1) { const insertIdx = wbsOptionsContext.position === 'bottom' ? targetIdx + 1 : targetIdx; newCatsList.splice(insertIdx, 0, newCategory); } else { newCatsList.push(newCategory); }
@@ -1429,7 +1433,27 @@ const App: React.FC = () => {
   };
 
   const handleUpdateArticle = (id: string, field: keyof Article, value: any) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
-  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { const updated = articles.map(art => id === art.id ? { ...art, ...updates } : art); updateState(updated); };
+  
+  // PATTO DI FERRO: DISTACCO ANALISI SU MODIFICA EDIT
+  const handleArticleEditSave = (id: string, updates: Partial<Article>) => { 
+    const updated = articles.map(art => {
+        if (id === art.id) {
+           const isActuallyModified = Object.keys(updates).some(k => (updates as any)[k] !== (art as any)[k]);
+           if (isActuallyModified && art.linkedAnalysisId) {
+              return { 
+                  ...art, 
+                  ...updates, 
+                  linkedAnalysisId: undefined, 
+                  priceListSource: 'Definito dal Progettista' 
+              };
+           }
+           return { ...art, ...updates };
+        }
+        return art;
+    }); 
+    updateState(updated); 
+  };
+
   const handleEditArticleDetails = (article: Article) => { setEditingArticle(article); setIsEditArticleModalOpen(true); };
   const handleDeleteArticle = (id: string) => { if (window.confirm("Eliminare la voce?")) { const updated = articles.filter(art => art.id !== id); updateState(updated); } };
   const handleAddMeasurement = (articleId: string) => { 
@@ -1449,12 +1473,66 @@ const App: React.FC = () => {
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
   const handleScrollToArticle = (id: string, fromId?: string) => { const targetArt = articles.find(a => a.id === id); if (!targetArt) return; if (fromId) setReturnPath(fromId); if (selectedCategoryCode !== targetArt.categoryCode) setSelectedCategoryCode(targetArt.categoryCode); setTimeout(() => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'start' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } }, 300); };
   const handleReturnToArticle = () => { if (returnPath) { const id = returnPath; setReturnPath(null); handleScrollToArticle(id); } };
-  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: 'Nuova voce', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: 0 }; updateState([...articles, newArticle]); handleScrollToArticle(newArticleId); setLastMovedItemId(newArticleId); setTimeout(() => setLastMovedItemId(null), 3000); };
+  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: 'Nuova voce', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, newArticle]); handleScrollToArticle(newArticleId); setLastMovedItemId(newArticleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
   const handleOpenRebarCalculator = (articleId: string) => { setRebarTargetArticleId(articleId); setIsRebarModalOpen(true); };
   const handleOpenPaintingCalculator = (articleId: string) => { setPaintingTargetArticleId(articleId); setIsPaintingModalOpen(true); };
   const handleToggleSmartRepeat = (articleId: string) => { if (smartRepeatActiveId === articleId) setSmartRepeatActiveId(null); else setSmartRepeatActiveId(articleId); };
-  const handleCycleDisplayMode = () => { const nextMode = (wbsDisplayMode + 1) % 3; setWbsDisplayMode(nextMode); playUISound('cycle'); const updated = articles.map(a => a.categoryCode === selectedCategoryCode ? { ...a, displayMode: nextMode } : a); updateState(updated); };
+  
+  // PATTO DI FERRO: RIPRISTINO FUNZIONE CUFFIE NELLE MISURE
+  const handleStartVoiceDictation = (articleId: string) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("Riconoscimento vocale non supportato in questo browser.");
+        return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'it-IT';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+        setRecordingArticleId(articleId);
+        playUISound('toggle');
+    };
+
+    recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+            const newId = Math.random().toString(36).substr(2, 9);
+            setArticles(prev => prev.map(art => {
+                if (art.id !== articleId) return art;
+                const newM: Measurement = { id: newId, description: transcript, type: 'positive' };
+                return { ...art, measurements: [...art.measurements, newM] };
+            }));
+            playUISound('newline');
+            // Creazione automatica nuovo rigo (andare avanti)
+            setTimeout(() => handleAddMeasurement(articleId), 400);
+        }
+    };
+
+    recognition.onend = () => {
+        setRecordingArticleId(null);
+    };
+
+    recognition.start();
+  };
+
+  const handleToggleItemDisplayMode = (articleId: string) => {
+    const article = articles.find(a => a.id === articleId);
+    if (!article) return;
+    const next = ((article.displayMode || 0) + 1) % 3;
+    handleUpdateArticle(articleId, 'displayMode', next);
+    playUISound('cycle');
+  };
+
+  const handleCycleDisplayMode = () => { 
+    const nextMode = (wbsDisplayMode + 1) % 3; 
+    setWbsDisplayMode(nextMode); 
+    playUISound('cycle'); 
+    const updated = articles.map(a => a.categoryCode === selectedCategoryCode ? { ...a, displayMode: nextMode } : a); 
+    updateState(updated); 
+  };
   const handleToggleSurveyorGuard = () => { setIsSurveyorGuardActive(!isSurveyorGuardActive); playUISound('toggle'); };
   const handleToggleAllCategories = () => { const anyEnabled = categories.some(c => c.isEnabled !== false); const newCats = categories.map(c => ({ ...c, isEnabled: !anyEnabled })); updateState(articles, newCats); playUISound('toggle'); };
   const handleAddWbs = () => { setEditingCategory(null); setCreatingForcedIsSuper(false); setIsCategoryModalOpen(true); };
@@ -1467,8 +1545,8 @@ const App: React.FC = () => {
   const handleResetProject = () => { window.open(window.location.href, '_blank'); playUISound('newline'); };
   const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { if (!rebarTargetArticleId) return; const updated = articles.map(art => { if (art.id !== rebarTargetArticleId) return art; const newMeasures: Measurement[] = measurements.map(m => ({ id: Math.random().toString(36).substr(2, 9), description: m.description, type: 'positive' as const, multiplier: m.multiplier, length: m.length, width: undefined, height: m.weight })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsRebarModalOpen(false); };
   const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { if (paintingTargetArticleId) { const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsPaintingModalOpen(false); } };
-  const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: 0 }; updateState([...articles, ...[newArticle]]); handleScrollToArticle(newArtId); setLastMovedItemId(newArtId); setTimeout(() => setLastMovedItemId(null), 3000); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
-  const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: 0, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); if (newArticles.length > 0) handleScrollToArticle(newArticles[0].id); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
+  const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, ...[newArticle]]); handleScrollToArticle(newArtId); setLastMovedItemId(newArtId); setTimeout(() => setLastMovedItemId(null), 3000); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
+  const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: wbsDisplayMode, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); if (newArticles.length > 0) handleScrollToArticle(newArticles[0].id); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
   const handleWorkspaceDrop = (e: React.DragEvent) => { 
     e.preventDefault(); e.stopPropagation(); 
     if (draggedCategoryCode) { setIsWorkspaceDragOver(false); return; }
@@ -1632,7 +1710,6 @@ const App: React.FC = () => {
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
             {!isFocusMode && (
                 <div className="w-[20.4rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
-                {/* TRIGGER SCROLL SU - PATTO DI FERRO POSIZIONE AGGIORNATA */}
                 <div onMouseEnter={() => startScroll(-3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(-3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }} onDragLeave={stopScroll} className="absolute top-[135px] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
                 <div onMouseEnter={() => startScroll(3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(3); }} onDragLeave={stopScroll} className="absolute bottom-0 left-0 right-0 h-16 z-[100] cursor-s-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
                 <div className="px-4 py-2.5 bg-slate-300 border-b border-slate-400 flex justify-between items-center shrink-0 shadow-sm"><div className="flex items-baseline gap-2"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">TOTALE:</span><span className="font-mono font-black text-slate-900 text-sm tracking-tighter">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span></div></div>
@@ -1734,7 +1811,44 @@ const App: React.FC = () => {
                                  <div className="flex flex-col items-center"><div className={`px-4 py-3 rounded-2xl font-black text-2xl shadow-inner text-white w-[145px] text-center mb-4 transition-all duration-500 transform hover:scale-105`} style={{ backgroundColor: activeCategory.color || '#3B82F6' }}>{activeCategory.code}</div><div className="flex items-center gap-3"><button onClick={() => handleEditCategory(activeCategory)} title="Impostazioni Capitolo" className={`p-2 rounded-xl bg-white border shadow-md transition-all transform active:scale-95 group relative ${viewMode === 'SICUREZZA' ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-blue-200 text-blue-700 hover:bg-blue-50'}`}><Settings className="w-4 h-4" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Impostazioni</span></button><button onClick={() => setIsFocusMode(true)} title="Focus Mode" className="p-2 rounded-xl bg-slate-800 text-white hover:bg-blue-600 shadow-md transition-all transform active:scale-95 group relative"><Maximize2 className="w-4 h-4" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Full Screen</span></button><button onClick={handleCycleDisplayMode} className={`p-2 rounded-xl border transition-all shadow-md group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : wbsDisplayMode === 2 ? 'bg-blue-800 text-white border-blue-900 animate-pulse' : ''}`}><RefreshCw className={`w-4 h-4 transition-transform duration-700 ${wbsDisplayMode > 0 ? 'rotate-180' : ''}`} /><div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest p-4 rounded-2xl shadow-2xl opacity-0 group-hover/cycle:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black flex flex-col gap-2 text-center"><div className={`transition-opacity ${wbsDisplayMode === 0 ? 'text-blue-400' : 'opacity-30'}`}>0 - Tutto Aperto</div><div className={`transition-opacity ${wbsDisplayMode === 1 ? 'text-indigo-400' : 'opacity-30'}`}>1 - Revisione</div><div className={`transition-opacity ${wbsDisplayMode === 2 ? 'text-orange-400' : 'opacity-30'}`}>2 - Patto d'Acciaio</div></div></button></div></div>
                                  <div className="flex flex-col ml-6"><div className="flex items-center gap-3"><h2 className={`text-2xl font-black uppercase max-w-[500px] whitespace-normal leading-none tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900'}`}>{activeCategory.name}</h2></div><div className="mt-4 flex items-center gap-4"><span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>{activeCategory.soaCategory && (<div className="bg-purple-100 border border-purple-200 px-4 py-1.5 rounded-full flex items-center gap-2 text-purple-700 font-black text-[10px] uppercase shadow-sm"><Award className="w-3.5 h-3.5" />Categoria SOA: {activeCategory.soaCategory}</div>)}</div></div>
                             </div>
-                            <div className="flex items-center"><div className="group/listini relative"><a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl transform transition-all active:scale-95 group/btn"><Database className="w-5 h-5 animate-pulse" />Sorgente Prezzi Ufficiali<ExternalLink className="w-4 h-4 opacity-50" /></a></div></div>
+                            <div className="flex items-center">
+                              {/* HELP IN LINEA PREZZARI - AGGIORNATO */}
+                              <div className="group/listini relative">
+                                <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className="bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl transform transition-all active:scale-95 group/btn">
+                                  <Database className="w-5 h-5 animate-pulse" />
+                                  Sorgente Prezzi Ufficiali
+                                  <ExternalLink className="w-4 h-4 opacity-50" />
+                                </a>
+                                
+                                <div className="absolute top-full mt-4 right-0 w-80 bg-slate-950 text-white p-6 rounded-[2.5rem] shadow-2xl opacity-0 group-hover/listini:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
+                                    <h4 className="font-black uppercase text-[10px] tracking-widest text-blue-400 mb-4 flex items-center gap-2"><Info className="w-4 h-4" /> Supporto Drag & Drop</h4>
+                                    
+                                    <div className="relative h-24 bg-white/5 rounded-2xl mb-4 flex items-center justify-center overflow-hidden border border-white/5">
+                                        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 0)', backgroundSize: '10px 10px' }}></div>
+                                        {/* Animation visualizer */}
+                                        <div className="w-16 h-10 border-2 border-dashed border-blue-500/30 rounded-lg flex items-center justify-center relative drop-zone-anim">
+                                            <div className="absolute -left-12 top-2 drag-icon-anim">
+                                                <MousePointer2 className="w-6 h-6 text-white drop-shadow-lg" />
+                                                <div className="w-8 h-4 bg-blue-600/80 rounded border border-white/20 -mt-1 ml-2"></div>
+                                            </div>
+                                            <CornerRightDown className="w-4 h-4 text-blue-400 opacity-40" />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <p className="text-[10px] leading-relaxed">
+                                            <span className="text-blue-400 font-black">PROCEDURA DI AGGANCIO:</span><br/>
+                                            1. Apri il listino su <b>gecola.it</b><br/>
+                                            2. Trascina la voce desiderata tenendo premuto il <span className="text-white font-bold">tasto sinistro</span> del mouse.<br/>
+                                            3. Portala qui sopra e rilascia <span className="text-blue-400 font-bold">SOLO quando vedi la luce blu</span> di aggancio attivo.
+                                        </p>
+                                        <div className="bg-orange-500/10 p-3 rounded-xl border border-orange-500/20">
+                                            <p className="text-[9px] font-bold text-orange-300">GeCoLa Cloud popolerà istantaneamente codice, descrizione, UM e prezzo.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                              </div>
+                            </div>
                        </div>
                    )}
                    {viewMode === 'ANALISI' ? (
@@ -1748,7 +1862,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed border-blue-100 bg-slate-50/30 text-center space-y-4`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white text-blue-200 border border-blue-50`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} smartRepeatActiveId={smartRepeatActiveId} />
+                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} smartRepeatActiveId={smartRepeatActiveId} />
                                     ))
                                 )}
                             </table>

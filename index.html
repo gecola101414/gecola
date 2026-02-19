@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="it">
   <head>
@@ -95,6 +94,26 @@
       .missing-field-glow {
         animation: blue-glow 2s infinite ease-in-out;
         border: 1.5px solid rgba(59, 130, 246, 0.4) !important;
+      }
+
+      /* ANIMAZIONE DRAG AND DROP HELP */
+      @keyframes drag-hand {
+        0% { transform: translate(0, 0); opacity: 0; }
+        10% { opacity: 1; }
+        40% { transform: translate(40px, -20px); }
+        60% { transform: translate(40px, -20px); }
+        90% { opacity: 1; }
+        100% { transform: translate(40px, -20px); opacity: 0; }
+      }
+      @keyframes drop-zone-pulse {
+        0%, 40% { border-color: rgba(59, 130, 246, 0.3); background: transparent; }
+        50%, 90% { border-color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+      }
+      .drag-icon-anim {
+        animation: drag-hand 3s infinite;
+      }
+      .drop-zone-anim {
+        animation: drop-zone-pulse 3s infinite;
       }
 
       @media print {
