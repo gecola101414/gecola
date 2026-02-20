@@ -594,9 +594,23 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
     try {
         const { jsPDF, autoTable } = await getLibs();
         const doc = new jsPDF();
+        const pageHeight = doc.internal.pageSize.height;
+        const pageWidth = doc.internal.pageSize.width;
+
+        if (analyses.length === 0) {
+            alert("Nessuna analisi da stampare.");
+            return;
+        }
+
+        // 1. PAGINE DELLE SINGOLE ANALISI
         analyses.forEach((an, idx) => {
             if (idx > 0) doc.addPage();
-            drawHeaderSimple(doc, projectInfo, "ANALISI DEI PREZZI UNITARI", 1);
+            
+            const drawAnalysisHeader = (pageNo: number) => {
+                drawHeaderSimple(doc, projectInfo, "ANALISI DEI PREZZI UNITARI", pageNo);
+            };
+
+            drawAnalysisHeader(1);
             
             // PATTO DI FERRO 1: CODICE IN EVIDENZA
             doc.setFontSize(24);
@@ -654,12 +668,23 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
                     3: { cellWidth: 25, halign: 'right' },
                     4: { cellWidth: 20, halign: 'center' },
                     5: { cellWidth: 25, halign: 'right' }
+                },
+                didDrawPage: (data) => {
+                    if (data.pageNumber > 1) {
+                        drawAnalysisHeader(data.pageNumber);
+                    }
                 }
             });
 
             currentY = (doc as any).lastAutoTable.finalY + 10;
 
             // RIEPILOGO COSTI TECNICI
+            if (currentY > pageHeight - 60) {
+                doc.addPage();
+                drawAnalysisHeader(1);
+                currentY = 50;
+            }
+
             const drawSummaryRow = (label: string, val: number, isBold = false) => {
                 doc.setFont("helvetica", isBold ? "bold" : "normal");
                 doc.setFontSize(isBold ? 10 : 9);
@@ -699,8 +724,39 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
 
             drawSignature(doc, projectInfo, currentY + 30);
         });
+
+        // 2. PAGINA DI RIEPILOGO FINALE (PERFEZIONE)
+        doc.addPage();
+        drawHeaderSimple(doc, projectInfo, "RIEPILOGO ANALISI PREZZI", 1);
+        
+        const summaryBody = analyses.map((an, i) => [
+            { content: (i + 1).toString(), styles: { halign: 'center' } },
+            { content: an.code, styles: { fontStyle: 'bold', textColor: [142, 68, 173] } },
+            { content: an.description, styles: { fontSize: 7.5 } },
+            { content: an.unit, styles: { halign: 'center' } },
+            { content: formatCurrency(an.totalUnitPrice), styles: { halign: 'right', fontStyle: 'bold' } }
+        ]);
+
+        autoTable(doc, {
+            startY: 50,
+            head: [['N.', 'CODICE', 'DESIGNAZIONE DELLA VOCE ANALIZZATA', 'U.M.', 'PREZZO UNITARIO']],
+            body: summaryBody,
+            theme: 'grid',
+            styles: { fontSize: 8, cellPadding: 3 },
+            headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255] },
+            columnStyles: {
+                0: { cellWidth: 10 },
+                1: { cellWidth: 25 },
+                2: { cellWidth: 'auto' },
+                3: { cellWidth: 15 },
+                4: { cellWidth: 35 }
+            }
+        });
+
+        drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY + 20);
+
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
-    } catch (e) { alert("Errore Analisi."); }
+    } catch (e) { console.error(e); alert("Errore Analisi."); }
 };
 
 const drawHeaderSimple = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number) => {

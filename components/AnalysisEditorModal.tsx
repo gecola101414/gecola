@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { X, Save, Plus, Trash2, Calculator, Coins, Hammer, Truck, Package, Scale, Maximize2, Minimize2, Lock } from 'lucide-react';
 import { PriceAnalysis, AnalysisComponent } from '../types';
 import { COMMON_UNITS, LABOR_CATALOG, EQUIPMENT_CATALOG, MATERIAL_CATALOG } from '../constants';
+import { cleanDescription } from '../services/geminiService';
 
 interface AnalysisEditorModalProps {
   isOpen: boolean;
@@ -193,9 +194,9 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                 <div className="flex-1 flex flex-col">
                     <textarea
                         value={formData.description}
-                        onChange={e => !isLocked && setFormData({...formData, description: e.target.value})}
+                        onChange={e => !isLocked && setFormData({...formData, description: cleanDescription(e.target.value)})}
                         readOnly={isLocked}
-                        className={`flex-1 w-full border border-gray-300 rounded-lg p-6 text-lg font-serif text-gray-800 shadow-inner resize-none focus:ring-2 focus:ring-purple-500 outline-none leading-relaxed ${isLocked ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+                        className={`flex-1 w-full border border-gray-300 rounded-lg p-6 text-lg font-serif text-gray-800 shadow-inner resize-none focus:ring-2 focus:ring-purple-500 outline-none leading-relaxed text-justify ${isLocked ? 'bg-gray-50 cursor-not-allowed' : ''}`}
                         autoFocus
                         placeholder="Inserisci la descrizione tecnica dettagliata..."
                     />
@@ -233,7 +234,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                                 <Maximize2 className="w-3 h-3" /> Espandi
                             </button>
                         </div>
-                        <textarea readOnly={isLocked} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className={`w-full border border-gray-300 rounded p-2 text-sm resize-none h-[52px] leading-tight focus:ring-1 focus:ring-purple-500 outline-none ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="Es. Posa in opera di..." />
+                        <textarea readOnly={isLocked} value={formData.description} onChange={e => setFormData({...formData, description: cleanDescription(e.target.value)})} className={`w-full border border-gray-300 rounded p-2 text-sm resize-none h-[52px] leading-tight focus:ring-1 focus:ring-purple-500 outline-none text-justify ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="Es. Posa in opera di..." />
                     </div>
                     <div className={`col-span-3 p-2 rounded border h-[76px] flex flex-col justify-center ${isLocked ? 'bg-gray-100 border-gray-300' : 'bg-purple-100 border-purple-200'}`}>
                         <label className="block text-[10px] font-bold uppercase text-purple-700 mb-1 flex items-center gap-1"><Scale className="w-3 h-3" /> Quantità Analizzata</label>

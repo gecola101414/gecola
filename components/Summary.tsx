@@ -8,9 +8,10 @@ interface SummaryProps {
   info: ProjectInfo;
   categories: Category[];
   articles: Article[];
+  analyses: PriceAnalysis[];
 }
 
-const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles }) => {
+const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles, analyses }) => {
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
   };
@@ -117,6 +118,32 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles })
               </table>
           </div>
       </div>
+
+      {analyses.length > 0 && (
+          <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden mt-8">
+              <div className="p-3 bg-purple-50 border-b font-bold text-purple-900 flex items-center gap-2"><PenTool className="w-4 h-4" /> Elenco Analisi Nuovi Prezzi</div>
+              <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                      <tr>
+                          <th className="p-3 text-left w-24">Codice</th>
+                          <th className="p-3 text-left">Descrizione</th>
+                          <th className="p-3 text-center w-20">U.M.</th>
+                          <th className="p-3 text-right w-32">Prezzo Unitario</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {analyses.map(an => (
+                          <tr key={an.id} className="border-t hover:bg-gray-50 transition-colors">
+                              <td className="p-3 font-mono text-xs font-bold text-purple-700">{an.code}</td>
+                              <td className="p-3 text-xs">{an.description}</td>
+                              <td className="p-3 text-center text-xs">{an.unit}</td>
+                              <td className="p-3 text-right font-bold">{formatCurrency(an.totalUnitPrice)}</td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
           <div className="bg-white p-8 shadow-lg rounded-xl border border-blue-100 flex flex-col justify-center">

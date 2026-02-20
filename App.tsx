@@ -32,7 +32,7 @@ import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
-import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems } from './services/geminiService';
+import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems, cleanDescription } from './services/geminiService';
 import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel } from './services/excelGenerator';
 
@@ -1432,7 +1432,11 @@ const App: React.FC = () => {
     setWbsOptionsContext(null);
   };
 
-  const handleUpdateArticle = (id: string, field: keyof Article, value: any) => { const updated = articles.map(art => art.id === id ? { ...art, [field]: value } : art); updateState(updated); };
+  const handleUpdateArticle = (id: string, field: keyof Article, value: any) => { 
+    const finalValue = field === 'description' ? cleanDescription(value) : value;
+    const updated = articles.map(art => art.id === id ? { ...art, [field]: finalValue } : art); 
+    updateState(updated); 
+  };
   
   // PATTO DI FERRO: DISTACCO ANALISI SU MODIFICA EDIT
   const handleArticleEditSave = (id: string, updates: Partial<Article>) => { 
@@ -1496,18 +1500,40 @@ const App: React.FC = () => {
         playUISound('toggle');
     };
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = async (event: any) => {
         const transcript = event.results[0][0].transcript;
         if (transcript) {
-            const newId = Math.random().toString(36).substr(2, 9);
-            setArticles(prev => prev.map(art => {
-                if (art.id !== articleId) return art;
-                const newM: Measurement = { id: newId, description: transcript, type: 'positive' };
-                return { ...art, measurements: [...art.measurements, newM] };
-            }));
-            playUISound('newline');
-            // Creazione automatica nuovo rigo (andare avanti)
-            setTimeout(() => handleAddMeasurement(articleId), 400);
+            try {
+                const parsed = await parseVoiceMeasurement(transcript);
+                const newId = Math.random().toString(36).substr(2, 9);
+                const newArticles = articles.map(art => {
+                    if (art.id !== articleId) return art;
+                    const newM: Measurement = { 
+                        id: newId, 
+                        description: parsed.description || transcript, 
+                        multiplier: parsed.multiplier,
+                        length: parsed.length,
+                        width: parsed.width,
+                        height: parsed.height,
+                        type: 'positive' 
+                    };
+                    return { ...art, measurements: [...art.measurements, newM] };
+                });
+                updateState(newArticles);
+                playUISound('newline');
+                // Creazione automatica nuovo rigo (andare avanti)
+                setTimeout(() => handleAddMeasurement(articleId), 400);
+            } catch (error) {
+                console.error("Errore parsing vocale:", error);
+                // Fallback a trascrizione semplice
+                const newId = Math.random().toString(36).substr(2, 9);
+                const newArticles = articles.map(art => {
+                    if (art.id !== articleId) return art;
+                    const newM: Measurement = { id: newId, description: transcript, type: 'positive' };
+                    return { ...art, measurements: [...art.measurements, newM] };
+                });
+                updateState(newArticles);
+            }
         }
     };
 
@@ -1800,7 +1826,7 @@ const App: React.FC = () => {
                )}
                {returnPath && (<button onClick={handleReturnToArticle} className="fixed bottom-12 right-12 z-[250] flex items-center gap-3 bg-blue-600 hover:bg-blue-700 backdrop-blur-lg border border-blue-50 text-blue-100 px-6 py-4 rounded-[2rem] shadow-2xl animate-in slide-in-from-bottom-8"><ArrowLeft className="w-5 h-5" /><b>Torna alla voce</b></button>)}
                {viewMode === 'SUMMARY' ? (
-                   <div className="flex-1 overflow-y-auto p-12 bg-white"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} /></div>
+                   <div className="flex-1 overflow-y-auto p-12 bg-white"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} analyses={analyses} /></div>
                ) : viewMode === 'CRONOPROGRAMMA' ? (
                    <div className="flex-1 overflow-hidden"><ScheduleView categories={categories} articles={articles} projectInfo={projectInfo} offsets={scheduleOffsets} teamSizes={teamSizes} onOffsetChange={(id, val) => setScheduleOffsets(prev => ({ ...prev, [id]: val }))} onTeamSizeChange={(id, val) => setTeamSizes(prev => ({ ...prev, [id]: val }))} onReorderCategories={(newCats) => { const result = renumberCategories(newCats, articles); updateState(result.newArticles, result.newCategories); }} /></div>
                ) : (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' || viewMode === 'ANALISI') && activeCategory ? (
@@ -1862,7 +1888,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed border-blue-100 bg-slate-50/30 text-center space-y-4`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white text-blue-200 border border-blue-50`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} smartRepeatActiveId={smartRepeatActiveId} />
+                                      <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} onStartVoiceDictation={handleStartVoiceDictation} smartRepeatActiveId={smartRepeatActiveId} />
                                     ))
                                 )}
                             </table>

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Save, Edit3, ArrowRightLeft, TestTubes, Award, Sparkles, Download } from 'lucide-react';
 import { Article } from '../types';
 import { COMMON_UNITS, SOA_CATEGORIES } from '../constants';
-import { parseDroppedContent } from '../services/geminiService';
+import { parseDroppedContent, cleanDescription } from '../services/geminiService';
 
 interface ArticleEditModalProps {
   isOpen: boolean;
@@ -153,8 +153,8 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
                 >
                     <textarea 
                         value={formData.description || ''}
-                        onChange={(e) => setFormData({...formData, description: e.target.value})}
-                        className={`w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none h-32 text-sm font-serif leading-relaxed shadow-inner transition-colors ${isDragOver ? 'bg-blue-50 border-blue-400' : ''}`}
+                        onChange={(e) => setFormData({...formData, description: cleanDescription(e.target.value)})}
+                        className={`w-full border border-gray-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none h-32 text-sm font-serif leading-relaxed shadow-inner transition-colors text-justify ${isDragOver ? 'bg-blue-50 border-blue-400' : ''}`}
                     />
                     
                     {isDragOver && (

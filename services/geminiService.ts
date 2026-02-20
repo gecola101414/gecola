@@ -90,6 +90,14 @@ export const generateBulkItems = async (
   }
 };
 
+export const cleanDescription = (text: string): string => {
+  if (!text) return "";
+  return text
+    .replace(/\r?\n|\r/g, " ") // Sostituisce i ritorni a capo con spazi
+    .replace(/\s+/g, " ")      // Sostituisce spazi multipli e tab con spazio singolo
+    .trim();
+};
+
 /**
  * PARSER "AGGANCIO PERFETTO" v2.6
  * Ottimizzato per listini GeCoLa.it: estrae dinamicamente il nome del prezzario ufficiale.
@@ -120,7 +128,7 @@ export const parseDroppedContent = (rawText: string): Partial<Article> | null =>
 
     // Mappatura Standard: 0:Codice, 1:Descrizione, 2:UM, 3:Prezzo, 4:MO%
     const code = parts[0] || 'NP.001';
-    const description = parts[1] || 'Voce importata';
+    const description = cleanDescription(parts[1] || 'Voce importata');
     const unit = parts[2] || 'cad';
     const unitPrice = parseItaNumber(parts[3] || '0');
     
