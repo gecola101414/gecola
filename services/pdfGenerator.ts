@@ -171,7 +171,7 @@ const drawTableFrame = (doc: any, startY: number, endY: number) => {
     doc.rect(10, startY, 190, endY - startY);
 };
 
-const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[], allArticles: Article[], globalCounter: { current: number }) => {
+const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[], allArticles: Article[], globalCounter: { current: number }, projectInfo: ProjectInfo, doc: any) => {
     const catArticles = articles.filter(a => a.categoryCode === cat.code);
     if (catArticles.length === 0) return;
 
@@ -190,13 +190,24 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         const artNum = `${wbsN}.${artIndex + 1}`;
         const gNum = globalCounter.current++;
 
+        let finalDescription = art.description;
+        if (projectInfo.descriptionLength === 'short') {
+            // Utilizziamo splitTextToSize per calcolare le righe effettive in base alla larghezza della colonna (60mm)
+            // Sottraiamo un piccolo margine per il padding interno della cella
+            doc.setFontSize(8.5);
+            const splitLines = doc.splitTextToSize(finalDescription, 58); 
+            if (splitLines.length > 6) {
+                finalDescription = splitLines.slice(0, 6).join('\n') + ' .....';
+            }
+        }
+
         tableBody.push([
             { 
               content: `${gNum}\n(${artNum})`, 
               styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
             },
             { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
-            { content: art.description, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
+            { content: finalDescription, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
             '', '', '', '', '', '', ''
         ]);
         
@@ -292,13 +303,13 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
                 ]);
                 children.forEach(child => {
                     if (child.isEnabled === false) return;
-                    appendWbsToPdfBody(tableBody, child, articles, articles, globalCounter);
+                    appendWbsToPdfBody(tableBody, child, articles, articles, globalCounter, projectInfo, doc);
                     const catArticles = articles.filter(a => a.categoryCode === child.code);
                     globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
                 });
             }
         } else if (root.type === filterType) {
-            appendWbsToPdfBody(tableBody, root, articles, articles, globalCounter);
+            appendWbsToPdfBody(tableBody, root, articles, articles, globalCounter, projectInfo, doc);
             const catArticles = articles.filter(a => a.categoryCode === root.code);
             globalTotalForClosing += catArticles.reduce((s, a) => s + (a.quantity * a.unitPrice), 0);
         }
@@ -416,6 +427,8 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     let totalLavoriSum = 0;
     let totalLaborSum = 0;
 
+    const showLabor = projectInfo.showLaborIncidenceInSummary !== false;
+
     categories.forEach(cat => {
         if (cat.isEnabled === false || cat.isSuperCategory || cat.type !== filterType) return;
         const catArticles = articles.filter(a => a.categoryCode === cat.code);
@@ -425,33 +438,53 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         if (catTotal > 0 || catArticles.length > 0) {
             totalLavoriSum += catTotal;
             totalLaborSum += catLabor;
-            summaryTableBody.push([
+            
+            const row = [
                 { content: cat.code, styles: { fontStyle: 'bold', halign: 'center' } },
                 { content: cat.name.toUpperCase(), styles: { halign: 'left' } },
-                { content: formatCurrency(catTotal), styles: { halign: 'right', fontStyle: 'bold' } },
-                { content: formatCurrency(totalLaborSum), styles: { halign: 'right' } }
-            ]);
+                { content: formatCurrency(catTotal), styles: { halign: 'right', fontStyle: 'bold' } }
+            ];
+            
+            if (showLabor) {
+                row.push({ content: formatCurrency(catLabor), styles: { halign: 'right' } });
+            }
+            
+            summaryTableBody.push(row);
         }
     });
 
-    summaryTableBody.push([
+    const footerRow = [
         { content: 'TOTALE GENERALE', colSpan: 2, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
-        { content: formatCurrency(totalLavoriSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } },
-        { content: formatCurrency(totalLaborSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } }
-    ]);
+        { content: formatCurrency(totalLavoriSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } }
+    ];
+    
+    if (showLabor) {
+        footerRow.push({ content: formatCurrency(totalLaborSum), styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'right' } });
+    }
+
+    summaryTableBody.push(footerRow);
+
+    const summaryHead = [['COD.', 'DESCRIZIONE CAPITOLO (WBS)', 'IMPORTO LAVORI']];
+    if (showLabor) {
+        summaryHead[0].push('INCIDENZA M.O.');
+    }
 
     autoTable(doc, {
-        head: [['COD.', 'DESCRIZIONE CAPITOLO (WBS)', 'IMPORTO LAVORI', 'INCIDENZA M.O.']],
+        head: summaryHead,
         body: summaryTableBody,
         startY: 30,
         margin: { left: 10, right: 10 },
         theme: 'grid',
         styles: { fontSize: 8.5, cellPadding: 3, overflow: 'linebreak' },
-        columnStyles: {
+        columnStyles: showLabor ? {
             0: { cellWidth: 20 },
             1: { cellWidth: 100 }, 
             2: { cellWidth: 35 },
             3: { cellWidth: 35 }
+        } : {
+            0: { cellWidth: 20 },
+            1: { cellWidth: 135 }, 
+            2: { cellWidth: 35 }
         },
         headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
         didDrawPage: (data) => {

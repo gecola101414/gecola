@@ -170,6 +170,8 @@ export const PROJECT_INFO: ProjectInfo = {
   tariffColumnWidth: 135,
   fontSizeMeasurements: 12,
   fontSizeWbsSidebar: 14,
+  showLaborIncidenceInSummary: true,
+  descriptionLength: 'full',
 };
 
 export const CATEGORIES: Category[] = [

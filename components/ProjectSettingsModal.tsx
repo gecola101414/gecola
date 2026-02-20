@@ -1,5 +1,5 @@
 
-import { X, Save, Settings2, Info, User, MapPin, Calendar, Building2, ShieldCheck, UserCheck } from 'lucide-react';
+import { X, Save, Settings2, Info, User, MapPin, Calendar, Building2, ShieldCheck, UserCheck, FileText } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import { ProjectInfo } from '../types';
 import { REGIONS, YEARS } from '../constants';
@@ -24,13 +24,15 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
           tariffColumnWidth: info.tariffColumnWidth || 135,
           fontSizeMeasurements: info.fontSizeMeasurements || 12,
           fontSizeWbsSidebar: info.fontSizeWbsSidebar || 14,
+          showLaborIncidenceInSummary: info.showLaborIncidenceInSummary !== undefined ? info.showLaborIncidenceInSummary : true,
+          descriptionLength: info.descriptionLength || 'full',
       });
     }
   }, [isOpen, info]);
 
   if (!isOpen) return null;
 
-  const handleChange = (field: keyof ProjectInfo, value: string | number) => {
+  const handleChange = (field: keyof ProjectInfo, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -157,6 +159,43 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
                     <div className="space-y-1.5">
                         <span className="text-[9px] font-black uppercase text-slate-400 ml-1">Oneri Sic. (%)</span>
                         <input type="number" value={formData.safetyRate} onChange={e => handleChange('safetyRate', parseFloat(e.target.value))} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-black bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500/20" />
+                    </div>
+                </div>
+            </div>
+
+            {/* Preferenze di Stampa */}
+            <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
+                <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-purple-500" /> Preferenze di Stampa PDF
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div>
+                            <p className="text-xs font-black text-slate-700 uppercase tracking-tight">Incidenza Manodopera</p>
+                            <p className="text-[10px] text-slate-400 font-medium italic">Mostra colonna nel riepilogo finale</p>
+                        </div>
+                        <button 
+                            type="button"
+                            onClick={() => handleChange('showLaborIncidenceInSummary', !formData.showLaborIncidenceInSummary)}
+                            className={`w-12 h-6 rounded-full transition-all relative ${formData.showLaborIncidenceInSummary ? 'bg-blue-600' : 'bg-slate-300'}`}
+                        >
+                            <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${formData.showLaborIncidenceInSummary ? 'left-7' : 'left-1'}`}></div>
+                        </button>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <div>
+                            <p className="text-xs font-black text-slate-700 uppercase tracking-tight">Lunghezza Descrizioni</p>
+                            <p className="text-[10px] text-slate-400 font-medium italic">Formato descrizioni nel computo</p>
+                        </div>
+                        <select 
+                            value={formData.descriptionLength} 
+                            onChange={e => handleChange('descriptionLength', e.target.value as 'full' | 'short')}
+                            className="border border-slate-200 rounded-xl px-3 py-1.5 text-[10px] font-black bg-white outline-none focus:ring-2 focus:ring-blue-500/20"
+                        >
+                            <option value="full">COMPLETA</option>
+                            <option value="short">BREVE (6 RIGHE)</option>
+                        </select>
                     </div>
                 </div>
             </div>

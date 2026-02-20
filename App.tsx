@@ -1622,6 +1622,7 @@ const App: React.FC = () => {
   useEffect(() => { if (!currentFileHandle) return; const timeoutId = setTimeout(() => { handleSmartSave(true, false); }, 3000); return () => clearTimeout(timeoutId); }, [articles, categories, projectInfo, analyses, currentFileHandle]);
 
   const handleOpenProject = async () => {
+    // PATTO DI FERRO: RIPRISTINO TASTO APRI CON FALLBACK ROBUSTO
     if ('showOpenFilePicker' in window) {
       try {
         const [handle] = await (window as any).showOpenFilePicker({
@@ -1641,12 +1642,15 @@ const App: React.FC = () => {
         } else {
           alert("Formato file non valido.");
         }
+        return; // Successo
       } catch (err: any) {
-        if (err.name !== 'AbortError') console.error("Errore apertura:", err);
+        if (err.name === 'AbortError') return;
+        console.warn("File System Access API non disponibile o negata, uso fallback legacy:", err);
       }
-    } else {
-      fileInputRef.current?.click();
     }
+    
+    // Fallback o se API non presente
+    fileInputRef.current?.click();
   };
 
   const handleLoadProjectLegacy = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (event) => { try { const content = event.target?.result as string; const data = JSON.parse(content); if (data.gecolaData) { setProjectInfo(data.gecolaData.projectInfo); updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []); } else { alert("Formato non valido."); } setCurrentFileHandle(null); } catch (error) { alert("Errore caricamento."); } }; reader.readAsText(file); e.target.value = ''; };

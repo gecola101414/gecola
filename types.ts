@@ -89,6 +89,8 @@ export interface ProjectInfo {
   tariffColumnWidth?: number;
   fontSizeMeasurements?: number;
   fontSizeWbsSidebar?: number;
+  showLaborIncidenceInSummary?: boolean;
+  descriptionLength?: 'full' | 'short';
 }
 
 export interface Totals {
