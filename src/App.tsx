@@ -965,6 +965,21 @@ const App: React.FC = () => {
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
   const [isProcessingDrop, setIsProcessingDrop] = useState(false);
   const [lastAddedMeasurementId, setLastAddedMeasurementId] = useState<string | null>(null);
+
+  const handleViewChange = (view: 'lavori' | 'sicurezza' | 'summary' | 'schedule') => {
+    if (view === 'lavori') setViewMode('COMPUTO');
+    if (view === 'sicurezza') setViewMode('SICUREZZA');
+    if (view === 'summary') setViewMode('SUMMARY');
+    if (view === 'schedule') setViewMode('CRONOPROGRAMMA');
+
+    if ((view === 'lavori' || view === 'sicurezza') && view !== (viewMode === 'COMPUTO' ? 'lavori' : 'sicurezza')) {
+        const firstCategoryInView = categories.find(c => 
+            view === 'lavori' ? !c.code.startsWith('S.') : c.code.startsWith('S.')
+        );
+        setSelectedCategoryCode(firstCategoryInView ? firstCategoryInView.code : '');
+        playUISound('cycle');
+    }
+  };
   const [draggedCategoryCode, setDraggedCategoryCode] = useState<string | null>(null);
   const [activeSoaCategory, setActiveSoaCategory] = useState<string>('OG1');
   const [wbsDropTarget, setWbsDropTarget] = useState<{ code: string, position: 'top' | 'bottom' | 'inside' } | null>(null);
@@ -1083,6 +1098,10 @@ const App: React.FC = () => {
     const grandTotal = totalTaxable + vatAmount;
     return { totalWorks, totalLabor, safetyCosts, totalSafetyProgettuale, totalTaxable, vatAmount, grandTotal };
   }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
+
+  const totalForView = viewMode === 'COMPUTO' ? totals.totalWorks :
+                       viewMode === 'SICUREZZA' ? totals.totalSafetyProgettuale :
+                       totals.grandTotal;
 
   const generateNextWbsCode = (currentCats: Category[]) => {
       if (viewMode === 'SICUREZZA') {
@@ -1740,10 +1759,10 @@ const App: React.FC = () => {
                 <div className="w-[20.4rem] bg-slate-200 border-r border-slate-300 flex flex-col flex-shrink-0 z-40 shadow-lg transition-all duration-300 relative pl-[10px]">
                 <div onMouseEnter={() => startScroll(-3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(-3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }} onDragLeave={stopScroll} className="absolute top-[135px] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
                 <div onMouseEnter={() => startScroll(3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(3); }} onDragLeave={stopScroll} className="absolute bottom-0 left-0 right-0 h-16 z-[100] cursor-s-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
-                <div className="px-4 py-2.5 bg-slate-300 border-b border-slate-400 flex justify-between items-center shrink-0 shadow-sm"><div className="flex items-baseline gap-2"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">TOTALE:</span><span className="font-mono font-black text-slate-900 text-sm tracking-tighter">{formatCurrency(totals.totalWorks + totals.totalSafetyProgettuale)}</span></div></div>
+                <div className="px-4 py-2.5 bg-slate-300 border-b border-slate-400 flex justify-between items-center shrink-0 shadow-sm"><div className="flex items-baseline gap-2"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">TOTALE:</span><span className="font-mono font-black text-slate-900 text-sm tracking-tighter">{formatCurrency(totalForView)}</span></div></div>
                 <div className="p-1 bg-slate-300/40 border-b border-slate-400 grid grid-cols-5 gap-1 shrink-0">
-                    <button onClick={() => { setViewMode('COMPUTO'); setActiveWbsContext('work'); }} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><HardHat className="w-3.5 h-3.5" /> Lavori</button>
-                    <button onClick={() => { setViewMode('SICUREZZA'); setActiveWbsContext('safety'); }} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><ShieldAlert className="w-3.5 h-3.5" /> Sicur.</button>
+                    <button onClick={() => { handleViewChange('lavori'); setActiveWbsContext('work'); }} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'COMPUTO' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><HardHat className="w-3.5 h-3.5" /> Lavori</button>
+                    <button onClick={() => { handleViewChange('sicurezza'); setActiveWbsContext('safety'); }} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SICUREZZA' ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><ShieldAlert className="w-3.5 h-3.5" /> Sicur.</button>
                     <button onClick={() => setViewMode('ANALISI')} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'ANALISI' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><TestTubes className="w-3.5 h-3.5" /> Analisi</button>
                     <button onClick={() => setViewMode('SUMMARY')} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Layers className="w-3.5 h-3.5" /> Riepil.</button>
                     <button onClick={() => setViewMode('CRONOPROGRAMMA')} className={`py-2 text-[8.5px] font-black uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'CRONOPROGRAMMA' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-600 hover:bg-white'}`}><Calendar className="w-3.5 h-3.5" /> Crono</button>
