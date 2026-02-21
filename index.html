@@ -116,6 +116,30 @@
         animation: drop-zone-pulse 3s infinite;
       }
 
+      /* DESIGN EVOLUTION V2: TECHNICAL GRID */
+      .article-block {
+        display: table-row-group;
+        border-bottom: 4px solid #d1d5db;
+        background-color: white;
+      }
+      .article-block:hover {
+        background-color: #f9fafb;
+      }
+      .article-header-row {
+        background: linear-gradient(to right, #f9fafb, #f3f4f6);
+        border-top: 1px solid #e5e7eb;
+        border-bottom: 1px solid #e5e7eb;
+      }
+      .object-id-badge {
+        background: #111827;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px; /* Angoli leggermente smussati per leggibilità */
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
       @media print {
         .no-print { display: none; }
         .page-break { page-break-before: always; }
@@ -156,7 +180,6 @@
       </div>
     </noscript>
     <div id="root"></div>
-    <script type="module" src="./index.tsx"></script>
-  <script type="module" src="/index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>

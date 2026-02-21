@@ -539,29 +539,26 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const descFontSize = 15.5; 
 
    return (
-      <tbody 
+       <tbody 
         ref={tbodyRef}
         id={`article-${article.id}`} 
-        style={{ scrollMarginTop: '45px' }}
-        className={`bg-white border-b-4 border-slate-600 group/article transition-all relative ${isArticleLocked ? 'bg-gray-50/50' : ''} ${isArticleDragOver ? 'ring-2 ring-blue-500 ring-inset shadow-[0_0_25px_rgba(59,130,246,0.3)]' : ''} ${lastMovedItemId === article.id ? 'highlight-move' : ''}`}
+        style={{ scrollMarginTop: '60px' }}
+        className={`article-block group/article ${isArticleLocked ? 'opacity-80' : ''} ${isArticleDragOver ? 'ring-2 ring-blue-500 ring-inset' : ''} ${lastMovedItemId === article.id ? 'highlight-move' : ''}`}
         onDragOver={handleTbodyDragOver}
         onDragLeave={handleTbodyDragLeave}
         onDrop={handleTbodyDrop}
       >
-         {isArticleDragOver && articleDropPosition === 'top' && (
-             <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-blue-500 -top-0.5 z-50 shadow-[0_0_15px_rgba(59,130,246,0.8)] pointer-events-none animate-pulse"></div></td></tr>
-         )}
          <tr 
-            className={`align-top border-t-2 border-slate-600 ${!isPrintMode ? 'cursor-pointer hover:bg-slate-50' : ''} ${isArticleDragOver ? 'bg-blue-50/20' : ''} ${isIndustrialMode ? 'bg-slate-100 border-l-4 border-indigo-600 shadow-sm' : ''} transition-all duration-300`}
+            className={`align-top article-header-row ${!isPrintMode ? 'cursor-pointer' : ''} ${isIndustrialMode ? 'bg-slate-100' : ''}`}
             draggable={!isPrintMode && !areControlsDisabled}
             onDragStart={handleArticleHeaderDragStart}
             onDragEnd={onArticleDragEnd}
             onClick={handleCycleLocal}
          >
-            <td className={`text-center py-2 text-xs font-bold border-r border-gray-200 select-none font-mono ${isIndustrialMode ? 'text-indigo-400 bg-slate-100/50' : 'text-gray-500 bg-white'}`}>
-                <div className="flex flex-col items-center leading-none">
-                    <span className="text-[14px] font-black">{globalIndex}</span>
-                    <span className="text-[9px] mt-0.5">{hierarchicalNumber}</span>
+            <td className="text-center py-2 px-2 border-r border-gray-200">
+                <div className="flex flex-col items-center gap-1">
+                    <span className="object-id-badge">{globalIndex}</span>
+                    <span className="text-[9px] font-bold text-slate-400 font-mono tracking-tighter">{hierarchicalNumber}</span>
                 </div>
             </td>
             <td className={`p-1 border-r border-gray-200 align-top ${isIndustrialMode ? 'bg-slate-100/50' : 'bg-white'}`} style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}>
@@ -647,7 +644,6 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 </td>
                 <td colSpan={8} className="border-r border-gray-200"></td>
             </tr>
-            <tr className="h-1"><td colSpan={11} className="border-r border-gray-200 bg-white"></td></tr>
             {processedMeasurements.map((m, idx) => {
                 const linkedArt = getLinkedInfo(m);
                 const isSubtotal = m.type === 'subtotal';
@@ -805,8 +801,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
            </>
          )}
 
-         <tr className={`font-bold text-xs border-t-2 border-slate-600 transition-all duration-300 ${isIndustrialMode ? 'bg-slate-100 border-b-2 border-slate-200 text-slate-900' : 'bg-white border-gray-300 shadow-inner'}`}>
-             <td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200 bg-slate-100/50' : 'bg-white'}`}></td><td className={`border-r border-gray-200 ${isIndustrialMode ? 'border-slate-200 bg-slate-100/50' : 'bg-white'}`} style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}></td>
+          <tr className={`font-bold text-xs transition-all duration-300 ${isIndustrialMode ? 'bg-slate-100 text-slate-900' : 'bg-white'}`}>
+             <td className="border-r border-gray-200"></td>
+             <td className="border-r border-gray-200" style={{ width: projectSettings.tariffColumnWidth ? `${projectSettings.tariffColumnWidth}px` : '135px' }}></td>
              <td className={`px-2 py-3 text-left border-r border-gray-200 flex items-center gap-3 ${isIndustrialMode ? 'border-slate-200' : ''}`}>
                 {!isPrintMode && !isIndustrialMode && !isArticleLocked && (
                    <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -836,7 +833,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                  <div className="flex flex-col items-end leading-none py-1"><span>{formatCurrency(laborValue)}</span><span className="text-[9px] text-gray-400">({article.laborRate}%)</span></div>
              </td>
          </tr>
-         <tr className="h-[8px] bg-transparent border-none"><td colSpan={11} className="border-none"></td></tr>
+
          {isArticleDragOver && articleDropPosition === 'bottom' && (
              <tr className="h-0 p-0 border-none"><td colSpan={11} className="p-0 border-none h-0 relative"><div className="absolute w-full h-1 bg-blue-500 top-0 z-50 shadow-[0_0_15px_rgba(59,130,246,0.8)] pointer-events-none animate-pulse"></div></td></tr>
          )}
@@ -1885,9 +1882,9 @@ const App: React.FC = () => {
                     <div className="p-10 bg-[#f4f6f8] min-h-full flex-1 overflow-y-auto"><div className="flex justify-between items-end mb-8 border-b-2 border-purple-200 pb-6"><div className="flex items-center gap-6"><div className="bg-purple-600 p-4 rounded-xl shadow-lg ring-4 ring-purple-100"><Database className="w-8 h-8 text-white" /></div><div><h2 className="text-3xl font-black text-slate-800 tracking-tight uppercase italic">Gestionale Analisi Prezzi</h2></div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl flex items-center gap-3 transition-all transform active:scale-90"><Plus className="w-5 h-5" /> Nuova Analisi</button></div><div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden ring-1 ring-slate-300/50"><table className="w-full text-left border-collapse table-fixed"><thead className="bg-slate-100 border-b-2 border-purple-100 text-slate-500 text-[10px] font-black uppercase tracking-widest"><tr><th className="p-4 w-12 text-center border-r border-slate-200">#</th><th className="p-4 w-14 text-center border-r border-slate-200">D&D</th><th className="p-4 w-28 border-r border-slate-200">Codice</th><th className="p-4 border-r border-slate-200">Oggetto dell'Analisi</th><th className="p-4 w-24 text-center border-r border-slate-200">U.M.</th><th className="p-4 w-36 text-right border-r border-slate-200">Unitario €</th><th className="p-4 w-52 text-center bg-slate-50">Gestionale</th></tr></thead><tbody className="divide-y divide-slate-100">{analyses.map((analysis, index) => { const isCurrentlyDragging = draggedAnalysisId === analysis.id; const isDragOver = analysisDragOverId === analysis.id; return (<tr key={analysis.id} draggable onDragStart={(e) => handleAnalysisRowDragStart(e, analysis.id)} onDragOver={(e) => handleAnalysisRowDragOver(e, analysis.id)} onDragLeave={() => setAnalysisDragOverId(null)} onDrop={(e) => handleAnalysisRowDrop(e, analysis.id)} onDragEnd={() => { setDraggedAnalysisId(null); setIsDraggingAnalysis(false); }} className={`group transition-all ${isCurrentlyDragging ? 'opacity-30' : 'hover:bg-slate-50/80'} ${isDragOver ? (analysisDropPosition === 'top' ? 'border-t-4 border-t-purple-600' : 'border-b-4 border-b-purple-600') : ''} ${lastMovedItemId === analysis.id ? 'highlight-move' : ''}`}><td className="p-4 text-center font-mono text-[10px] text-slate-400 bg-slate-50/50 border-r border-slate-100">{index + 1}</td><td className="p-4 text-center border-r border-slate-100"><GripVertical className="w-5 h-5 mx-auto text-slate-300 group-hover:text-purple-600 cursor-grab active:cursor-grabbing" /></td><td className="p-4 border-r border-slate-100"><span className="bg-purple-50 text-purple-700 border border-purple-200 font-black font-mono text-xs px-3 py-1 rounded-lg shadow-sm">{analysis.code}</span></td><td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700 text-xs leading-relaxed line-clamp-2 uppercase tracking-tighter">{analysis.description}</p></td><td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase px-2 py-1 bg-slate-100 rounded border border-slate-200">{analysis.unit}</span></td><td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-800 font-mono tracking-tighter leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td><td className="p-4 text-center bg-slate-50/30"><div className="flex items-center justify-center gap-1.5 px-2"><button onClick={() => handleImportAnalysisToArticle(analysis)} className="bg-emerald-600 text-white p-2 rounded-lg shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2 px-3 transform active:scale-90" title="Importa in Computo"><ArrowRight className="w-3.5 h-3.5" /><span className="text-[9px] font-black uppercase">Importa</span></button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="bg-white border border-slate-200 text-slate-600 hover:text-purple-600 hover:border-purple-300 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-lg border transition-all transform active:scale-90 ${analysis.isLocked ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-400 bg-white border-slate-200 hover:text-blue-600'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Elimina"><Trash2 className="w-4 h-4" /></button></div></td></tr>); })}</tbody></table></div></div>
                    ) : (
                    <div className={`flex-1 overflow-y-auto overflow-x-hidden shadow-[inset_0_15px_50px_rgba(0,0,0,0.1),inset_0_-15px_50px_rgba(0,0,0,0.1)] border-x border-gray-400 flex flex-col relative scroll-smooth bg-white ${isWorkspaceDragOver ? 'ring-8 ring-blue-400 ring-inset animate-pulse bg-blue-50/50' : ''}`} onKeyDown={handleInputKeyDown} onDragOver={handleWorkspaceDragOver} onDragLeave={() => setIsWorkspaceDragOver(false)} onDrop={handleWorkspaceDrop}>
-                      <div className="flex-1 flex flex-col min-h-full px-6 py-8 relative">
-                            <table className="w-full text-left border-collapse table-fixed relative bg-white">
-                                <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
+    <div className={`flex-1 flex flex-col min-h-full px-6 py-8 relative`}>
+        <table className="w-full text-left border-collapse relative">
+            <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} />
                                 {activeArticles.length === 0 ? (
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed border-blue-100 bg-slate-50/30 text-center space-y-4`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white text-blue-200 border border-blue-50`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3></div></td></tr></tbody>
                                 ) : (
