@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "lint": "tsc",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -15,8 +16,6 @@
     "lucide-react": "^0.555.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
-    "vite": "^7.2.6",
-    "@vitejs/plugin-react": "^5.1.1",
     "firebase": "^12.6.0"
   },
   "devDependencies": {

@@ -10,14 +10,6 @@ export default defineConfig({
 
     // MINIFICAZIONE AGGRESSIVA
     minify: 'esbuild',
-    
-    esbuild: {
-      // Rimuove console.log e debugger
-      drop: ['console', 'debugger'],
-      legalComments: 'none',
-      treeShaking: true,
-      target: 'es2015'
-    },
 
     // NOMI FILE CASUALI (Hash)
     rollupOptions: {

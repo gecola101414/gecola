@@ -1,254 +1,238 @@
-
 import React, { useMemo } from 'react';
-import { Totals, ProjectInfo, Category, Article } from '../types';
+import { Totals, ProjectInfo, Category, Article, PriceAnalysis } from '../types';
 import { SOA_CATEGORIES } from '../constants';
-import { Layers, Award, CheckCircle2, AlertTriangle, Calculator, FileText } from 'lucide-react';
+import { Layers, Award, CheckCircle2, AlertTriangle, Calculator, FileText, ShieldAlert, Users, PenTool, Calendar as CalendarIcon } from 'lucide-react';
 
 interface SummaryProps {
   totals: Totals;
   info: ProjectInfo;
   categories: Category[];
   articles: Article[];
+  analyses: PriceAnalysis[];
 }
 
-const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles }) => {
+const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles, analyses }) => {
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
   };
 
-  const formatPercent = (val: number) => {
-      return new Intl.NumberFormat('it-IT', { style: 'percent', minimumFractionDigits: 2 }).format(val);
-  };
-
-  // 1. Calcolo Dettaglio WBS (Capitoli)
+  // 1. Riepilogo per WBS
   const wbsBreakdown = useMemo(() => {
-      // Filtra solo categorie abilitate e map per calcolare i totali
       return categories
-        .filter(c => c.isEnabled !== false)
+        .filter(c => c.isEnabled !== false && !c.isSuperCategory)
         .map(cat => {
           const catTotal = articles
             .filter(a => a.categoryCode === cat.code)
             .reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
           return { ...cat, total: catTotal };
-      });
+      }).filter(c => c.total > 0.01);
   }, [categories, articles]);
 
-  // 2. Calcolo Dettaglio SOA (Categorie)
+  // 2. Riepilogo SOA
   const soaBreakdown = useMemo(() => {
       const soaMap: Record<string, number> = {};
       let untaggedTotal = 0;
 
-      const enabledCategoryCodes = new Set(categories.filter(c => c.isEnabled !== false).map(c => c.code));
-
       articles.forEach(art => {
-          if (!enabledCategoryCodes.has(art.categoryCode)) return;
+          const cat = categories.find(c => c.code === art.categoryCode);
+          if (cat && cat.isEnabled === false) return;
 
           const amount = art.quantity * art.unitPrice;
-          const soa = art.soaCategory;
+          const effectiveSoa = cat?.soaCategory || art.soaCategory;
 
-          if (soa) {
-              soaMap[soa] = (soaMap[soa] || 0) + amount;
-          } else {
+          if (effectiveSoa) {
+              soaMap[effectiveSoa] = (soaMap[effectiveSoa] || 0) + amount;
+          } else if (amount > 0) {
               untaggedTotal += amount;
           }
       });
 
-      const list = Object.entries(soaMap).map(([code, amount]) => {
-          const def = SOA_CATEGORIES.find(s => s.code === code);
-          return {
-              code,
-              description: def?.desc || 'Categoria sconosciuta',
-              amount
-          };
-      }).sort((a, b) => b.amount - a.amount);
+      const list = Object.entries(soaMap).map(([code, amount]) => ({
+          code,
+          description: SOA_CATEGORIES.find(s => s.code === code)?.desc || 'Cat. Sconosciuta',
+          amount
+      })).sort((a, b) => b.amount - a.amount);
 
       if (untaggedTotal > 0.01) {
-          list.push({
-              code: 'N/D',
-              description: 'Voci senza qualificazione SOA',
-              amount: untaggedTotal
-          });
+          list.push({ code: 'N/D', description: 'Voci non qualificate (Verifica WBS)', amount: untaggedTotal });
       }
-
       return list;
-  }, [categories, articles]);
+  }, [articles, categories]);
 
-  const totalSoaAmount = soaBreakdown.reduce((sum, item) => sum + item.amount, 0);
-  const totalWbsAmount = wbsBreakdown.reduce((sum, item) => sum + item.total, 0); 
-  
-  // Calcoli finali
-  const safetyAmount = totalWbsAmount * (info.safetyRate / 100);
-  const grandTotal = totalWbsAmount + safetyAmount; // SENZA IVA
+  const totalAnalyzed = soaBreakdown.reduce((s, i) => s + i.amount, 0);
+  const totalWbs = wbsBreakdown.reduce((s, i) => s + i.total, 0);
+  const isBalanced = Math.abs(totalWbs - totalAnalyzed) < 0.01;
 
-  const isBalanced = Math.abs(totalWbsAmount - totalSoaAmount) < 0.01;
+  // Calcolo Uomini Giorno (240€/giorno) - Patto di Ferro
+  const manDaysCount = Math.ceil((totals.totalLabor || 0) / 240);
 
   return (
     <div className="space-y-8 pb-20 animate-in fade-in duration-500">
-      
-      {/* HEADER DATI PROGETTO */}
       <div className="bg-white p-6 shadow-sm rounded-lg border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-6 relative overflow-hidden">
           <div className="absolute top-0 left-0 w-1 h-full bg-blue-600"></div>
           <div>
               <span className="text-xs text-gray-500 font-bold uppercase block mb-1">Progetto</span>
-              <span className="text-lg font-bold text-gray-800 block leading-tight">{info.title}</span>
+              <span className="text-lg font-bold text-gray-800 block">{info.title}</span>
               <span className="text-sm text-gray-600 mt-1 flex items-center gap-1"><FileText className="w-3 h-3"/> {info.location}</span>
           </div>
           <div>
               <span className="text-xs text-gray-500 font-bold uppercase block mb-1">Committente</span>
-              <span className="text-base text-gray-800">{info.client || '-'}</span>
+              <span className="text-base text-gray-800">{info.client}</span>
           </div>
           <div className="text-right">
-              <span className="text-xs text-gray-500 font-bold uppercase block mb-1">Listino Base</span>
+              <span className="text-xs text-gray-500 font-bold uppercase block mb-1">Listino</span>
               <span className="inline-block bg-orange-100 text-orange-800 text-xs px-2 py-1 rounded font-mono font-bold">{info.region} {info.year}</span>
           </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
-          {/* COLONNA SINISTRA: RIEPILOGO WBS */}
-          <div className="flex flex-col h-full">
-              <div className="flex items-center mb-4 text-blue-800 border-b border-blue-200 pb-2">
-                  <Layers className="w-5 h-5 mr-2" />
-                  <h3 className="text-lg font-bold uppercase tracking-wide">Riepilogo per Capitoli (WBS)</h3>
-              </div>
-              
-              <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden flex-1">
-                  <table className="w-full text-sm">
-                      <thead className="bg-gray-100 text-gray-600 font-bold border-b border-gray-200">
-                          <tr>
-                              <th className="p-3 text-left w-24">Codice</th>
-                              <th className="p-3 text-left">Descrizione Capitolo</th>
-                              <th className="p-3 text-right w-32">Importo</th>
+          <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+              <div className="p-3 bg-slate-50 border-b font-bold text-blue-800 flex items-center gap-2"><Layers className="w-4 h-4" /> Riepilogo WBS (Lavori netti)</div>
+              <table className="w-full text-sm">
+                  <thead className="bg-gray-50"><tr><th className="p-3 text-left">Codice</th><th className="p-3 text-left">Capitolo</th><th className="p-3 text-right">Importo Netto</th></tr></thead>
+                  <tbody>
+                      {wbsBreakdown.map(cat => (
+                          <tr key={cat.code} className={`border-t ${cat.type === 'safety' ? 'bg-orange-50/30' : ''}`}>
+                              <td className="p-3 font-mono text-xs">{cat.code}</td>
+                              <td className={`p-3 flex items-center gap-2 ${cat.type === 'safety' ? 'text-orange-900' : 'text-blue-900'} font-medium`}>{cat.name} {cat.type === 'safety' && <ShieldAlert className="w-3.5 h-3.5 text-orange-500" />}</td>
+                              <td className="p-3 text-right font-bold text-base">{formatCurrency(cat.total)}</td>
                           </tr>
-                      </thead>
-                      <tbody>
-                          {wbsBreakdown.map((cat, idx) => (
-                              <tr key={cat.code} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-                                  <td className="p-3 font-mono font-bold text-gray-500 align-top">{cat.code}</td>
-                                  <td className="p-3 text-gray-800 font-medium align-top">{cat.name}</td>
-                                  <td className="p-3 text-right font-mono font-bold text-gray-700 align-top">{formatCurrency(cat.total)}</td>
-                              </tr>
-                          ))}
-                          {wbsBreakdown.length === 0 && (
-                              <tr><td colSpan={3} className="p-6 text-center text-gray-400 italic">Nessun capitolo presente</td></tr>
-                          )}
-                      </tbody>
-                      <tfoot className="bg-blue-50 border-t-2 border-blue-100">
-                          <tr>
-                              <td colSpan={2} className="p-3 text-right font-bold text-blue-900 uppercase text-xs">Totale Solo Lavori</td>
-                              <td className="p-3 text-right font-bold font-mono text-blue-900 text-base">{formatCurrency(totalWbsAmount)}</td>
-                          </tr>
-                      </tfoot>
-                  </table>
-              </div>
+                      ))}
+                  </tbody>
+              </table>
           </div>
 
-          {/* COLONNA DESTRA: ANALISI SOA */}
-          <div className="flex flex-col h-full">
-              <div className="flex items-center mb-4 text-purple-800 border-b border-purple-200 pb-2">
-                  <Award className="w-5 h-5 mr-2" />
-                  <h3 className="text-lg font-bold uppercase tracking-wide">Analisi Categorie SOA</h3>
-              </div>
-
-              <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden flex-1">
-                  <table className="w-full text-sm">
-                      <thead className="bg-gray-100 text-gray-600 font-bold border-b border-gray-200">
-                          <tr>
-                              <th className="p-3 text-left w-20">Cat.</th>
-                              <th className="p-3 text-left">Descrizione Qualificazione</th>
-                              <th className="p-3 text-right w-20">%</th>
-                              <th className="p-3 text-right w-32">Importo</th>
+          <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+              <div className="p-3 bg-slate-50 border-b font-bold text-purple-800 flex items-center gap-2"><Award className="w-4 h-4" /> Analisi SOA (Ereditata da WBS)</div>
+              <table className="w-full text-sm">
+                  <thead className="bg-gray-50"><tr><th className="p-3 text-left">Cat.</th><th className="p-3 text-left">Descrizione</th><th className="p-3 text-right">Importo</th></tr></thead>
+                  <tbody>
+                      {soaBreakdown.map((item, idx) => (
+                          <tr key={item.code} className={`border-t ${idx === 0 ? 'bg-purple-50' : ''} ${item.code === 'N/D' ? 'bg-red-50' : ''}`}>
+                              <td className="p-3"><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${item.code === 'N/D' ? 'bg-red-200 text-red-800' : 'bg-slate-200 text-slate-800'}`}>{item.code}</span></td>
+                              <td className="p-3 text-xs">{item.description}</td>
+                              <td className="p-3 text-right font-bold">{formatCurrency(item.amount)}</td>
                           </tr>
-                      </thead>
-                      <tbody>
-                          {soaBreakdown.map((item, idx) => {
-                              const isPrevalent = idx === 0 && item.amount > 0;
-                              return (
-                                  <tr key={item.code} className={`border-b border-gray-100 ${item.code === 'N/D' ? 'bg-red-50' : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${isPrevalent ? 'bg-purple-50' : ''}`}>
-                                      <td className={`p-3 align-top`}>
-                                          <span className={`font-mono font-bold px-2 py-1 rounded text-xs ${isPrevalent ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700'} ${item.code === 'N/D' ? 'bg-red-100 text-red-600' : ''}`}>
-                                              {item.code}
-                                          </span>
-                                      </td>
-                                      <td className="p-3 text-gray-800 text-xs align-middle">
-                                          {item.description}
-                                          {isPrevalent && <div className="text-[10px] text-purple-600 font-bold mt-1 uppercase tracking-wider">★ Categoria Prevalente</div>}
-                                      </td>
-                                      <td className="p-3 text-right text-xs text-gray-500 align-middle font-mono">{totalSoaAmount > 0 ? formatPercent(item.amount / totalSoaAmount) : '0%'}</td>
-                                      <td className="p-3 text-right font-mono font-medium align-middle">{formatCurrency(item.amount)}</td>
-                                  </tr>
-                              );
-                          })}
-                          {soaBreakdown.length === 0 && (
-                              <tr><td colSpan={4} className="p-6 text-center text-gray-400 italic">Nessuna voce analizzabile</td></tr>
-                          )}
-                      </tbody>
-                      <tfoot className="bg-purple-50 border-t-2 border-purple-100">
-                          <tr>
-                              <td colSpan={3} className="p-3 text-right font-bold text-purple-900 uppercase text-xs">Totale per SOA</td>
-                              <td className="p-3 text-right font-bold font-mono text-purple-900 text-base">{formatCurrency(totalSoaAmount)}</td>
-                          </tr>
-                      </tfoot>
-                  </table>
-              </div>
+                      ))}
+                  </tbody>
+              </table>
           </div>
       </div>
 
-      {/* TOTALE GENERALE (SENZA IVA) */}
-      <div className="bg-white p-8 shadow-lg rounded-xl border border-gray-300 mt-8">
-          <div className="flex flex-col md:flex-row justify-between items-end md:items-center border-b-2 border-gray-100 pb-6 mb-6">
-              <div className="flex items-center">
-                  <div className="p-3 bg-gray-100 rounded-full mr-4"><Calculator className="w-8 h-8 text-gray-600" /></div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Quadro Economico Estimativo (Dettaglio)</h2>
-                    <span className="text-xs text-gray-500 uppercase tracking-widest font-bold">Fase Progettuale (Escluso IVA)</span>
+      {analyses.length > 0 && (
+          <div className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden mt-8">
+              <div className="p-3 bg-purple-50 border-b font-bold text-purple-900 flex items-center gap-2"><PenTool className="w-4 h-4" /> Elenco Analisi Nuovi Prezzi</div>
+              <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                      <tr>
+                          <th className="p-3 text-left w-24">Codice</th>
+                          <th className="p-3 text-left">Descrizione</th>
+                          <th className="p-3 text-center w-20">U.M.</th>
+                          <th className="p-3 text-right w-32">Prezzo Unitario</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {analyses.map(an => (
+                          <tr key={an.id} className="border-t hover:bg-gray-50 transition-colors">
+                              <td className="p-3 font-mono text-xs font-bold text-purple-700">{an.code}</td>
+                              <td className="p-3 text-xs">{an.description}</td>
+                              <td className="p-3 text-center text-xs">{an.unit}</td>
+                              <td className="p-3 text-right font-bold">{formatCurrency(an.totalUnitPrice)}</td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+          <div className="bg-white p-8 shadow-lg rounded-xl border border-blue-100 flex flex-col justify-center">
+              <div className="flex items-center gap-4 mb-6 border-b border-slate-50 pb-4">
+                  <div className="bg-blue-600 p-2 rounded-xl"><Calculator className="w-6 h-6 text-white" /></div>
+                  <h3 className="font-black text-slate-800 uppercase tracking-tighter text-lg">Quadro Economico</h3>
+              </div>
+              <div className="space-y-4">
+                  <div className="flex justify-between text-gray-600 font-bold border-b border-gray-50 pb-2">
+                      <span>Totale Opere (Lavori netti)</span>
+                      <span className="font-mono text-blue-700 text-lg">{formatCurrency(totals.totalWorks)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 font-medium text-sm">
+                      <span>Oneri Sicurezza PSC</span>
+                      <span className="font-mono">{formatCurrency(totals.safetyCosts)}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500 font-medium text-sm border-b border-gray-50 pb-2">
+                      <span>IVA di Progetto ({info.vatRate}%)</span>
+                      <span className="font-mono">{formatCurrency(totals.vatAmount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
+                      <span className="font-black text-blue-900 uppercase text-xs tracking-widest">Totale Generale</span>
+                      <span className="font-mono text-2xl font-black text-blue-700">{formatCurrency(totals.grandTotal)}</span>
                   </div>
               </div>
           </div>
-          
-          <div className="space-y-4 text-sm max-w-2xl ml-auto">
-              <div className="flex justify-between items-center text-gray-600 text-base border-b border-gray-100 pb-2">
-                  <span>Totale Lavori a misura e a corpo (A)</span>
-                  <span className="font-mono font-medium">{formatCurrency(totalWbsAmount)}</span>
+
+          <div className="bg-white p-8 shadow-lg rounded-xl border border-orange-100 flex flex-col justify-center relative overflow-hidden group">
+              <div className="absolute -right-8 -bottom-8 opacity-5 group-hover:scale-110 transition-transform duration-700">
+                  <Users className="w-32 h-32 text-orange-600" />
               </div>
-              <div className="flex justify-between items-center text-gray-600 text-base border-b border-gray-100 pb-2">
-                  <span>Oneri per la Sicurezza ({info.safetyRate}%) (B) <span className="text-xs text-gray-400 italic ml-2 bg-gray-100 px-2 py-0.5 rounded">Non soggetti a ribasso</span></span>
-                  <span className="font-mono font-medium">{formatCurrency(safetyAmount)}</span>
+              <div className="flex items-center gap-4 mb-6 border-b border-slate-50 pb-4">
+                  <div className="bg-orange-500 p-2 rounded-xl"><Users className="w-6 h-6 text-white" /></div>
+                  <h3 className="font-black text-slate-800 uppercase tracking-tighter text-lg">Stima Manodopera</h3>
               </div>
-              
-              <div className="pt-4 flex justify-between items-center bg-blue-50 p-6 rounded-lg border border-blue-100">
-                  <div className="flex flex-col">
-                      <span className="font-bold text-blue-900 uppercase text-xl tracking-tight">Totale Lavori</span>
-                      <span className="text-blue-500 text-xs uppercase tracking-widest">(A + B)</span>
+              <div className="space-y-5">
+                  <div className="flex justify-between items-center text-gray-600 font-bold">
+                      <div className="flex flex-col">
+                          <span className="text-xs uppercase tracking-widest text-slate-400">Importo Totale</span>
+                          <span className="text-base">Incidenza Manodopera</span>
+                      </div>
+                      <span className="font-mono text-orange-700 text-xl">{formatCurrency(totals.totalLabor)}</span>
                   </div>
-                  <span className="font-mono text-4xl font-bold text-blue-700">{formatCurrency(grandTotal)}</span>
+                  
+                  <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100 relative z-10">
+                      <div className="flex justify-between items-center">
+                          <div>
+                              <span className="block font-black text-orange-900 uppercase text-[10px] tracking-[0.2em] mb-1">Parametro Uomini-Giorno</span>
+                              <p className="text-[9px] text-orange-600 font-bold italic">Basato su costo standard di 240,00 €/giorno</p>
+                          </div>
+                          <div className="text-right">
+                              <span className="block font-mono text-4xl font-black text-orange-600 leading-none">{manDaysCount}</span>
+                              <span className="text-[9px] font-black text-orange-400 uppercase tracking-widest">GG LAVORATIVI</span>
+                          </div>
+                      </div>
+                  </div>
               </div>
           </div>
       </div>
 
-      {/* VERIFICA QUADRATURA */}
-      <div className={`mt-6 p-4 rounded-lg border-l-4 shadow-sm flex items-center justify-between transition-colors ${isBalanced ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500'}`}>
-          <div className="flex items-center gap-4">
-              {isBalanced ? (
-                  <div className="bg-green-100 p-2 rounded-full"><CheckCircle2 className="w-6 h-6 text-green-600" /></div>
-              ) : (
-                  <div className="bg-red-100 p-2 rounded-full"><AlertTriangle className="w-6 h-6 text-red-600" /></div>
-              )}
-              <div>
-                  <h4 className={`font-bold text-sm uppercase tracking-wider ${isBalanced ? 'text-green-800' : 'text-red-800'}`}>
-                      {isBalanced ? 'Quadratura Contabile Verificata' : 'Attenzione: Discrepanza nei totali'}
-                  </h4>
-                  <p className={`text-xs mt-1 ${isBalanced ? 'text-green-600' : 'text-red-600'}`}>
-                      {isBalanced 
-                          ? 'Il totale analitico delle WBS corrisponde perfettamente alla somma delle categorie SOA.' 
-                          : `Esiste una differenza di ${formatCurrency(Math.abs(totalWbsAmount - totalSoaAmount))} tra il totale WBS e il totale SOA. Verifica le voci non assegnate (N/D).`}
-                  </p>
+      {/* BLOCCO DATA E FIRMA DEL PROGETTISTA (PATTO DI FERRO) */}
+      <div className="mt-12 flex flex-col md:flex-row justify-between items-start gap-12 border-t-2 border-slate-200 pt-10">
+          <div className="space-y-4">
+              <div className="flex items-center gap-2 text-slate-400">
+                  <CalendarIcon className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Luogo e Data</span>
               </div>
+              <p className="text-sm font-bold text-slate-700 uppercase italic">{info.location}, {info.date}</p>
+          </div>
+          
+          <div className="w-full md:w-80 space-y-6 text-center">
+              <div className="flex items-center justify-center gap-2 text-slate-400">
+                  <PenTool className="w-4 h-4" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Il Progettista</span>
+              </div>
+              <div className="h-24 w-full bg-slate-50 border-b-2 border-slate-300 rounded-xl flex items-center justify-center">
+                  <span className="text-slate-300 text-xs italic font-serif">Firma Digitale o Autografa</span>
+              </div>
+              <p className="text-sm font-black text-slate-800 uppercase tracking-tight">{info.designer}</p>
           </div>
       </div>
 
+      <div className={`p-4 rounded-lg flex items-center justify-between ${isBalanced ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+          <div className="flex items-center gap-3">
+              {isBalanced ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+              <span className="font-bold">{isBalanced ? 'Bilancio Contabile Verificato' : 'Discrepanza tra WBS e SOA'}</span>
+          </div>
+      </div>
     </div>
   );
 };
-
 export default Summary;
