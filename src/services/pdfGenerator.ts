@@ -43,6 +43,24 @@ const getWbsNumber = (code: string) => {
     return code;
 };
 
+const cleanText = (text: string | undefined | null): string => {
+    if (!text) return '';
+    // PATTO DI FERRO: Individua ogni parola e scarta il resto (caratteri invisibili, tab, etc)
+    // Ricostruisce il testo parola per parola con un singolo spazio
+    const words = text.match(/\S+/g) || [];
+    return words.join(' ');
+};
+
+/**
+ * Permette l'andata a capo in stringhe tecniche lunghe (codici tariffa o specifiche) 
+ * inserendo uno spazio suggerito dopo caratteri di separazione comuni.
+ */
+const allowWrap = (text: string): string => {
+    if (!text || text.length < 8) return text;
+    // Inserisce uno spazio dopo . - / | : = [ ] se non è già presente, per favorire il wrapping
+    return text.replace(/([.\-/|:=])(?=[^ ])/g, '$1 ');
+};
+
 const formatCurrency = (val: number | undefined | null) => {
   if (val === undefined || val === null) return '';
   return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format(val);
@@ -190,7 +208,7 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         const artNum = `${wbsN}.${artIndex + 1}`;
         const gNum = globalCounter.current++;
 
-        let finalDescription = art.description;
+        let finalDescription = allowWrap(cleanText(art.description));
         if (projectInfo.descriptionLength === 'short') {
             // Utilizziamo splitTextToSize per calcolare le righe effettive in base alla larghezza della colonna (60mm)
             // Sottraiamo un piccolo margine per il padding interno della cella
@@ -206,8 +224,8 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
               content: `${gNum}\n(${artNum})`, 
               styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
             },
-            { content: art.code, styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 } } },
-            { content: finalDescription, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 1, right: 1, top: 3, bottom: 2 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20] } },
+            { content: allowWrap(cleanText(art.code)), styles: { isArt: true, fontStyle: 'bold', cellPadding: { top: 3, bottom: 1 }, fontSize: 7.5 } },
+            { content: finalDescription, styles: { isArt: true, fontStyle: 'normal', halign: 'justify', cellPadding: { left: 2, right: 2, top: 3, bottom: 5 }, fontSize: 8.5, valign: 'top', textColor: isSafety ? [200, 80, 0] : [20, 20, 20], minCellHeight: 10 } },
             '', '', '', '', '', '', ''
         ]);
         
@@ -220,7 +238,7 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         let runningPartial = 0;
         art.measurements.forEach(m => {
             let val = 0;
-            let displayDesc = m.description;
+            let displayDesc = cleanText(m.description);
             const isDeduction = m.type === 'deduction';
             
             if (m.linkedArticleId) {
@@ -519,8 +537,8 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
                 const gNum = globalCounter.current++;
                 tableBody.push([
                   { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true } }, 
-                  { content: art.code, styles: { fontStyle: 'bold' } }, 
-                  { content: art.description, styles: { halign: 'justify', fontSize: 8 } }, 
+                  { content: allowWrap(art.code), styles: { fontStyle: 'bold', fontSize: 7.5 } }, 
+                  { content: cleanText(art.description), styles: { halign: 'justify', fontSize: 8, cellPadding: { left: 2, right: 2 } } }, 
                   { content: art.unit, styles: { halign: 'center' } }, 
                   { content: `€ ${formatCurrency(art.unitPrice)}\n(${numberToItalianWords(art.unitPrice)})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.5 } }
                 ]);
@@ -582,7 +600,7 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
                 totalLaborSum += laborPart;
                 const artNum = `${getWbsNumber(cat.code)}.${artIndex + 1}`;
                 const gNum = globalCounter.current++;
-                tableBody.push([ { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true } }, art.code, { content: art.description, styles: { fontSize: 7, halign: 'justify' } }, { content: formatNumber(art.quantity), styles: { halign: 'right' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } ]);
+                tableBody.push([ { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true } }, allowWrap(art.code), { content: cleanText(art.description), styles: { fontSize: 7, halign: 'justify', cellPadding: { left: 2, right: 2 } } }, { content: formatNumber(art.quantity), styles: { halign: 'right' } }, { content: `${art.laborRate}%`, styles: { halign: 'center' } }, { content: formatCurrency(laborPart), styles: { halign: 'right', fontStyle: 'bold' } } ]);
             });
         });
         tableBody.push([{ content: 'TOTALE GENERALE INCIDENZA MANODOPERA', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }, { content: formatCurrency(totalLaborSum), styles: { halign: 'right', fontStyle: 'bold', fillColor: [230, 230, 255] } }]);
@@ -660,7 +678,8 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
             
             currentY += 5;
             doc.setFont("helvetica", "normal");
-            const splitDesc = doc.splitTextToSize(an.description, 185);
+            const cleanedDesc = cleanText(an.description);
+            const splitDesc = doc.splitTextToSize(cleanedDesc, 185);
             doc.text(splitDesc, 12, currentY, { align: 'justify', maxWidth: 185 });
             
             currentY += (splitDesc.length * 5) + 10;
@@ -765,7 +784,7 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
         const summaryBody = analyses.map((an, i) => [
             { content: (i + 1).toString(), styles: { halign: 'center' } },
             { content: an.code, styles: { fontStyle: 'bold', textColor: [142, 68, 173] } },
-            { content: an.description, styles: { fontSize: 7.5 } },
+            { content: cleanText(an.description), styles: { fontSize: 7.5, halign: 'justify' } },
             { content: an.unit, styles: { halign: 'center' } },
             { content: formatCurrency(an.totalUnitPrice), styles: { halign: 'right', fontStyle: 'bold' } }
         ]);

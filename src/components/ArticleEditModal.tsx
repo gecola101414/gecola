@@ -38,7 +38,13 @@ const ArticleEditModal: React.FC<ArticleEditModalProps> = ({ isOpen, onClose, ar
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(article.id, formData);
+    const cleanedData: Partial<Article> = { ...formData };
+    if (cleanedData.description) cleanedData.description = cleanDescription(cleanedData.description);
+    if (cleanedData.code) cleanedData.code = cleanDescription(cleanedData.code);
+    if (cleanedData.unit) cleanedData.unit = cleanDescription(cleanedData.unit);
+    if (cleanedData.priceListSource) cleanedData.priceListSource = cleanDescription(cleanedData.priceListSource);
+    
+    onSave(article.id, cleanedData);
     onClose();
   };
 

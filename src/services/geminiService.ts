@@ -82,6 +82,7 @@ export const generateBulkItems = async (
 
     return (data?.items || []).map((item: any) => ({
         ...item,
+        description: cleanDescription(item.description),
         groundingUrls: groundingUrls
     }));
   } catch (error) {
@@ -92,10 +93,10 @@ export const generateBulkItems = async (
 
 export const cleanDescription = (text: string): string => {
   if (!text) return "";
-  return text
-    .replace(/\r?\n|\r/g, " ") // Sostituisce i ritorni a capo con spazi
-    .replace(/\s+/g, " ")      // Sostituisce spazi multipli e tab con spazio singolo
-    .trim();
+  // PATTO DI FERRO: Individua ogni parola e scarta il resto (caratteri invisibili, tab, etc)
+  // Ricostruisce il testo parola per parola con un singolo spazio
+  const words = text.match(/\S+/g) || [];
+  return words.join(' ');
 };
 
 /**
@@ -127,9 +128,9 @@ export const parseDroppedContent = (rawText: string): Partial<Article> | null =>
     };
 
     // Mappatura Standard: 0:Codice, 1:Descrizione, 2:UM, 3:Prezzo, 4:MO%
-    const code = parts[0] || 'NP.001';
+    const code = cleanDescription(parts[0] || 'NP.001');
     const description = cleanDescription(parts[1] || 'Voce importata');
-    const unit = parts[2] || 'cad';
+    const unit = cleanDescription(parts[2] || 'cad');
     const unitPrice = parseItaNumber(parts[3] || '0');
     
     let laborRate = 0;
@@ -143,12 +144,12 @@ export const parseDroppedContent = (rawText: string): Partial<Article> | null =>
     
     // Se è presente una sesta parte, solitamente è il nome del prezzario sorgente
     if (parts.length >= 6) {
-       priceListSource = parts[5];
+       priceListSource = cleanDescription(parts[5]);
     } else {
        // Euristiche di ricerca nel blocco di testo completo per pattern comuni (es. "Prezzario Regione... 2024")
        const sourceMatch = cleanText.match(/(Prezzario|Listino|Tariffario)\s+[A-Za-z\s,]+\s+\d{4}/i);
        if (sourceMatch) {
-           priceListSource = sourceMatch[0];
+           priceListSource = cleanDescription(sourceMatch[0]);
        } else if (cleanText.toLowerCase().includes("gecola.it")) {
            priceListSource = "Listino Online GeCoLa";
        }
@@ -191,7 +192,7 @@ export const parseVoiceMeasurement = async (transcript: string): Promise<Partial
         });
         const data = JSON.parse(response.text || "{}");
         return {
-            description: data.description || transcript,
+            description: cleanDescription(data.description || transcript),
             length: data.length || undefined,
             width: data.width || undefined,
             height: data.height || undefined,

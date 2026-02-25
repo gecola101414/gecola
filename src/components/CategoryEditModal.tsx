@@ -7,6 +7,7 @@ import {
 import React, { useState, useEffect, useMemo } from 'react';
 import { Category } from '../types';
 import { VIVID_COLORS, WBS_SUGGESTIONS, SOA_CATEGORIES } from '../constants';
+import { cleanDescription } from '../services/geminiService';
 
 interface CategoryEditModalProps {
   isOpen: boolean;
@@ -15,7 +16,7 @@ interface CategoryEditModalProps {
   onDelete?: (code: string) => void;
   onToggleLock?: (code: string) => void;
   onToggleEnabled?: (code: string) => void;
-  onDuplicate?: (code: string) => void;
+  onDuplicate?: (code: string, mode: 'full' | 'folder') => void;
   initialData?: Category | null;
   nextWbsCode?: string;
   forcedIsSuper?: boolean;
@@ -71,7 +72,7 @@ const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim()) {
-      onSave(name, isSuperMode, isSuperMode ? selectedColor : '', selectedSoa);
+      onSave(cleanDescription(name), isSuperMode, isSuperMode ? selectedColor : '', selectedSoa);
       onClose();
     }
   };
@@ -139,12 +140,23 @@ const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
 
                         <button 
                             type="button"
-                            onClick={() => { if(initialData) { onDuplicate?.(initialData.code); onClose(); } }}
+                            onClick={() => { if(initialData) { onDuplicate?.(initialData.code, 'full'); onClose(); } }}
                             className="p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border bg-white/10 border-white/10 hover:bg-blue-600 hover:border-blue-50"
                         >
                             <Copy className="w-4 h-4 text-slate-300" />
-                            <span className="text-[8px] font-black uppercase tracking-widest">Copia</span>
+                            <span className="text-[8px] font-black uppercase tracking-widest">Copia Completa</span>
                         </button>
+
+                        {!isSuperMode && (
+                            <button 
+                                type="button"
+                                onClick={() => { if(initialData) { onDuplicate?.(initialData.code, 'folder'); onClose(); } }}
+                                className="p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border bg-white/10 border-white/10 hover:bg-blue-600 hover:border-blue-50"
+                            >
+                                <Folder className="w-4 h-4 text-slate-300" />
+                                <span className="text-[8px] font-black uppercase tracking-widest">Copia Solo Cartella</span>
+                            </button>
+                        )}
 
                         <button 
                             type="button"
@@ -255,7 +267,7 @@ const CategoryEditModal: React.FC<CategoryEditModalProps> = ({
                             key={color}
                             type="button"
                             onClick={() => setSelectedColor(color)}
-                            className={`w-9 h-9 rounded-full border-[3px] transition-all transform hover:scale-110 active:scale-90 flex items-center justify-center shadow-md ${selectedColor === color ? 'border-slate-800 scale-110' : 'border-white hover:border-slate-200'}`}
+                            className={`w-9 h-9 rounded-full border-4 border-solid transition-all transform hover:scale-110 active:scale-90 flex items-center justify-center shadow-md ${selectedColor === color ? 'border-slate-800 scale-110' : 'border-white hover:border-slate-200'}`}
                             style={{ backgroundColor: color }}
                             >
                             {selectedColor === color && <Check className="w-4 h-4 text-white drop-shadow-md" />}

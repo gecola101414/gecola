@@ -146,6 +146,14 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
      if (isLocked) return;
      const finalAnalysis: PriceAnalysis = {
          ...formData,
+         description: cleanDescription(formData.description),
+         code: cleanDescription(formData.code),
+         unit: cleanDescription(formData.unit),
+         components: formData.components.map(c => ({
+            ...c,
+            description: cleanDescription(c.description),
+            unit: cleanDescription(c.unit)
+         })),
          totalMaterials: calculatedTotals.mat,
          totalLabor: calculatedTotals.lab,
          totalEquipment: calculatedTotals.eq,

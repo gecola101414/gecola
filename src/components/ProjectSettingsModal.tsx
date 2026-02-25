@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { ProjectInfo } from '../types';
 import { REGIONS, YEARS } from '../constants';
 
+import { cleanDescription } from '../services/geminiService';
+
 interface ProjectSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -38,7 +40,15 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    const cleanedData: ProjectInfo = {
+      ...formData,
+      title: cleanDescription(formData.title),
+      designer: cleanDescription(formData.designer),
+      client: cleanDescription(formData.client),
+      location: cleanDescription(formData.location),
+      date: cleanDescription(formData.date),
+    };
+    onSave(cleanedData);
     onClose();
   };
 

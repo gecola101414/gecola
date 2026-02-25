@@ -987,7 +987,7 @@ const App: React.FC = () => {
   const [isAnalysisEditorOpen, setIsAnalysisEditorOpen] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState<PriceAnalysis | null>(null);
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
-  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'clone', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom', isSuper?: boolean, proposedColors?: string[] } | null>(null);
+  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'clone', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom', isSuper?: boolean, proposedColors?: string[], mode?: WbsActionMode } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startScroll = useCallback((speed: number) => {
@@ -1431,10 +1431,23 @@ const App: React.FC = () => {
       const newCatId = `cat_${Date.now()}`;
       const tempCode = `TEMP_${Date.now()}`;
       const newCategory: Category = { ...sourceCat, id: newCatId, name: newName, code: tempCode, isLocked: false };
+
+      let newArticlesRaw: Article[] = [];
+      let newAnalysesList = [...analyses];
       const analysisIdMap = new Map<string, string>();
-      const newAnalysesList = [...analyses];
-      sourceAnalyses.forEach(an => { const newId = Math.random().toString(36).substr(2, 9); analysisIdMap.set(an.id, newId); let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; } const clonedAnalysis: PriceAnalysis = { ...an, id: newId, code: newCode, components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) })) }; newAnalysesList.push(clonedAnalysis); });
-      const newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; if (mode === 'full') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); } else if (mode === 'descriptions') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); } else { newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; } return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
+
+      if (mode === 'full') {
+        sourceAnalyses.forEach(an => { const newId = Math.random().toString(36).substr(2, 9); analysisIdMap.set(an.id, newId); let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; } const clonedAnalysis: PriceAnalysis = { ...an, id: newId, code: newCode, components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) })) }; newAnalysesList.push(clonedAnalysis); });
+        newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
+      } else if (mode === 'descriptions') {
+        newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
+      } else if (mode === 'none') {
+        newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
+      } else if (mode === 'folder') {
+        // Only duplicate the category, no articles or analyses
+        newArticlesRaw = [];
+        newAnalysesList = [...analyses];
+      }
       const newCatsList = [...categories];
       const targetIdx = wbsOptionsContext.targetCode ? categories.findIndex(c => c.code === wbsOptionsContext.targetCode) : -1;
       if (targetIdx !== -1) { const insertIdx = wbsOptionsContext.position === 'bottom' ? targetIdx + 1 : targetIdx; newCatsList.splice(insertIdx, 0, newCategory); } else { newCatsList.push(newCategory); }
@@ -1457,18 +1470,22 @@ const App: React.FC = () => {
   
   // PATTO DI FERRO: DISTACCO ANALISI SU MODIFICA EDIT
   const handleArticleEditSave = (id: string, updates: Partial<Article>) => { 
+    const cleanedUpdates = { ...updates };
+    if (cleanedUpdates.description) cleanedUpdates.description = cleanDescription(cleanedUpdates.description);
+    if (cleanedUpdates.code) cleanedUpdates.code = cleanDescription(cleanedUpdates.code); // Anche il codice se necessario
+
     const updated = articles.map(art => {
         if (id === art.id) {
-           const isActuallyModified = Object.keys(updates).some(k => (updates as any)[k] !== (art as any)[k]);
+           const isActuallyModified = Object.keys(cleanedUpdates).some(k => (cleanedUpdates as any)[k] !== (art as any)[k]);
            if (isActuallyModified && art.linkedAnalysisId) {
               return { 
                   ...art, 
-                  ...updates, 
+                  ...cleanedUpdates, 
                   linkedAnalysisId: undefined, 
                   priceListSource: 'Definito dal Progettista' 
               };
            }
-           return { ...art, ...updates };
+           return { ...art, ...cleanedUpdates };
         }
         return art;
     }); 
@@ -1482,7 +1499,8 @@ const App: React.FC = () => {
       setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const lastM = art.measurements.length > 0 ? art.measurements[art.measurements.length - 1] : null; let newM: Measurement = { id: newId, description: '', type: 'positive', length: undefined, width: undefined, height: undefined, multiplier: undefined }; if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') { newM = { ...newM, description: lastM.description, multiplier: lastM.multiplier, length: lastM.length, width: lastM.width, height: lastM.height, type: lastM.type }; } return { ...art, measurements: [...art.measurements, newM] }; }); return recalculateAllArticles(updated); });
   };
   const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { 
-      setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: value }; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); });
+      const finalValue = field === 'description' && typeof value === 'string' ? cleanDescription(value) : value;
+      setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: finalValue }; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); });
   };
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
@@ -1494,7 +1512,7 @@ const App: React.FC = () => {
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
   const handleScrollToArticle = (id: string, fromId?: string) => { const targetArt = articles.find(a => a.id === id); if (!targetArt) return; if (fromId) setReturnPath(fromId); if (selectedCategoryCode !== targetArt.categoryCode) setSelectedCategoryCode(targetArt.categoryCode); setTimeout(() => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'start' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } }, 300); };
   const handleReturnToArticle = () => { if (returnPath) { const id = returnPath; setReturnPath(null); handleScrollToArticle(id); } };
-  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: 'Nuova voce', unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, newArticle]); handleScrollToArticle(newArticleId); setLastMovedItemId(newArticleId); setTimeout(() => setLastMovedItemId(null), 3000); };
+  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: cleanDescription('Nuova voce'), unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, newArticle]); handleScrollToArticle(newArticleId); setLastMovedItemId(newArticleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
   const handleOpenRebarCalculator = (articleId: string) => { setRebarTargetArticleId(articleId); setIsRebarModalOpen(true); };
   const handleOpenPaintingCalculator = (articleId: string) => { setPaintingTargetArticleId(articleId); setIsPaintingModalOpen(true); };
@@ -1924,7 +1942,7 @@ const App: React.FC = () => {
           <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
           {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
           {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
-          <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '' }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
+          <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code, mode) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '', mode: mode }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
           <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
           <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
           {wbsOptionsContext && <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} initialName={wbsOptionsContext?.initialName || ''} isImport={wbsOptionsContext?.type === 'import'} />}

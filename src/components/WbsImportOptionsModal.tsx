@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Copy, LayoutList, Ruler, Sparkles, Edit3, AlignLeft } from 'lucide-react';
 
-export type WbsActionMode = 'full' | 'descriptions' | 'none';
+export type WbsActionMode = 'full' | 'descriptions' | 'none' | 'folder';
 
 interface WbsImportOptionsModalProps {
   isOpen: boolean;
