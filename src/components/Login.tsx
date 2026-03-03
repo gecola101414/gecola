@@ -15,22 +15,66 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
   const [showVideo, setShowVideo] = useState(true);
 
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== 'https://www.youtube.com') return;
+    if (!showVideo) return;
+
+    let player: any;
+    let isMounted = true;
+
+    const initPlayer = () => {
+      if (!isMounted) return;
+      if (!document.getElementById('youtube-player')) {
+        setTimeout(initPlayer, 100);
+        return;
+      }
       try {
-        const data = JSON.parse(event.data);
-        if (data.event === 'onStateChange' && data.info === 0) {
-          // Video ended
-          setShowVideo(false);
-        }
+        player = new (window as any).YT.Player('youtube-player', {
+          videoId: 'HDHGyuyqeXw',
+          playerVars: {
+            autoplay: 1,
+            enablejsapi: 1,
+            rel: 0
+          },
+          events: {
+            'onReady': (event: any) => {
+              event.target.playVideo();
+            },
+            'onStateChange': (event: any) => {
+              if (event.data === 0) { // 0 = ended
+                setShowVideo(false);
+              }
+            }
+          }
+        });
       } catch (e) {
-        // Ignore parsing errors
+        console.error("Error initializing YouTube player", e);
       }
     };
 
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
+    if (!(window as any).YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      if (firstScriptTag && firstScriptTag.parentNode) {
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      } else {
+        document.head.appendChild(tag);
+      }
+      (window as any).onYouTubeIframeAPIReady = initPlayer;
+    } else if ((window as any).YT && (window as any).YT.Player) {
+      initPlayer();
+    }
+
+    return () => {
+      isMounted = false;
+      if (player && typeof player.destroy === 'function') {
+        try {
+          player.destroy();
+        } catch (e) {
+          console.error("Error destroying YouTube player", e);
+        }
+      }
+    };
+  }, [showVideo]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,15 +188,9 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                               <XCircle className="w-6 h-6" />
                           </button>
                       </div>
-                      <iframe 
-                          className="w-full h-full"
-                          src="https://www.youtube.com/embed/HDHGyuyqeXw?autoplay=1&enablejsapi=1" 
-                          title="GeCoLa Spot 2026" 
-                          frameBorder="0" 
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                          allowFullScreen
-                          id="youtube-player"
-                      ></iframe>
+                      <div className="w-full h-full">
+                          <div id="youtube-player" className="w-full h-full" allow="autoplay"></div>
+                      </div>
                   </div>
               ) : (
                   <>
