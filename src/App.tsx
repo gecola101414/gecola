@@ -263,6 +263,87 @@ interface ArticleGroupProps {
   onColumnFocus: (column: string | null) => void;
 }
 
+interface FastInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  initialValue: string;
+  onCommit: (value: string) => void;
+}
+
+const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props }) => {
+  const [val, setVal] = useState(initialValue);
+
+  useEffect(() => {
+    setVal(initialValue);
+  }, [initialValue]);
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (props.onBlur) props.onBlur(e);
+    if (val !== initialValue) {
+      onCommit(val);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (props.onKeyDown) props.onKeyDown(e);
+    if (e.key === 'Enter') {
+      if (val !== initialValue) {
+        onCommit(val);
+      }
+    }
+  };
+
+  return (
+    <input
+      {...props}
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+    />
+  );
+};
+
+interface FastNumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  initialValue: number | undefined;
+  onCommit: (value: number | undefined) => void;
+}
+
+const FastNumberInput: React.FC<FastNumberInputProps> = ({ initialValue, onCommit, ...props }) => {
+  const [val, setVal] = useState(initialValue === undefined ? '' : initialValue.toString());
+
+  useEffect(() => {
+    setVal(initialValue === undefined ? '' : initialValue.toString());
+  }, [initialValue]);
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (props.onBlur) props.onBlur(e);
+    const numVal = val === '' ? undefined : parseFloat(val);
+    if (numVal !== initialValue) {
+      onCommit(numVal);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (props.onKeyDown) props.onKeyDown(e);
+    if (e.key === 'Enter') {
+      const numVal = val === '' ? undefined : parseFloat(val);
+      if (numVal !== initialValue) {
+        onCommit(numVal);
+      }
+    }
+  };
+
+  return (
+    <input
+      {...props}
+      type="number"
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+    />
+  );
+};
+
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const { 
      article, index, globalIndex, allArticles, isPrintMode, isCategoryLocked, 
@@ -367,27 +448,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       const fieldIdx = fieldList.indexOf(currentField);
       const rowIdx = article.measurements.findIndex(m => m.id === mId);
 
-      if (e.key === 'ArrowRight') {
-          e.preventDefault();
-            if (fieldIdx < fieldList.length - 1) {
-                const nextField = fieldList[fieldIdx + 1];
-                const target = document.querySelector(`[data-m-id="${mId}"][data-field="${nextField}"]`) as HTMLElement;
-                if (target) { target.focus(); playUISound('move'); }
-            } else if (isLastRow && currentField === 'height') {
-                onAddMeasurement(article.id);
-                playUISound('newline');
-            }
-          return;
-      } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-            if (fieldIdx > 0) {
-                const prevField = fieldList[fieldIdx - 1];
-                const target = document.querySelector(`[data-m-id="${mId}"][data-field="${prevField}"]`) as HTMLElement;
-                if (target) { target.focus(); playUISound('move'); }
-            }
-          return;
-      }
-      else if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown') {
           e.preventDefault(); 
           if (rowIdx < article.measurements.length - 1) {
               const nextRowId = article.measurements[rowIdx + 1].id;
@@ -691,14 +752,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 ) : (
                                     isPrintMode ? <div className={`truncate ${isDeduction ? 'text-red-700 font-bold' : 'text-gray-800'}`}>{m.description}</div> : (
                                         <div className="flex-1 flex items-center gap-2 relative">
-                                            <input 
-                                            value={m.description} 
+                                            <FastInput 
+                                            initialValue={m.description} 
+                                            onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'description', val)}
                                             data-m-id={m.id}
                                             data-field="description"
                                             autoFocus={m.id === lastAddedMeasurementId} 
                                             onFocus={() => { onColumnFocus('desc'); handleFocusRow(m.id); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
-                                            onChange={(e) => onUpdateMeasurement(article.id, m.id, 'description', e.target.value)} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'description', isLastMeasRow)}
                                             className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-gray-300 disabled:cursor-not-allowed ${isDeduction ? 'text-red-800 font-bold' : 'text-gray-800'}`} 
                                             style={{ fontSize: `13.5px` }} 
@@ -723,14 +784,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-colors ${isDeduction ? 'bg-red-50' : 'bg-gray-50'}`}>
-                        {!isPrintMode && !isSubtotal ? <input type="number" data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-gray-300 disabled:cursor-not-allowed h-full ${isDeduction ? 'text-red-800 font-black' : ''}`} style={{ fontSize: `13.5px` }} value={m.multiplier === undefined ? '' : m.multiplier} onChange={(e) => onUpdateMeasurement(article.id, m.id, 'multiplier', e.target.value === '' ? undefined : parseFloat(e.target.value))} /> : (m.multiplier && <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{m.multiplier}</div>)}
+                        {!isPrintMode && !isSubtotal ? <FastNumberInput data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-gray-300 disabled:cursor-not-allowed h-full ${isDeduction ? 'text-red-800 font-black' : ''}`} style={{ fontSize: `13.5px` }} initialValue={m.multiplier} onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'multiplier', val)} /> : (m.multiplier && <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{m.multiplier}</div>)}
                     </td>
                     <td className={`border-r border-gray-200 p-0 transition-all duration-300 relative 
                         ${inheritedFields.includes('length') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
                           (missingFields.includes('length') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50')))}`}>
                         {isSubtotal ? <div className="text-center text-gray-300">-</div> : (
-                             !isPrintMode ? <input type="number" data-m-id={m.id} data-field="length" 
+                             !isPrintMode ? <FastNumberInput data-m-id={m.id} data-field="length" 
                                 disabled={areControlsDisabled || inheritedFields.includes('length')} 
                                 onFocus={() => { onColumnFocus('len'); handleFocusRow(m.id); }} 
                                 onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
@@ -742,8 +803,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                     ${missingFields.includes('length') ? 'placeholder:text-blue-300 font-black' : ''}`} 
                                 style={{ fontSize: `13.5px` }} 
                                 placeholder={missingFields.includes('length') ? "!" : ""}
-                                value={m.length === undefined ? '' : m.length} 
-                                onChange={(e) => onUpdateMeasurement(article.id, m.id, 'length', e.target.value === '' ? undefined : parseFloat(e.target.value))} 
+                                initialValue={m.length} 
+                                onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'length', val)} 
                              /> : <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{formatResult(m.length)}</div>
                         )}
                     </td>
@@ -752,7 +813,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
                           (missingFields.includes('width') ? 'missing-field-glow' : (isDeduction ? 'bg-red-50' : 'bg-gray-50')))}`}>
                         {isSubtotal ? <div className="text-center text-gray-300">-</div> : (
-                             !isPrintMode ? <input type="number" data-m-id={m.id} data-field="width" 
+                             !isPrintMode ? <FastNumberInput data-m-id={m.id} data-field="width" 
                                 disabled={areControlsDisabled || inheritedFields.includes('width')} 
                                 onFocus={() => { onColumnFocus('wid'); handleFocusRow(m.id); }} 
                                 onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
@@ -764,8 +825,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                     ${missingFields.includes('width') ? 'placeholder:text-blue-300 font-black' : ''}`} 
                                 style={{ fontSize: `13.5px` }} 
                                 placeholder={missingFields.includes('width') ? "!" : ""}
-                                value={m.width === undefined ? '' : m.width} 
-                                onChange={(e) => onUpdateMeasurement(article.id, m.id, 'width', e.target.value === '' ? undefined : parseFloat(e.target.value))} 
+                                initialValue={m.width} 
+                                onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'width', val)} 
                              /> : <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{formatResult(m.width)}</div>
                         )}
                     </td>
@@ -776,7 +837,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         {isSubtotal ? <div className="text-center text-gray-300">-</div> : (
                              !isPrintMode ? (
                                     <div className="h-full w-full relative">
-                                        <input type="number" data-m-id={m.id} data-field="height" data-last-meas-field="true" 
+                                        <FastNumberInput data-m-id={m.id} data-field="height" data-last-meas-field="true" 
                                             disabled={areControlsDisabled || inheritedFields.includes('height')} 
                                             onFocus={() => { onColumnFocus('h'); handleFocusRow(m.id); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
@@ -788,8 +849,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                                 ${missingFields.includes('height') ? 'placeholder:text-blue-300 font-black' : ''}`} 
                                             style={{ fontSize: `13.5px` }} 
                                             placeholder={missingFields.includes('height') ? "!" : ""}
-                                            value={m.height === undefined ? '' : m.height} 
-                                            onChange={(e) => onUpdateMeasurement(article.id, m.id, 'height', e.target.value === '' ? undefined : parseFloat(e.target.value))} 
+                                            initialValue={m.height} 
+                                            onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'height', val)} 
                                         />
                                     </div>
                                 ) : <div className={`text-center ${isDeduction ? 'text-red-800 font-black' : ''}`}>{formatResult(m.height)}</div>
@@ -987,7 +1048,7 @@ const App: React.FC = () => {
   const [isAnalysisEditorOpen, setIsAnalysisEditorOpen] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState<PriceAnalysis | null>(null);
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
-  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'clone', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom', isSuper?: boolean, proposedColors?: string[], mode?: WbsActionMode } | null>(null);
+  const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'clone', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom', isSuper?: boolean, proposedColors?: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startScroll = useCallback((speed: number) => {
@@ -1431,23 +1492,10 @@ const App: React.FC = () => {
       const newCatId = `cat_${Date.now()}`;
       const tempCode = `TEMP_${Date.now()}`;
       const newCategory: Category = { ...sourceCat, id: newCatId, name: newName, code: tempCode, isLocked: false };
-
-      let newArticlesRaw: Article[] = [];
-      let newAnalysesList = [...analyses];
       const analysisIdMap = new Map<string, string>();
-
-      if (mode === 'full') {
-        sourceAnalyses.forEach(an => { const newId = Math.random().toString(36).substr(2, 9); analysisIdMap.set(an.id, newId); let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; } const clonedAnalysis: PriceAnalysis = { ...an, id: newId, code: newCode, components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) })) }; newAnalysesList.push(clonedAnalysis); });
-        newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
-      } else if (mode === 'descriptions') {
-        newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
-      } else if (mode === 'none') {
-        newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
-      } else if (mode === 'folder') {
-        // Only duplicate the category, no articles or analyses
-        newArticlesRaw = [];
-        newAnalysesList = [...analyses];
-      }
+      const newAnalysesList = [...analyses];
+      sourceAnalyses.forEach(an => { const newId = Math.random().toString(36).substr(2, 9); analysisIdMap.set(an.id, newId); let newCode = an.code; if (analyses.some(existing => existing.code === newCode)) { newCode = `AP.${(newAnalysesList.length + 1).toString().padStart(2, '0')}`; } const clonedAnalysis: PriceAnalysis = { ...an, id: newId, code: newCode, components: an.components.map(c => ({ ...c, id: Math.random().toString(36).substr(2, 9) })) }; newAnalysesList.push(clonedAnalysis); });
+      const newArticlesRaw = sourceArticles.map(art => { const newArtId = Math.random().toString(36).substr(2, 9); let newLinkedAnalysisId = art.linkedAnalysisId; if (newLinkedAnalysisId && analysisIdMap.has(newLinkedAnalysisId)) { newLinkedAnalysisId = analysisIdMap.get(newLinkedAnalysisId)!; } let newMeasurements: Measurement[] = []; if (mode === 'full') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined })); } else if (mode === 'descriptions') { newMeasurements = art.measurements.map(m => ({ ...m, id: Math.random().toString(36).substr(2, 9), linkedArticleId: undefined, length: undefined, width: undefined, height: undefined, multiplier: undefined })); } else { newMeasurements = [{ id: Math.random().toString(36).substr(2, 9), description: '', type: 'positive' }]; } return { ...art, id: newArtId, categoryCode: tempCode, linkedAnalysisId: newLinkedAnalysisId, measurements: newMeasurements, displayMode: wbsDisplayMode } as Article; });
       const newCatsList = [...categories];
       const targetIdx = wbsOptionsContext.targetCode ? categories.findIndex(c => c.code === wbsOptionsContext.targetCode) : -1;
       if (targetIdx !== -1) { const insertIdx = wbsOptionsContext.position === 'bottom' ? targetIdx + 1 : targetIdx; newCatsList.splice(insertIdx, 0, newCategory); } else { newCatsList.push(newCategory); }
@@ -1500,7 +1548,18 @@ const App: React.FC = () => {
   };
   const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { 
       const finalValue = field === 'description' && typeof value === 'string' ? cleanDescription(value) : value;
-      setArticles(prevArticles => { const updated = prevArticles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== mId) return m; return { ...m, [field]: finalValue }; }); return { ...art, measurements: newMeasurements }; }); return recalculateAllArticles(updated); });
+      setArticles(prevArticles => { 
+          const updated = prevArticles.map(art => { 
+              if (art.id !== articleId) return art; 
+              const newMeasurements = art.measurements.map(m => { 
+                  if (m.id !== mId) return m; 
+                  return { ...m, [field]: finalValue }; 
+              }); 
+              return { ...art, measurements: newMeasurements }; 
+          }); 
+          if (field === 'description') return updated; // Skip recalculation for description changes to improve performance
+          return recalculateAllArticles(updated); 
+      });
   };
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
@@ -1942,7 +2001,7 @@ const App: React.FC = () => {
           <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
           {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
           {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
-          <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code, mode) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '', mode: mode }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
+          <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '' }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
           <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
           <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
           {wbsOptionsContext && <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} initialName={wbsOptionsContext?.initialName || ''} isImport={wbsOptionsContext?.type === 'import'} />}

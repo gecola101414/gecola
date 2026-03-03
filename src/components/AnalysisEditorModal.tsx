@@ -202,7 +202,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                 <div className="flex-1 flex flex-col">
                     <textarea
                         value={formData.description}
-                        onChange={e => !isLocked && setFormData({...formData, description: cleanDescription(e.target.value)})}
+                        onChange={e => !isLocked && setFormData({...formData, description: e.target.value})}
                         readOnly={isLocked}
                         className={`flex-1 w-full border border-gray-300 rounded-lg p-6 text-lg font-serif text-gray-800 shadow-inner resize-none focus:ring-2 focus:ring-purple-500 outline-none leading-relaxed text-justify ${isLocked ? 'bg-gray-50 cursor-not-allowed' : ''}`}
                         autoFocus
@@ -242,7 +242,7 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                                 <Maximize2 className="w-3 h-3" /> Espandi
                             </button>
                         </div>
-                        <textarea readOnly={isLocked} value={formData.description} onChange={e => setFormData({...formData, description: cleanDescription(e.target.value)})} className={`w-full border border-gray-300 rounded p-2 text-sm resize-none h-[52px] leading-tight focus:ring-1 focus:ring-purple-500 outline-none text-justify ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="Es. Posa in opera di..." />
+                        <textarea readOnly={isLocked} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className={`w-full border border-gray-300 rounded p-2 text-sm resize-none h-[52px] leading-tight focus:ring-1 focus:ring-purple-500 outline-none text-justify ${isLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`} placeholder="Es. Posa in opera di..." />
                     </div>
                     <div className={`col-span-3 p-2 rounded border h-[76px] flex flex-col justify-center ${isLocked ? 'bg-gray-100 border-gray-300' : 'bg-purple-100 border-purple-200'}`}>
                         <label className="block text-[10px] font-bold uppercase text-purple-700 mb-1 flex items-center gap-1"><Scale className="w-3 h-3" /> Quantità Analizzata</label>
@@ -254,17 +254,17 @@ const AnalysisEditorModal: React.FC<AnalysisEditorModalProps> = ({ isOpen, onClo
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 bg-white relative">
-                    <table className="w-full text-left text-sm border-collapse">
-                        <thead className="bg-gray-100 text-gray-600 font-bold text-[10px] uppercase sticky top-0 z-10 shadow-sm">
+                <div className="flex-1 overflow-y-auto px-4 pb-4 bg-white relative">
+                    <table className="w-full text-left text-sm border-separate border-spacing-0">
+                        <thead className="text-gray-600 font-bold text-[10px] uppercase shadow-sm">
                             <tr>
-                                <th className="p-2 w-8 border-b border-gray-200"></th>
-                                <th className="p-2 border-b border-gray-200">Descrizione Elemento (Catalogo)</th>
-                                <th className="p-2 w-16 text-center border-b border-gray-200">U.M.</th>
-                                <th className="p-2 w-24 text-center border-b border-gray-200 bg-blue-50 text-blue-700 font-black">Quantità</th>
-                                <th className="p-2 w-28 text-right border-b border-gray-200">Prezzo Unit.</th>
-                                <th className="p-2 w-28 text-right border-b border-gray-200">Importo</th>
-                                <th className="p-2 w-10 border-b border-gray-200"></th>
+                                <th className="p-2 w-8 border-b border-gray-200 bg-gray-100 sticky top-0 z-10"></th>
+                                <th className="p-2 border-b border-gray-200 bg-gray-100 sticky top-0 z-10">Descrizione Elemento (Catalogo)</th>
+                                <th className="p-2 w-16 text-center border-b border-gray-200 bg-gray-100 sticky top-0 z-10">U.M.</th>
+                                <th className="p-2 w-24 text-center border-b border-gray-200 bg-blue-50 text-blue-700 font-black sticky top-0 z-10">Quantità</th>
+                                <th className="p-2 w-28 text-right border-b border-gray-200 bg-gray-100 sticky top-0 z-10">Prezzo Unit.</th>
+                                <th className="p-2 w-28 text-right border-b border-gray-200 bg-gray-100 sticky top-0 z-10">Importo</th>
+                                <th className="p-2 w-10 border-b border-gray-200 bg-gray-100 sticky top-0 z-10"></th>
                             </tr>
                         </thead>
                         <tbody>

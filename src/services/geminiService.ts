@@ -93,10 +93,9 @@ export const generateBulkItems = async (
 
 export const cleanDescription = (text: string): string => {
   if (!text) return "";
-  // PATTO DI FERRO: Individua ogni parola e scarta il resto (caratteri invisibili, tab, etc)
-  // Ricostruisce il testo parola per parola con un singolo spazio
-  const words = text.match(/\S+/g) || [];
-  return words.join(' ');
+  // Sostituisce a capo e tab con spazi, e collassa spazi multipli in uno singolo,
+  // ma preserva lo spazio finale per permettere la digitazione.
+  return text.replace(/[\r\n\t]+/g, ' ').replace(/ {2,}/g, ' ');
 };
 
 /**
