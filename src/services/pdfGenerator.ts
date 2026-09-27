@@ -427,6 +427,42 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
                if (typeof raw === 'number') data.cell.text = [formatCurrency(raw)];
                else if (raw?.content && typeof raw.content === 'number') data.cell.text = [formatCurrency(raw.content)];
           }
+
+          // AUTO-FIT DINAMICO PER LA STAMPA: se il numero supera la larghezza della colonna, riduci il font per evitare wrapping
+          if (data.section === 'body') {
+              const colIdx = data.column.index;
+              const textContent = Array.isArray(data.cell.text) ? data.cell.text.join(' ') : String(data.cell.text || '');
+              const textLen = textContent.trim().length;
+
+              if ([3, 4, 5, 6].includes(colIdx)) {
+                  // Misure (par.ug, lung, larg, H/peso) - larghezza 10-12mm
+                  if (textLen > 6) {
+                      data.cell.styles.fontSize = 6;
+                      data.cell.styles.cellPadding = 0.4;
+                  } else if (textLen > 4) {
+                      data.cell.styles.fontSize = 7;
+                      data.cell.styles.cellPadding = 0.6;
+                  }
+              } else if (colIdx === 7 || colIdx === 8) {
+                  // Quantità & Prezzo Unitario - larghezza 18mm
+                  if (textLen > 11) {
+                      data.cell.styles.fontSize = 6;
+                      data.cell.styles.cellPadding = 0.4;
+                  } else if (textLen > 8) {
+                      data.cell.styles.fontSize = 6.8;
+                      data.cell.styles.cellPadding = 0.6;
+                  }
+              } else if (colIdx === 9) {
+                  // TOTALE Importo - larghezza 16mm
+                  if (textLen > 11) {
+                      data.cell.styles.fontSize = 6;
+                      data.cell.styles.cellPadding = 0.4;
+                  } else if (textLen > 8) {
+                      data.cell.styles.fontSize = 6.8;
+                      data.cell.styles.cellPadding = 0.6;
+                  }
+              }
+          }
       },
       didDrawPage: (data: any) => {
           const currentTableStartY = data.pageNumber === 1 ? 44 : 38; const tableEndY = pageHeight - 25;
@@ -633,6 +669,13 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
             didParseCell: (data: any) => {
                 if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
                     data.cell.text = [];
+                }
+                if (data.section === 'body' && [3, 5].includes(data.column.index)) {
+                    const textContent = Array.isArray(data.cell.text) ? data.cell.text.join(' ') : String(data.cell.text || '');
+                    if (textContent.trim().length > 10) {
+                        data.cell.styles.fontSize = 6.8;
+                        data.cell.styles.cellPadding = 1;
+                    }
                 }
             }
         });

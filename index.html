@@ -116,28 +116,82 @@
         animation: drop-zone-pulse 3s infinite;
       }
 
-      /* DESIGN EVOLUTION V2: TECHNICAL GRID */
+      /* DESIGN EVOLUTION: TECHNICAL REFINED GRID */
       .article-block {
         display: table-row-group;
-        border-bottom: 4px solid #d1d5db;
         background-color: white;
       }
       .article-block:hover {
-        background-color: #f9fafb;
+        background-color: #fafbfc;
       }
       .article-header-row {
-        background: linear-gradient(to right, #f9fafb, #f3f4f6);
-        border-top: 1px solid #e5e7eb;
-        border-bottom: 1px solid #e5e7eb;
+        background: linear-gradient(to right, #f8fafc, #ffffff);
+        border-top: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
       }
+      /* NO MORE HARSH BLACK BOX: REFINED BLUE & ORANGE ENGINEERING BADGES */
       .object-id-badge {
-        background: #111827;
-        color: white;
-        padding: 4px 8px;
-        border-radius: 4px; /* Angoli leggermente smussati per leggibilità */
+        background: #eff6ff;
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+        padding: 3px 8px;
+        border-radius: 6px;
         font-family: 'JetBrains Mono', monospace;
         font-size: 11px;
-        font-weight: 800;
+        font-weight: 700;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 26px;
+      }
+      .object-id-badge-safety {
+        background: #fff7ed;
+        color: #c2410c;
+        border: 1px solid #fed7aa;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        font-weight: 700;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 26px;
+      }
+
+      /* PATTO D'ACCIAIO: TABLE HEADER BAR FISSO & IMMOBILE - NON SI SPOSTA E NON SPARISCE MAI */
+      .computo-header-container {
+        user-select: none;
+      }
+      .computo-scroll-container {
+        overflow-y: scroll !important;
+      }
+      .computo-scroll-container::-webkit-scrollbar {
+        width: 8px;
+      }
+      .computo-scroll-container::-webkit-scrollbar-track {
+        background: #f1f5f9;
+      }
+      .computo-scroll-container::-webkit-scrollbar-thumb {
+        background: #94a3b8;
+        border-radius: 4px;
+      }
+      .computo-scroll-container::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+      }
+
+      /* SEPARATORE NETTO PIU' GRIGIO TRA LE VOCI */
+      .article-separator-row {
+        height: 18px !important;
+      }
+      .article-separator-cell {
+        background-color: #cbd5e1 !important;
+        border-top: 2px solid #94a3b8 !important;
+        border-bottom: 2px solid #94a3b8 !important;
+        height: 18px !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08);
       }
 
       @media print {
@@ -148,6 +202,11 @@
         th, td { border: 1px solid #ccc; }
         thead { display: table-header-group; }
         tbody { display: table-row-group; }
+        /* AUTO-FIT STAMPA PER NUMERI: mai andare a capo, mantenere il font scalato e compatto */
+        .tabular-nums, .font-mono {
+          white-space: nowrap !important;
+          word-break: keep-all !important;
+        }
       }
     </style>
   <script type="importmap">
@@ -171,7 +230,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body oncontextmenu="return false;">
+  <body>
     <noscript>
       <div style="padding: 50px; text-align: center; color: red; font-family: sans-serif;">
         <h1>ATTENZIONE: JAVASCRIPT RICHIESTO</h1>
