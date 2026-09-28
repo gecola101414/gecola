@@ -295,10 +295,21 @@ interface FastInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props }) => {
   const [val, setVal] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setVal(initialValue);
   }, [initialValue]);
+
+  useEffect(() => {
+    if (props.autoFocus && inputRef.current) {
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [props.autoFocus]);
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     if (props.onBlur) props.onBlur(e);
@@ -318,6 +329,7 @@ const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props 
 
   return (
     <input
+      ref={inputRef}
       {...props}
       value={val}
       onChange={(e) => setVal(e.target.value)}
@@ -698,16 +710,15 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
             </td>
             <td className={`p-2 border-r border-slate-200 ${isIndustrialMode ? 'bg-slate-100/50' : 'bg-white'}`}>
                {isPrintMode || isConciseMode || isIndustrialMode ? (
-                 <p className={`leading-relaxed font-sans font-medium text-justify px-0.5 whitespace-pre-wrap ${isIndustrialMode ? 'line-clamp-1 italic font-bold text-slate-600' : isConciseMode ? 'line-clamp-2' : ''} ${!isIndustrialMode && isSafetyCategory ? 'text-orange-950' : !isIndustrialMode ? 'text-slate-800' : ''}`} style={{ fontSize: `${descFontSize}px` }}>{article.description}{isIndustrialMode ? ' ...' : ''}</p>
+                 <p className={`leading-relaxed font-sans font-semibold text-justify px-0.5 whitespace-pre-wrap ${isIndustrialMode ? 'line-clamp-1 italic font-bold text-slate-600' : isConciseMode ? 'line-clamp-2' : ''} ${!isIndustrialMode && isSafetyCategory ? 'text-orange-950' : !isIndustrialMode ? 'text-blue-600' : ''}`} style={{ color: !isIndustrialMode && !isSafetyCategory ? '#2563eb' : undefined, fontSize: `${descFontSize}px` }}>{article.description}{isIndustrialMode ? ' ...' : ''}</p>
                ) : (
                  <textarea 
-                    readOnly
+                    readOnly={true}
                     value={article.description}
                     rows={isArticleLocked ? 2 : 4}
-                    className={`w-full font-sans font-medium text-justify border-none focus:ring-0 bg-transparent resize-y p-0.5 disabled:text-gray-400 cursor-default scrollbar-hide ${isArticleLocked ? 'text-gray-400 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-950' : 'text-slate-800'}`}
-                    style={{ fontSize: `${descFontSize}px` }}
+                    className={`w-full font-sans font-semibold text-justify border-none focus:ring-0 bg-transparent resize-y p-0.5 cursor-default scrollbar-hide ${isArticleLocked ? 'opacity-60 italic' : 'min-h-[50px]'} ${isSafetyCategory ? 'text-orange-950' : 'text-blue-600'}`}
+                    style={{ color: !isSafetyCategory ? '#2563eb' : undefined, WebkitTextFillColor: !isSafetyCategory ? '#2563eb' : undefined, fontSize: `${descFontSize}px` }}
                     placeholder="Descrizione..."
-                    disabled={true}
                  />
                )}
             </td>
@@ -1500,8 +1511,9 @@ const App: React.FC = () => {
       if (!canAddArticle()) return;
       const targetCode = targetWbsOverride || activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
       const laborRate = analysis.totalBatchValue > 0 ? parseFloat(((analysis.totalLabor / analysis.totalBatchValue) * 100).toFixed(2)) : 0;
+      const newMeasId = Math.random().toString(36).substr(2, 9);
       const newArticle: Article = {
-          id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode
+          id: Math.random().toString(36).substr(2, 9), categoryCode: targetCode, code: analysis.code, description: analysis.description, unit: analysis.unit, unitPrice: roundTwoDecimals(analysis.totalUnitPrice), laborRate: laborRate, linkedAnalysisId: analysis.id, priceListSource: `Da Analisi ${analysis.code}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode
       };
       
       const lastIdx = [...articles].reverse().findIndex(a => a.categoryCode === targetCode);
@@ -1515,7 +1527,8 @@ const App: React.FC = () => {
       }
       
       updateState(updatedArticles, categories, analyses);
-      handleScrollToArticle(newArticle.id);
+      setLastAddedMeasurementId(newMeasId);
+      handleScrollToArticle(newArticle.id, undefined, targetCode);
       if (viewMode === 'ANALISI') setViewMode('COMPUTO');
       setIsImportAnalysisModalOpen(false); 
   };
@@ -1566,13 +1579,13 @@ const App: React.FC = () => {
       const parsed = parseDroppedContent(rawText);
       if (parsed) {
           const newArticleId = Math.random().toString(36).substr(2, 9);
+          const newMeasId = Math.random().toString(36).substr(2, 9);
           const newArticle: Article = {
-              id: newArticleId, categoryCode: targetCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode
+              id: newArticleId, categoryCode: targetCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode
           };
           updateState([...articles, newArticle]);
-          handleScrollToArticle(newArticleId);
-          setLastMovedItemId(newArticleId);
-          setTimeout(() => setLastMovedItemId(null), 3000);
+          setLastAddedMeasurementId(newMeasId);
+          handleScrollToArticle(newArticleId, undefined, targetCode);
       }
   };
 
@@ -1821,9 +1834,36 @@ const App: React.FC = () => {
   const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); setLastMovedItemId(articleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
-  const handleScrollToArticle = (id: string, fromId?: string) => { const targetArt = articles.find(a => a.id === id); if (!targetArt) return; if (fromId) setReturnPath(fromId); if (selectedCategoryCode !== targetArt.categoryCode) setSelectedCategoryCode(targetArt.categoryCode); setTimeout(() => { const element = document.getElementById(`article-${id}`); if (element) { element.scrollIntoView({ behavior: 'smooth', block: 'start' }); element.classList.add('bg-yellow-50'); setTimeout(() => element.classList.remove('bg-yellow-50'), 2000); } }, 300); };
+  const handleScrollToArticle = (id: string, fromId?: string, categoryCodeOverride?: string) => { 
+    if (fromId) setReturnPath(fromId); 
+    const targetArt = articles.find(a => a.id === id); 
+    const targetCatCode = categoryCodeOverride || targetArt?.categoryCode;
+    if (targetCatCode && selectedCategoryCode !== targetCatCode) {
+      setSelectedCategoryCode(targetCatCode);
+    }
+    setLastMovedItemId(id); 
+    setTimeout(() => setLastMovedItemId(null), 4000); 
+
+    const performScroll = () => {
+      const element = document.getElementById(`article-${id}`);
+      const scrollContainer = scrollContainerRef.current;
+      if (element && scrollContainer) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        const targetScrollTop = scrollContainer.scrollTop + (elementRect.top - containerRect.top);
+        scrollContainer.scrollTo({
+          top: Math.max(0, targetScrollTop - 2),
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    setTimeout(performScroll, 50);
+    setTimeout(performScroll, 200);
+    setTimeout(performScroll, 450);
+  };
   const handleReturnToArticle = () => { if (returnPath) { const id = returnPath; setReturnPath(null); handleScrollToArticle(id); } };
-  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: cleanDescription('Nuova voce'), unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2,9), description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, newArticle]); handleScrollToArticle(newArticleId); setLastMovedItemId(newArticleId); setTimeout(() => setLastMovedItemId(null), 3000); };
+  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: cleanDescription('Nuova voce'), unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, newArticle]); setLastAddedMeasurementId(newMeasId); handleScrollToArticle(newArticleId, undefined, categoryCode); };
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
   const handleOpenRebarCalculator = (articleId: string) => { setRebarTargetArticleId(articleId); setIsRebarModalOpen(true); };
   const handleOpenPaintingCalculator = (articleId: string) => { setPaintingTargetArticleId(articleId); setIsPaintingModalOpen(true); };
@@ -1917,8 +1957,8 @@ const App: React.FC = () => {
   const handleResetProject = () => { window.open(window.location.href, '_blank'); playUISound('newline'); };
   const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { if (!rebarTargetArticleId) return; const updated = articles.map(art => { if (art.id !== rebarTargetArticleId) return art; const newMeasures: Measurement[] = measurements.map(m => ({ id: Math.random().toString(36).substr(2, 9), description: m.description, type: 'positive' as const, multiplier: m.multiplier, length: m.length, width: undefined, height: m.weight })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsRebarModalOpen(false); };
   const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { if (paintingTargetArticleId) { const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsPaintingModalOpen(false); } };
-  const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, ...[newArticle]]); handleScrollToArticle(newArtId); setLastMovedItemId(newArtId); setTimeout(() => setLastMovedItemId(null), 3000); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
-  const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: wbsDisplayMode, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); if (newArticles.length > 0) handleScrollToArticle(newArticles[0].id); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
+  const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, ...[newArticle]]); setLastAddedMeasurementId(newMeasId); handleScrollToArticle(newArtId, undefined, targetCatCode); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
+  const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: wbsDisplayMode, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); if (newArticles.length > 0) handleScrollToArticle(newArticles[0].id, undefined, newArticles[0].categoryCode); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
   const handleWorkspaceDrop = (e: React.DragEvent) => { 
     e.preventDefault(); e.stopPropagation(); 
     if (draggedCategoryCode) { setIsWorkspaceDragOver(false); return; }
@@ -2184,8 +2224,8 @@ const App: React.FC = () => {
                    {viewMode !== 'ANALISI' && !isFocusMode && (
                        <div className={`flex items-center justify-between p-5 bg-slate-50 rounded-t-3xl border-2 border-b-0 shadow-lg z-[60] ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
                             <div className="flex items-center gap-5">
-                                 <div className="flex flex-col items-center"><div className={`px-4 py-3 rounded-2xl font-black text-2xl shadow-inner text-white w-[145px] text-center mb-4 transition-all duration-500 transform hover:scale-105`} style={{ backgroundColor: viewMode === 'SICUREZZA' ? '#EA580C' : (activeCategory.color || '#3B82F6') }}>{activeCategory.code}</div><div className="flex items-center gap-3"><button onClick={() => handleEditCategory(activeCategory)} title="Impostazioni Capitolo" className={`p-2 rounded-xl bg-white border shadow-md transition-all transform active:scale-95 group relative ${viewMode === 'SICUREZZA' ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-blue-200 text-blue-700 hover:bg-blue-50'}`}><Settings className="w-4 h-4" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Impostazioni</span></button><button onClick={() => setIsFocusMode(true)} title="Focus Mode" className="p-2 rounded-xl bg-slate-800 text-white hover:bg-blue-600 shadow-md transition-all transform active:scale-95 group relative"><Maximize2 className="w-4 h-4" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Full Screen</span></button><button onClick={handleCycleDisplayMode} className={`p-2 rounded-xl border transition-all shadow-md group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : wbsDisplayMode === 2 ? 'bg-blue-800 text-white border-blue-900 animate-pulse' : ''}`}><RefreshCw className={`w-4 h-4 transition-transform duration-700 ${wbsDisplayMode > 0 ? 'rotate-180' : ''}`} /><div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest p-4 rounded-2xl shadow-2xl opacity-0 group-hover/cycle:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black flex flex-col gap-2 text-center"><div className={`transition-opacity ${wbsDisplayMode === 0 ? 'text-blue-400' : 'opacity-30'}`}>0 - Tutto Aperto</div><div className={`transition-opacity ${wbsDisplayMode === 1 ? 'text-indigo-400' : 'opacity-30'}`}>1 - Revisione</div><div className={`transition-opacity ${wbsDisplayMode === 2 ? 'text-orange-400' : 'opacity-30'}`}>2 - Patto d'Acciaio</div></div></button></div></div>
-                                 <div className="flex flex-col ml-6"><div className="flex items-center gap-3"><h2 className={`text-2xl font-black uppercase max-w-[500px] whitespace-normal leading-none tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-900' : 'text-blue-900'}`}>{activeCategory.name}</h2></div><div className="mt-4 flex items-center gap-4"><span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-700'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span>{activeCategory.soaCategory && (<div className={`border px-4 py-1.5 rounded-full flex items-center gap-2 font-black text-[10px] uppercase shadow-sm ${viewMode === 'SICUREZZA' ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-purple-100 border-purple-200 text-purple-700'}`}><Award className="w-3.5 h-3.5" />Categoria SOA: {activeCategory.soaCategory}</div>)}</div></div>
+                                  <div className="flex flex-col items-center gap-2"><div className={`px-4 py-2.5 rounded-2xl font-black text-2xl shadow-inner text-white w-[145px] text-center transition-all duration-500 transform hover:scale-105`} style={{ backgroundColor: viewMode === 'SICUREZZA' ? '#EA580C' : (activeCategory.color || '#3B82F6') }}>{activeCategory.code}</div>{activeCategory.soaCategory && (<div className={`border px-3 py-1 rounded-full flex items-center gap-1.5 font-black text-[10px] uppercase shadow-xs ${viewMode === 'SICUREZZA' ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-purple-100 border-purple-200 text-purple-700'}`}><Award className="w-3 h-3" />Categoria SOA: {activeCategory.soaCategory}</div>)}<div className="flex items-center gap-2"><button onClick={() => handleEditCategory(activeCategory)} title="Impostazioni Capitolo" className={`p-1.5 rounded-lg bg-white border shadow-sm transition-all transform active:scale-95 group relative ${viewMode === 'SICUREZZA' ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-blue-200 text-blue-700 hover:bg-blue-50'}`}><Settings className="w-3.5 h-3.5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Impostazioni</span></button><button onClick={() => setIsFocusMode(true)} title="Focus Mode" className="p-1.5 rounded-lg bg-slate-800 text-white hover:bg-blue-600 shadow-sm transition-all transform active:scale-95 group relative"><Maximize2 className="w-3.5 h-3.5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Full Screen</span></button><button onClick={handleCycleDisplayMode} className={`p-1.5 rounded-lg border transition-all shadow-sm group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : wbsDisplayMode === 2 ? 'bg-blue-800 text-white border-blue-900 animate-pulse' : ''}`}><RefreshCw className={`w-3.5 h-3.5 transition-transform duration-700 ${wbsDisplayMode > 0 ? 'rotate-180' : ''}`} /><div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest p-4 rounded-2xl shadow-2xl opacity-0 group-hover/cycle:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black flex flex-col gap-2 text-center"><div className={`transition-opacity ${wbsDisplayMode === 0 ? 'text-blue-400' : 'opacity-30'}`}>0 - Tutto Aperto</div><div className={`transition-opacity ${wbsDisplayMode === 1 ? 'text-indigo-400' : 'opacity-30'}`}>1 - Revisione</div><div className={`transition-opacity ${wbsDisplayMode === 2 ? 'text-orange-400' : 'opacity-30'}`}>2 - Patto d'Acciaio</div></div></button></div></div>
+                                  <div className="flex flex-col ml-6 justify-center"><div className="flex items-center gap-3"><h2 className={`text-2xl font-black uppercase max-w-[550px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`}>{activeCategory.name}</h2></div><div className="mt-3 flex items-center gap-4"><span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div></div>
                             </div>
                             <div className="flex items-center">
                               {/* HELP IN LINEA PREZZARI - AGGIORNATO */}
@@ -2285,7 +2325,7 @@ const App: React.FC = () => {
                                     ))
                                 )}
                             </table>
-                            <div className="h-16 flex-shrink-0 pointer-events-none" />
+                            <div className="h-[calc(100vh-280px)] flex-shrink-0 pointer-events-none" />
                       </div>
                    </div>
                    </>

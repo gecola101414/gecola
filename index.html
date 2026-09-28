@@ -52,17 +52,18 @@
         scrollbar-width: none !important;
       }
 
-      /* ANIMAZIONE HIGHLIGHT POTENZIATA (DOUBLE PULSE AMBER) */
+      /* ANIMAZIONE HIGHLIGHT POTENZIATA PER NUOVA VOCE INSERITA (EVIDENZIAZIONE GIALLA/AMBRA INTENSA) */
       @keyframes item-highlight {
-        0% { background-color: rgba(245, 158, 11, 0.6); box-shadow: 0 0 35px rgba(245, 158, 11, 0.7); transform: scale(1.04); }
-        30% { background-color: rgba(245, 158, 11, 0.3); transform: scale(1.01); }
-        60% { background-color: rgba(245, 158, 11, 0.4); box-shadow: 0 0 20px rgba(245, 158, 11, 0.5); transform: scale(1.02); }
-        100% { background-color: transparent; box-shadow: 0 0 0px transparent; transform: scale(1); }
+        0% { background-color: #fef08a !important; box-shadow: 0 0 30px rgba(245, 158, 11, 0.8), inset 0 0 15px rgba(245, 158, 11, 0.5); }
+        25% { background-color: #fde047 !important; box-shadow: 0 0 40px rgba(245, 158, 11, 0.9), inset 0 0 20px rgba(245, 158, 11, 0.6); }
+        60% { background-color: #fef08a !important; box-shadow: 0 0 20px rgba(245, 158, 11, 0.5); }
+        100% { background-color: transparent !important; box-shadow: none !important; }
       }
-      .highlight-move {
-        animation: item-highlight 3s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
-        z-index: 100 !important;
-        position: relative;
+      .highlight-move,
+      .highlight-move tr,
+      .highlight-move td {
+        animation: item-highlight 3.5s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+        z-index: 50 !important;
       }
 
       /* Animazione Errore Real-Time (Balla di Rosso) */
