@@ -89,18 +89,64 @@ const cleanText = (text: string | undefined | null): string => {
 };
 
 /**
- * Formatta codici tariffa tecnici complessi (es. LOM261.OC.EEA.Pa01...)
- * inserendo uno spazio controllato dopo punti, slash o trattini
- * solo se il codice supera i 16 caratteri e non ha già spazi naturali.
+ * Formatta e suddivide a capo con precisione millimetrica i codici tariffa tecnici
+ * (es. Prezzari Regionali, DEI, Nuovi Prezzi) senza mai troncare lettere o numeri.
+ * Spezza intelligentemente sui separatori naturali (. / - _ o spazio) o, se necessario,
+ * su singoli caratteri, garantendo l'integrità legale e contabile della voce.
  */
-const formatTariffCode = (code: string | undefined | null): string => {
+const formatTariffCode = (
+    code: string | undefined | null, 
+    maxWidthMm: number = 21, 
+    fontSize: number = 6.8, 
+    docInstance: any = null
+): string => {
     if (!code) return '';
     const cleaned = cleanText(code);
-    if (cleaned.length <= 16) return cleaned;
-    if (!cleaned.includes(' ')) {
-        return cleaned.replace(/([./\-])(?=[A-Za-z0-9])/g, '$1 ');
+    
+    const getWidth = (str: string) => {
+        if (docInstance && docInstance.getStringUnitWidth) {
+            docInstance.setFont("helvetica", "bold");
+            docInstance.setFontSize(fontSize);
+            return (docInstance.getStringUnitWidth(str) * fontSize * 25.4 / 72);
+        }
+        return str.length * (fontSize * 0.22);
+    };
+
+    if (getWidth(cleaned) <= maxWidthMm) {
+        return cleaned;
     }
-    return cleaned;
+
+    // Suddivide preservando i caratteri separatori come parte dei token (. / - _ spazio)
+    const parts = cleaned.split(/(?<=[./\-_ ])|(?=[./\-_ ])/);
+    const lines: string[] = [];
+    let cur = '';
+
+    for (const p of parts) {
+        if (!p) continue;
+        const candidate = cur + p;
+        if (getWidth(candidate) <= maxWidthMm) {
+            cur = candidate;
+        } else {
+            if (cur) lines.push(cur);
+            if (getWidth(p) > maxWidthMm) {
+                // Il token singolo supera l'intera larghezza: suddivisione progressiva per caratteri
+                let sub = '';
+                for (const char of p) {
+                    if (getWidth(sub + char) <= maxWidthMm) {
+                        sub += char;
+                    } else {
+                        if (sub) lines.push(sub);
+                        sub = char;
+                    }
+                }
+                cur = sub;
+            } else {
+                cur = p;
+            }
+        }
+    }
+    if (cur) lines.push(cur);
+    return lines.join('\n');
 };
 
 /**
@@ -454,12 +500,12 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
               styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
             },
             { 
-              content: formatTariffCode(art.code), 
+              content: formatTariffCode(art.code, 18, 6.8, doc), 
               styles: { 
                 isArt: true, 
                 fontStyle: 'bold', 
                 cellPadding: { top: 3, bottom: 1, left: 0.5, right: 0.5 }, 
-                fontSize: art.code.length > 25 ? 6 : (art.code.length > 18 ? 6.5 : 7.5), 
+                fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), 
                 halign: 'center',
                 overflow: 'linebreak'
               } 
@@ -1019,7 +1065,7 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
 
                 tableBody.push([
                   { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true, cellPadding: { top: 2.5, bottom: 2 } } }, 
-                  { content: formatTariffCode(art.code), styles: { fontStyle: 'bold', fontSize: art.code.length > 25 ? 6 : (art.code.length > 18 ? 6.5 : 7.5), halign: 'center', overflow: 'linebreak', cellPadding: { top: 2.5, bottom: 2 } } }, 
+                  { content: formatTariffCode(art.code, 21, 6.8, doc), styles: { fontStyle: 'bold', fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), halign: 'center', overflow: 'linebreak', cellPadding: { top: 2.5, bottom: 2, left: 1, right: 1 } } }, 
                   { content: finalDescription, styles: { isArtDesc: true, fontSize: 8, cellPadding: { left: 3, right: 3, top: 2.5, bottom: 2.5 } } }, 
                   { content: art.unit, styles: { halign: 'center', cellPadding: { top: 2.5, bottom: 2 } } }, 
                   { content: `€ ${formatCurrency(art.unitPrice)}\n(Euro ${wordsPrice})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.2, cellPadding: { top: 2.5, bottom: 2.5, right: 2.5, left: 2 } } }
@@ -1160,7 +1206,7 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
 
                 tableBody.push([ 
                   { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true, cellPadding: { top: 2.5, bottom: 2 } } }, 
-                  { content: formatTariffCode(art.code), styles: { fontStyle: 'bold', fontSize: art.code.length > 25 ? 6 : (art.code.length > 18 ? 6.5 : 7.5), halign: 'center', overflow: 'linebreak', cellPadding: { top: 2.5, bottom: 2 } } }, 
+                  { content: formatTariffCode(art.code, 22, 6.8, doc), styles: { fontStyle: 'bold', fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), halign: 'center', overflow: 'linebreak', cellPadding: { top: 2.5, bottom: 2, left: 1, right: 1 } } }, 
                   { content: finalDescription, styles: { isArtDesc: true, fontSize: 7.5, cellPadding: { left: 2.5, right: 2.5, top: 2.5, bottom: 2.5 } } }, 
                   { content: `€ ${formatCurrency(totalItem)}`, styles: { halign: 'right', cellPadding: { top: 2.5, bottom: 2 } } }, 
                   { content: `${art.laborRate.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`, styles: { halign: 'center', cellPadding: { top: 2.5, bottom: 2 } } }, 
