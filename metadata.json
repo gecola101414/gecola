@@ -1,5 +1,5 @@
 {
-  "name": "GeCoLa_2026_001_A",
+  "name": "GeCoLa_2026_001_B",
   "description": "A professional construction estimate application (Computo Metrico Estimativo) tailored for Italian standards, featuring dynamic calculations, categorization, and AI-assisted item generation. Visitor limit increased to 15 items.",
   "requestFramePermissions": [
     "microphone"
