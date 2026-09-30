@@ -179,13 +179,23 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles, a
                   <div className="bg-orange-500 p-2 rounded-xl"><Users className="w-6 h-6 text-white" /></div>
                   <h3 className="font-black text-slate-800 uppercase tracking-tighter text-lg">Stima Manodopera</h3>
               </div>
-              <div className="space-y-5">
+              <div className="space-y-4">
                   <div className="flex justify-between items-center text-gray-600 font-bold">
                       <div className="flex flex-col">
                           <span className="text-xs uppercase tracking-widest text-slate-400">Importo Totale</span>
                           <span className="text-base">Incidenza Manodopera</span>
                       </div>
                       <span className="font-mono text-orange-700 text-xl">{formatCurrency(totals.totalLabor)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-gray-600 font-bold border-t border-gray-50 pt-2">
+                      <div className="flex flex-col">
+                          <span className="text-xs uppercase tracking-widest text-slate-400">Aliquota Media M.O.</span>
+                          <span className="text-xs text-slate-500 font-medium">Incidenza ponderata sui lavori</span>
+                      </div>
+                      <span className="font-mono text-orange-800 text-base font-black">
+                        {totals.totalWorks > 0 ? ((totals.totalLabor / totals.totalWorks) * 100).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}%
+                      </span>
                   </div>
                   
                   <div className="bg-orange-50 p-5 rounded-2xl border border-orange-100 relative z-10">
