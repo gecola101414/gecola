@@ -202,17 +202,34 @@ export function parseItalianSpokenNumber(text: string): number | null {
     clean = clean.replace(/^(meno\s+|-)/, '').trim();
   }
 
+  // Rimuove unità di misura o parole accessorie cantieristiche frequenti
+  clean = clean.replace(/\b(metri|metro|lineari|quadri|cubi|cm|centimetri|mm|millimetri|kg|chili|grammi|litri|ore|pezzi|pz|cadauno|cad|numero|volte|quantità|qta)\b/gi, '').trim();
+  clean = clean.replace(/\b(lunghezza|larghezza|altezza|peso|interasse|spessore|uguale\s+a|uguale|pari\s+a|pari|per)\b/gi, '').trim();
+
+  // Gestione espressioni comuni di mezzo metro o mezza unità
+  if (clean === 'mezzo' || clean === 'mezza' || clean === 'e mezzo' || clean === 'e mezza' || clean === 'un mezzo') {
+    return isNegative ? -0.5 : 0.5;
+  }
+  if (clean === 'un e mezzo' || clean === 'uno e mezzo' || clean === 'una e mezza') {
+    return isNegative ? -1.5 : 1.5;
+  }
+
+  // Se inizia con "virgola..." o "punto...", normalizza aggiungendo lo zero
+  if (clean.startsWith('virgola ') || clean.startsWith('punto ') || clean.startsWith(',') || clean.startsWith('.')) {
+    clean = '0 ' + clean.replace(/^[.,]\s*/, 'virgola ');
+  }
+
   // Se contiene già cifre con virgola o punto
-  // es: "5,20" o "5.20"
+  // es: "5,20" o "5.20" o "12"
   const digitsMatch = clean.match(/^(\d+)(?:[.,](\d+))?$/);
   if (digitsMatch) {
     const intPart = digitsMatch[1];
-    const decPart = digitsMatch[2] || '0';
-    const val = parseFloat(`${intPart}.${decPart}`);
+    const decPart = digitsMatch[2];
+    const val = decPart !== undefined ? parseFloat(`${intPart}.${decPart}`) : parseFloat(intPart);
     return isNegative ? -val : val;
   }
 
-  // Gestione "e mezzo" / "e mezza"
+  // Gestione "e mezzo" / "e mezza" in coda
   if (clean.endsWith(' e mezzo') || clean.endsWith(' e mezza')) {
     const beforeMezzo = clean.replace(/\s+e\s+mezz[oa]$/, '').trim();
     const baseInt = parseItalianIntegerWords(beforeMezzo);
@@ -233,9 +250,11 @@ export function parseItalianSpokenNumber(text: string): number | null {
     let decVal = parseItalianIntegerWords(decStr);
 
     if (intVal !== null && decVal !== null) {
-      // Gestione decimali (se "due" -> 0.2, se "venti" -> 0.20, se "zero cinque" -> 0.05)
+      // Se i decimali partivano con "zero" (es. "zero cinque" -> 0.05)
       let decStrNumeric = String(decVal);
-      // Se era una cifra singola detta come decimo (es. "virgola cinque" -> .5)
+      if (decStr.startsWith('zero') || decStr.startsWith('0')) {
+        decStrNumeric = '0' + decVal;
+      }
       const val = parseFloat(`${intVal}.${decStrNumeric}`);
       return isNegative ? -val : val;
     }

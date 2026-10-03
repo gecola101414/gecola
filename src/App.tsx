@@ -303,9 +303,11 @@ interface FastInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props }) => {
   const [val, setVal] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isDirtyRef = useRef(false);
 
   useEffect(() => {
     setVal(initialValue);
+    isDirtyRef.current = false;
   }, [initialValue]);
 
   useEffect(() => {
@@ -320,7 +322,8 @@ const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props 
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     if (props.onBlur) props.onBlur(e);
-    if (val !== initialValue) {
+    if (isDirtyRef.current && val !== initialValue) {
+      isDirtyRef.current = false;
       onCommit(val);
     }
   };
@@ -328,7 +331,8 @@ const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (props.onKeyDown) props.onKeyDown(e);
     if (e.key === 'Enter') {
-      if (val !== initialValue) {
+      if (isDirtyRef.current && val !== initialValue) {
+        isDirtyRef.current = false;
         onCommit(val);
       }
     }
@@ -339,7 +343,10 @@ const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props 
       ref={inputRef}
       {...props}
       value={val}
-      onChange={(e) => setVal(e.target.value)}
+      onChange={(e) => {
+        isDirtyRef.current = true;
+        setVal(e.target.value);
+      }}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
     />
@@ -353,25 +360,34 @@ interface FastNumberInputProps extends Omit<React.InputHTMLAttributes<HTMLInputE
 
 const FastNumberInput: React.FC<FastNumberInputProps> = ({ initialValue, onCommit, ...props }) => {
   const [val, setVal] = useState(initialValue === undefined ? '' : initialValue.toString());
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isDirtyRef = useRef(false);
 
   useEffect(() => {
     setVal(initialValue === undefined ? '' : initialValue.toString());
+    isDirtyRef.current = false;
   }, [initialValue]);
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
     if (props.onBlur) props.onBlur(e);
-    const numVal = val === '' ? undefined : parseFloat(val);
-    if (numVal !== initialValue) {
-      onCommit(numVal);
+    if (isDirtyRef.current) {
+      const numVal = val === '' ? undefined : parseFloat(val);
+      if (numVal !== initialValue) {
+        isDirtyRef.current = false;
+        onCommit(numVal);
+      }
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (props.onKeyDown) props.onKeyDown(e);
     if (e.key === 'Enter') {
-      const numVal = val === '' ? undefined : parseFloat(val);
-      if (numVal !== initialValue) {
-        onCommit(numVal);
+      if (isDirtyRef.current) {
+        const numVal = val === '' ? undefined : parseFloat(val);
+        if (numVal !== initialValue) {
+          isDirtyRef.current = false;
+          onCommit(numVal);
+        }
       }
     }
   };
@@ -382,10 +398,14 @@ const FastNumberInput: React.FC<FastNumberInputProps> = ({ initialValue, onCommi
 
   return (
     <input
+      ref={inputRef}
       {...props}
       type="number"
       value={val}
-      onChange={(e) => setVal(e.target.value)}
+      onChange={(e) => {
+        isDirtyRef.current = true;
+        setVal(e.target.value);
+      }}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
       style={{
@@ -1936,6 +1956,23 @@ const App: React.FC = () => {
   };
   const handleUpdateMeasurement = (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => { 
       const finalValue = field === 'description' && typeof value === 'string' ? cleanDescription(value) : value;
+
+      // Aggiorna immediatamente l'input visibile nel DOM se presente
+      const domEl = document.querySelector(`[data-m-id="${mId}"][data-field="${field}"]`) as HTMLInputElement;
+      if (domEl) {
+        domEl.value = finalValue === undefined ? '' : String(finalValue);
+      }
+
+      // Aggiorna immediatamente articlesRef.current in modo che qualsiasi callback vocale veda i dati aggiornati
+      articlesRef.current = articlesRef.current.map(art => {
+        if (art.id !== articleId) return art;
+        const newMeasurements = art.measurements.map(m => {
+          if (m.id !== mId) return m;
+          return { ...m, [field]: finalValue };
+        });
+        return { ...art, measurements: newMeasurements };
+      });
+
       setArticles(prevArticles => { 
           const updated = prevArticles.map(art => { 
               if (art.id !== articleId) return art; 
@@ -2289,6 +2326,11 @@ const App: React.FC = () => {
       } else {
         if (analysis.valueNumber !== undefined) {
           handleUpdateMeasurement(currArtId, currRowId, currField, analysis.valueNumber);
+        } else if (analysis.valueText !== undefined) {
+          const parsed = parseFloat(analysis.valueText.replace(',', '.'));
+          if (!isNaN(parsed)) {
+            handleUpdateMeasurement(currArtId, currRowId, currField, parsed);
+          }
         }
         handleVoiceAdvance(currArtId, currRowId, currField);
       }
