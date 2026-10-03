@@ -36,6 +36,7 @@ import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems, cleanDescription } from './services/geminiService';
 import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateComputoMetricoSubappaltoPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
 import { generateComputoExcel, generateComputoMetricoSubappaltoExcel } from './services/excelGenerator';
+import { VoiceField, MEASUREMENT_FIELDS, analyzeVoiceTranscript } from './services/voiceDictationService';
 
 const MIME_ARTICLE = 'application/gecola-article';
 const MIME_MEASUREMENT = 'application/gecola-measurement';
@@ -286,6 +287,10 @@ interface ArticleGroupProps {
   onArticleDragEnd: () => void;
   lastAddedMeasurementId: string | null;
   onColumnFocus: (column: string | null) => void;
+  onMeasurementDragStart?: (e: React.DragEvent, articleId: string, measurementId: string) => void;
+  onMeasurementDrop?: (sourceArticleId: string, measurementId: string, targetArticleId: string, targetMeasurementId?: string, position?: 'top' | 'bottom') => void;
+  voiceActiveRowId?: string | null;
+  voiceActiveField?: VoiceField;
   onOpenContextMenu?: (e: React.MouseEvent, article: Article, measurement?: Measurement | null) => void;
 }
 
@@ -401,10 +406,12 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
      onInsertExternalArticle, onToggleArticleLock, onOpenRebarCalculator, 
      onOpenPaintingCalculator, onToggleSmartRepeat, onStartVoiceDictation, smartRepeatActiveId, 
      onViewAnalysis, lastAddedMeasurementId, onColumnFocus, onToggleItemDisplayMode,
-     onArticleDragStart, onArticleDrop, onArticleDragEnd, onOpenContextMenu
+     onArticleDragStart, onArticleDrop, onArticleDragEnd, onOpenContextMenu,
+     onMeasurementDragStart, onMeasurementDrop, voiceActiveRowId, voiceActiveField
    } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
+   const [measurementDropPosition, setMeasurementDropPosition] = useState<'top' | 'bottom' | null>(null);
    const [isArticleDragOver, setIsArticleDragOver] = useState(false);
    const [articleDropPosition, setArticleDropPosition] = useState<'top' | 'bottom' | null>(null);
    const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
@@ -576,10 +583,11 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       e.preventDefault();
       e.stopPropagation();
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
+      const isMeasurementDrag = e.dataTransfer.types.includes(MIME_MEASUREMENT) || e.dataTransfer.types.includes('type');
       const isExternalText = e.dataTransfer.types.includes('text/plain');
       const isAnalysisDrag = e.dataTransfer.types.includes(MIME_ANALYSIS_DRAG);
       
-      if (isInternal || isExternalText || isAnalysisDrag) {
+      if (isInternal || isMeasurementDrag || isExternalText || isAnalysisDrag) {
           e.dataTransfer.dropEffect = 'copy';
           if (isCategoryLocked) return;
           const rect = tbodyRef.current?.getBoundingClientRect();
@@ -610,6 +618,16 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           setArticleDropPosition(null);
           return;
       }
+      const dragType = e.dataTransfer.getData('type');
+      const sourceArtId = e.dataTransfer.getData('sourceArticleId');
+      const sourceMeasId = e.dataTransfer.getData('measurementId');
+      if (dragType === 'MEASUREMENT' && sourceArtId && sourceMeasId) {
+          onMeasurementDrop?.(sourceArtId, sourceMeasId, article.id, undefined, 'bottom');
+          setIsArticleDragOver(false);
+          setArticleDropPosition(null);
+          return;
+      }
+
       const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
       const droppedId = e.dataTransfer.getData('articleId');
       const textData = e.dataTransfer.getData('text/plain');
@@ -793,10 +811,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         <button onClick={() => onToggleSmartRepeat(article.id)} className={`p-1 rounded transition-all ${smartRepeatActiveId === article.id ? (isSafetyCategory ? 'bg-orange-600 text-white shadow' : 'bg-blue-600 text-white shadow') : (isSafetyCategory ? 'text-slate-500 hover:text-orange-600 hover:bg-white' : 'text-slate-500 hover:text-blue-600 hover:bg-white')}`} title="Smart Repeat (Clona rigo precedente)"><CopyPlus className="w-3.5 h-3.5" /></button>
                         <button 
                             onClick={() => onStartVoiceDictation(article.id)} 
-                            className={`p-1 rounded transition-all ${recordingArticleId === article.id ? 'bg-purple-600 text-white animate-pulse shadow' : 'text-slate-500 hover:text-purple-600 hover:bg-white'}`} 
-                            title="Dettatura Vocale (Cuffie)"
+                            className={`p-1 rounded transition-all flex items-center gap-1 ${recordingArticleId === article.id ? 'bg-purple-600 text-white animate-pulse shadow-md ring-2 ring-purple-300' : 'text-slate-500 hover:text-purple-600 hover:bg-white'}`} 
+                            title={recordingArticleId === article.id ? "Dettatura Vocale ATTIVA. Clicca per disattivare" : "Attiva Dettatura Vocale Continua (Cuffie / Microfono)"}
                         >
                             <Headset className="w-3.5 h-3.5" />
+                            {recordingArticleId === article.id && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-ping"></span>
+                            )}
                         </button>
                     </div>
                 </td>
@@ -813,22 +834,73 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                 const inheritedFields = getInheritedFields(m);
                 const missingFields = guard?.isVisible ? guard.missingFields : [];
 
+                const isRowVoiceActive = recordingArticleId === article.id && voiceActiveRowId === m.id;
+
                 return (
                 <tr 
                     key={m.id} 
                     draggable={!isPrintMode && !areControlsDisabled} 
+                    onDragStart={(e) => {
+                        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') {
+                            e.preventDefault();
+                            return;
+                        }
+                        e.stopPropagation();
+                        e.dataTransfer.setData(MIME_MEASUREMENT, 'true');
+                        e.dataTransfer.setData('type', 'MEASUREMENT');
+                        e.dataTransfer.setData('sourceArticleId', article.id);
+                        e.dataTransfer.setData('measurementId', m.id);
+                        e.dataTransfer.effectAllowed = 'copyMove';
+                        onMeasurementDragStart?.(e, article.id, m.id);
+                    }}
+                    onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const isMeas = e.dataTransfer.types.includes(MIME_MEASUREMENT) || e.dataTransfer.types.includes('type');
+                        if (isMeas) {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const isTop = e.clientY < rect.top + rect.height / 2;
+                            setMeasurementDragOverId(m.id);
+                            setMeasurementDropPosition(isTop ? 'top' : 'bottom');
+                            e.dataTransfer.dropEffect = 'copy';
+                        }
+                    }}
+                    onDragLeave={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+                            setMeasurementDragOverId(null);
+                            setMeasurementDropPosition(null);
+                        }
+                    }}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const dragType = e.dataTransfer.getData('type');
+                        const sourceArtId = e.dataTransfer.getData('sourceArticleId');
+                        const sourceMeasId = e.dataTransfer.getData('measurementId');
+                        setMeasurementDragOverId(null);
+                        setMeasurementDropPosition(null);
+                        if (dragType === 'MEASUREMENT' && sourceArtId && sourceMeasId) {
+                            onMeasurementDrop?.(sourceArtId, sourceMeasId, article.id, m.id, measurementDropPosition || 'bottom');
+                        }
+                    }}
                     onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         onOpenContextMenu?.(e, article, m);
                     }}
-                    className={`group/row cursor-default transition-all border-b border-slate-200/70 ${isSubtotal ? 'bg-amber-50/70 font-bold border-y border-amber-200/90' : ''} ${measurementDragOverId === m.id ? 'border-t-2 border-dashed border-emerald-500 bg-emerald-50' : (isSubtotal ? 'bg-amber-50/70' : (isDeduction ? 'bg-rose-50/60' : 'bg-white hover:bg-slate-50/50'))} ${isArticleLocked ? 'opacity-70' : ''}`} 
+                    className={`group/row cursor-default transition-all border-b border-slate-200/70 
+                        ${isSubtotal ? 'bg-amber-50/70 font-bold border-y border-amber-200/90' : ''} 
+                        ${measurementDragOverId === m.id ? (measurementDropPosition === 'top' ? 'border-t-2 border-emerald-500 bg-emerald-50/90 shadow-sm' : 'border-b-2 border-emerald-500 bg-emerald-50/90 shadow-sm') : (isSubtotal ? 'bg-amber-50/70' : (isDeduction ? 'bg-rose-50/60' : 'bg-white hover:bg-slate-50/50'))} 
+                        ${isRowVoiceActive ? 'bg-purple-50/50 ring-1 ring-purple-400' : ''}
+                        ${isArticleLocked ? 'opacity-70' : ''}`} 
                     style={{ fontSize: `13.5px` }}
                 >
                     <td className="border-r border-slate-200 bg-slate-50/30"></td>
                     <td className="p-0 border-r border-slate-200 bg-slate-50/40 text-center relative align-middle">
                         {!isPrintMode && !areControlsDisabled && (
                             <div className="flex justify-center items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity px-1 h-full py-1.5">
+                                <GripVertical className="w-3.5 h-3.5 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing flex-shrink-0" title="Trascina rigo: sposta nella voce o copia in altra voce" />
                                 {!isSubtotal ? (
                                     <>
                                         <button onClick={() => onOpenLinkModal(article.id, m.id)} className={`rounded p-0.5 transition-colors ${m.linkedArticleId ? (isSafetyCategory ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-blue-600 text-white hover:bg-blue-700') : (isSafetyCategory ? 'text-slate-400 hover:text-orange-600 hover:bg-orange-50' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50')}`} title={m.linkedArticleId ? "Modifica Collegamento" : "Vedi Voce (Collega)"}><LinkIcon className="w-4 h-4" /></button>
@@ -867,7 +939,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                             onFocus={() => { onColumnFocus('desc'); handleFocusRow(m.id); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'description', isLastMeasRow)}
-                                            className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-slate-300 disabled:cursor-not-allowed ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`} 
+                                            className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-slate-300 disabled:cursor-not-allowed ${isRowVoiceActive && voiceActiveField === 'description' ? 'ring-2 ring-purple-500 bg-purple-100/70 rounded px-1 animate-pulse font-bold' : ''} ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`} 
                                             style={{ fontSize: `13.5px` }} 
                                             placeholder={"Descrizione misura..."} 
                                             disabled={areControlsDisabled}
@@ -889,13 +961,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                             </>
                         )}
                     </td>
-                    <td className={`border-r border-slate-200 p-0 transition-colors ${isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40'}`}>
+                    <td className={`border-r border-slate-200 p-0 transition-colors ${isRowVoiceActive && voiceActiveField === 'multiplier' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40')}`}>
                         {!isPrintMode && !isSubtotal ? <FastNumberInput data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-slate-300 disabled:cursor-not-allowed h-full font-mono tabular-nums ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: `13.5px` }} initialValue={m.multiplier} onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'multiplier', val)} /> : (m.multiplier && <div className={`text-center font-mono tabular-nums whitespace-nowrap overflow-hidden ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: getDynamicNumberFontSize(m.multiplier, 13.5, 4, 8.5) }} title={String(m.multiplier)}>{m.multiplier}</div>)}
                     </td>
                     <td className={`border-r border-slate-200 p-0 transition-all duration-300 relative 
-                        ${inheritedFields.includes('length') ? 'bg-slate-100' : 
+                        ${isRowVoiceActive && voiceActiveField === 'length' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (inheritedFields.includes('length') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
-                          (missingFields.includes('length') ? 'missing-field-glow' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40')))}`}>
+                          (missingFields.includes('length') ? 'missing-field-glow' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40'))))}`}>
                         {isSubtotal ? <div className="text-center text-slate-300">-</div> : (
                              !isPrintMode ? <FastNumberInput data-m-id={m.id} data-field="length" 
                                 disabled={areControlsDisabled || inheritedFields.includes('length')} 
@@ -915,9 +987,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-slate-200 p-0 transition-all duration-300 relative 
-                        ${inheritedFields.includes('width') ? 'bg-slate-100' : 
+                        ${isRowVoiceActive && voiceActiveField === 'width' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (inheritedFields.includes('width') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
-                          (missingFields.includes('width') ? 'missing-field-glow' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40')))}`}>
+                          (missingFields.includes('width') ? 'missing-field-glow' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40'))))}`}>
                         {isSubtotal ? <div className="text-center text-slate-300">-</div> : (
                              !isPrintMode ? <FastNumberInput data-m-id={m.id} data-field="width" 
                                 disabled={areControlsDisabled || inheritedFields.includes('width')} 
@@ -937,9 +1009,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-slate-200 p-0 transition-all duration-300 relative 
-                        ${inheritedFields.includes('height') ? 'bg-slate-100' : 
+                        ${isRowVoiceActive && voiceActiveField === 'height' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (inheritedFields.includes('height') ? 'bg-slate-100' : 
                           (isSurveyorGuardActive && guard?.isVisible && guard?.isExcess ? 'excess-cell' : 
-                          (missingFields.includes('height') ? 'missing-field-glow' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40')))}`}>
+                          (missingFields.includes('height') ? 'missing-field-glow' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40'))))}`}>
                         {isSubtotal ? <div className="text-center text-slate-300">-</div> : (
                              !isPrintMode ? (
                                     <div className="h-full w-full relative">
@@ -1094,6 +1166,18 @@ const App: React.FC = () => {
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
   const [recordingArticleId, setRecordingArticleId] = useState<string | null>(null);
+  const [voiceActiveRowId, setVoiceActiveRowId] = useState<string | null>(null);
+  const [voiceActiveField, setVoiceActiveField] = useState<VoiceField>('description');
+  const [voiceFeedbackNotice, setVoiceFeedbackNotice] = useState<string | null>(null);
+  
+  const voiceRecognitionRef = useRef<any>(null);
+  const isVoiceRunningRef = useRef(false);
+  const voiceStateRef = useRef<{ articleId: string | null; rowId: string | null; field: VoiceField }>({
+    articleId: null,
+    rowId: null,
+    field: 'description'
+  });
+
   const [wbsDisplayMode, setWbsDisplayMode] = useState(0);
   const [isSurveyorGuardActive, setIsSurveyorGuardActive] = useState(true); 
   const [collapsedSuperCodes, setCollapsedSuperCodes] = useState<Set<string>>(new Set());
@@ -1178,6 +1262,10 @@ const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(initializedCategories);
   const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
+  const articlesRef = useRef(articles);
+  useEffect(() => {
+    articlesRef.current = articles;
+  }, [articles]);
   const [analyses, setAnalyses] = useState<PriceAnalysis[]>(INITIAL_ANALYSES);
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>(PROJECT_INFO);
   const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(categories[0]?.code || 'WBS.01');
@@ -1862,7 +1950,75 @@ const App: React.FC = () => {
   };
   const handleAddSubtotal = (articleId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' }; return { ...art, measurements: [...art.measurements, newM] }; }); updateState(updated); };
   const handleDeleteMeasurement = (articleId: string, mId: string) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = art.measurements.filter(m => m.id !== mId); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
-  const handleReorderMeasurements = (articleId: string, startIndex: number, endIndex: number) => { const updated = articles.map(art => { if (art.id !== articleId) return art; const newMeasurements = [...art.measurements]; const [movedItem] = newMeasurements.splice(startIndex, 1); newMeasurements.splice(endIndex, 0, movedItem); return { ...art, measurements: newMeasurements }; }); updateState(updated); };
+  // --- DRAG & DROP MISURAZIONI (SPOSTAMENTO NELLA STESSA VOCE, COPIA TRA VOCI DIVERSE) ---
+  const handleMeasurementDrop = (
+    sourceArticleId: string, 
+    measurementId: string, 
+    targetArticleId: string, 
+    targetMeasurementId?: string, 
+    position: 'top' | 'bottom' = 'bottom'
+  ) => {
+    const currentArticles = articlesRef.current;
+    const sourceArt = currentArticles.find(a => a.id === sourceArticleId);
+    const targetArt = currentArticles.find(a => a.id === targetArticleId);
+    if (!sourceArt || !targetArt) return;
+
+    const sourceMeas = sourceArt.measurements.find(m => m.id === measurementId);
+    if (!sourceMeas) return;
+
+    if (sourceArticleId === targetArticleId) {
+      // 1. SPOSTAMENTO DI POSIZIONE NELLA STESSA VOCE (MOVE)
+      const currentMeasurements = [...sourceArt.measurements];
+      const fromIndex = currentMeasurements.findIndex(m => m.id === measurementId);
+      let toIndex = targetMeasurementId 
+        ? currentMeasurements.findIndex(m => m.id === targetMeasurementId)
+        : currentMeasurements.length - 1;
+      
+      if (fromIndex === -1 || toIndex === -1) return;
+      if (position === 'bottom' && fromIndex > toIndex) toIndex++;
+      else if (position === 'top' && fromIndex < toIndex) toIndex--;
+
+      const [movedItem] = currentMeasurements.splice(fromIndex, 1);
+      currentMeasurements.splice(toIndex, 0, movedItem);
+
+      const updated = currentArticles.map(art => 
+        art.id === sourceArticleId ? { ...art, measurements: currentMeasurements } : art
+      );
+      updateState(updated);
+      playUISound('move');
+    } else {
+      // 2. COPIA NELL'ALTRA VOCE (COPY ACROSS ARTICLES)
+      // "se la sposto di voce la copia nell'altra voce...questa è una unicità del programma..."
+      const newMeasId = Math.random().toString(36).substr(2, 9);
+      const clonedMeas: Measurement = {
+        ...sourceMeas,
+        id: newMeasId,
+      };
+
+      const targetMeasurements = [...targetArt.measurements];
+      let insertIndex = targetMeasurements.length;
+      if (targetMeasurementId) {
+        const idx = targetMeasurements.findIndex(m => m.id === targetMeasurementId);
+        if (idx !== -1) {
+          insertIndex = position === 'bottom' ? idx + 1 : idx;
+        }
+      }
+
+      targetMeasurements.splice(insertIndex, 0, clonedMeas);
+
+      const updated = currentArticles.map(art => {
+        if (art.id === targetArticleId) {
+          return { ...art, measurements: targetMeasurements };
+        }
+        return art; // La voce sorgente rimane intatta (COPIA)
+      });
+
+      updateState(recalculateAllArticles(updated));
+      setLastAddedMeasurementId(newMeasId);
+      playUISound('confirm');
+    }
+  };
+
   const handleArticleDragStart = (e: React.DragEvent, article: Article) => { setIsDraggingArticle(true); e.dataTransfer.setData(MIME_ARTICLE, 'true'); e.dataTransfer.setData('type', 'ARTICLE'); e.dataTransfer.setData('articleId', article.id); e.dataTransfer.effectAllowed = 'all'; };
   const onArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
   const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); setLastMovedItemId(articleId); setTimeout(() => setLastMovedItemId(null), 3000); };
@@ -1904,65 +2060,260 @@ const App: React.FC = () => {
   const handleOpenPaintingCalculator = (articleId: string) => { setPaintingTargetArticleId(articleId); setIsPaintingModalOpen(true); };
   const handleToggleSmartRepeat = (articleId: string) => { if (smartRepeatActiveId === articleId) setSmartRepeatActiveId(null); else setSmartRepeatActiveId(articleId); };
   
-  // PATTO DI FERRO: RIPRISTINO FUNZIONE CUFFIE NELLE MISURE
+  // --- SISTEMA DETTATURA VOCALE OPERATIVA AVANZATA CONTINUA ---
+  const focusMeasurementCell = (mId: string, field: VoiceField) => {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-m-id="${mId}"][data-field="${field}"]`) as HTMLInputElement | HTMLTextAreaElement;
+      if (el) {
+        el.focus();
+        if ('select' in el) el.select();
+      }
+    });
+  };
+
+  const handleVoiceAdvance = (articleId: string, currentRowId: string, currentField: VoiceField) => {
+    const art = articlesRef.current.find(a => a.id === articleId);
+    if (!art) return;
+    const fieldIndex = MEASUREMENT_FIELDS.indexOf(currentField);
+
+    if (fieldIndex < MEASUREMENT_FIELDS.length - 1) {
+      const nextField = MEASUREMENT_FIELDS[fieldIndex + 1];
+      voiceStateRef.current = { articleId, rowId: currentRowId, field: nextField };
+      setVoiceActiveField(nextField);
+      focusMeasurementCell(currentRowId, nextField);
+      playUISound('move');
+      setVoiceFeedbackNotice(`Cella: ${nextField.toUpperCase()}`);
+    } else {
+      // È alla fine del rigo (altezza/peso) e va avanti:
+      // "se va avanti crea un rigo nuovo e si posiziona con il cursore sul rigo nella descrizione"
+      const newMeasId = Math.random().toString(36).substr(2, 9);
+      const newM: Measurement = { id: newMeasId, description: '', type: 'positive' };
+      const updated = articlesRef.current.map(a => 
+        a.id === articleId ? { ...a, measurements: [...a.measurements, newM] } : a
+      );
+      updateState(updated);
+      setLastAddedMeasurementId(newMeasId);
+
+      voiceStateRef.current = { articleId, rowId: newMeasId, field: 'description' };
+      setVoiceActiveRowId(newMeasId);
+      setVoiceActiveField('description');
+      playUISound('newline');
+      setVoiceFeedbackNotice("Nuovo rigo creato • Cella: DESCRIZIONE");
+      setTimeout(() => {
+        focusMeasurementCell(newMeasId, 'description');
+      }, 150);
+    }
+  };
+
+  const handleVoiceBackward = (articleId: string, currentRowId: string, currentField: VoiceField) => {
+    const art = articlesRef.current.find(a => a.id === articleId);
+    if (!art) return;
+    const fieldIndex = MEASUREMENT_FIELDS.indexOf(currentField);
+
+    if (fieldIndex > 0) {
+      const prevField = MEASUREMENT_FIELDS[fieldIndex - 1];
+      voiceStateRef.current = { articleId, rowId: currentRowId, field: prevField };
+      setVoiceActiveField(prevField);
+      focusMeasurementCell(currentRowId, prevField);
+      playUISound('move');
+      setVoiceFeedbackNotice(`Cella: ${prevField.toUpperCase()}`);
+    } else {
+      const rowIdx = art.measurements.findIndex(m => m.id === currentRowId);
+      if (rowIdx > 0) {
+        const prevRow = art.measurements[rowIdx - 1];
+        voiceStateRef.current = { articleId, rowId: prevRow.id, field: 'height' };
+        setVoiceActiveRowId(prevRow.id);
+        setVoiceActiveField('height');
+        focusMeasurementCell(prevRow.id, 'height');
+        playUISound('move');
+        setVoiceFeedbackNotice("Rigo precedente • Cella: ALTEZZA");
+      }
+    }
+  };
+
   const handleStartVoiceDictation = (articleId: string) => {
+    // Se già attiva per questa voce, disattiviamo
+    if (isVoiceRunningRef.current && recordingArticleId === articleId) {
+      isVoiceRunningRef.current = false;
+      if (voiceRecognitionRef.current) {
+        try { voiceRecognitionRef.current.stop(); } catch (e) {}
+      }
+      setRecordingArticleId(null);
+      setVoiceActiveRowId(null);
+      setVoiceFeedbackNotice(null);
+      playUISound('toggle');
+      return;
+    }
+
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-        alert("Riconoscimento vocale non supportato in questo browser.");
-        return;
+      alert("Riconoscimento vocale non supportato in questo browser. Usa Google Chrome o Microsoft Edge.");
+      return;
     }
+
+    if (voiceRecognitionRef.current) {
+      try { 
+        isVoiceRunningRef.current = false;
+        voiceRecognitionRef.current.stop(); 
+      } catch (e) {}
+    }
+
+    const targetArticle = articlesRef.current.find(a => a.id === articleId);
+    if (!targetArticle) return;
+
+    let activeRowId = targetArticle.measurements[targetArticle.measurements.length - 1]?.id;
+    if (!activeRowId) {
+      const newMId = Math.random().toString(36).substr(2, 9);
+      const newM: Measurement = { id: newMId, description: '', type: 'positive' };
+      const updated = articlesRef.current.map(a => a.id === articleId ? { ...a, measurements: [newM] } : a);
+      updateState(updated);
+      activeRowId = newMId;
+    }
+
+    const initialField: VoiceField = 'description';
+    voiceStateRef.current = { articleId, rowId: activeRowId, field: initialField };
+    setRecordingArticleId(articleId);
+    setVoiceActiveRowId(activeRowId);
+    setVoiceActiveField(initialField);
+    setVoiceFeedbackNotice("Dettatura continua attiva • Parla liberamente");
+    isVoiceRunningRef.current = true;
+    focusMeasurementCell(activeRowId, initialField);
+    playUISound('toggle');
+
     const recognition = new SpeechRecognition();
     recognition.lang = 'it-IT';
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = false;
+    voiceRecognitionRef.current = recognition;
 
-    recognition.onstart = () => {
-        setRecordingArticleId(articleId);
-        playUISound('toggle');
-    };
+    recognition.onresult = (event: any) => {
+      const lastIndex = event.results.length - 1;
+      const transcript = event.results[lastIndex][0].transcript.trim();
+      if (!transcript) return;
 
-    recognition.onresult = async (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-            try {
-                const parsed = await parseVoiceMeasurement(transcript);
-                const newId = Math.random().toString(36).substr(2, 9);
-                const newArticles = articles.map(art => {
-                    if (art.id !== articleId) return art;
-                    const newM: Measurement = { 
-                        id: newId, 
-                        description: parsed.description || transcript, 
-                        multiplier: parsed.multiplier,
-                        length: parsed.length,
-                        width: parsed.width,
-                        height: parsed.height,
-                        type: 'positive' 
-                    };
-                    return { ...art, measurements: [...art.measurements, newM] };
-                });
-                updateState(newArticles);
-                playUISound('newline');
-                // Creazione automatica nuovo rigo (andare avanti)
-                setTimeout(() => handleAddMeasurement(articleId), 400);
-            } catch (error) {
-                console.error("Errore parsing vocale:", error);
-                // Fallback a trascrizione semplice
-                const newId = Math.random().toString(36).substr(2, 9);
-                const newArticles = articles.map(art => {
-                    if (art.id !== articleId) return art;
-                    const newM: Measurement = { id: newId, description: transcript, type: 'positive' };
-                    return { ...art, measurements: [...art.measurements, newM] };
-                });
-                updateState(newArticles);
-            }
+      const { articleId: currArtId, rowId: currRowId, field: currField } = voiceStateRef.current;
+      if (!currArtId || !currRowId) return;
+
+      const analysis = analyzeVoiceTranscript(transcript, currField);
+      setVoiceFeedbackNotice(`"${transcript}"`);
+
+      // 1. Comandi Vocali
+      if (analysis.command === 'avanti') {
+        if (analysis.valueText !== undefined) {
+          handleUpdateMeasurement(currArtId, currRowId, 'description', analysis.valueText);
+        } else if (analysis.valueNumber !== undefined) {
+          handleUpdateMeasurement(currArtId, currRowId, currField, analysis.valueNumber);
         }
+        handleVoiceAdvance(currArtId, currRowId, currField);
+        return;
+      }
+
+      if (analysis.command === 'indietro') {
+        handleVoiceBackward(currArtId, currRowId, currField);
+        return;
+      }
+
+      if (analysis.command === 'cancella') {
+        if (currField === 'description') {
+          handleUpdateMeasurement(currArtId, currRowId, 'description', '');
+        } else {
+          handleUpdateMeasurement(currArtId, currRowId, currField, undefined);
+        }
+        focusMeasurementCell(currRowId, currField);
+        playUISound('move');
+        setVoiceFeedbackNotice("Dato cancellato");
+        return;
+      }
+
+      if (analysis.command === 'cancella_rigo') {
+        handleDeleteMeasurement(currArtId, currRowId);
+        playUISound('toggle');
+        const art = articlesRef.current.find(a => a.id === currArtId);
+        const remaining = art?.measurements.filter(m => m.id !== currRowId) || [];
+        if (remaining.length > 0) {
+          const nextTarget = remaining[remaining.length - 1];
+          voiceStateRef.current = { articleId: currArtId, rowId: nextTarget.id, field: 'description' };
+          setVoiceActiveRowId(nextTarget.id);
+          setVoiceActiveField('description');
+          setTimeout(() => focusMeasurementCell(nextTarget.id, 'description'), 100);
+        }
+        setVoiceFeedbackNotice("Rigo eliminato");
+        return;
+      }
+
+      if (analysis.command === 'nuovo_rigo') {
+        const newMeasId = Math.random().toString(36).substr(2, 9);
+        const newM: Measurement = { id: newMeasId, description: '', type: 'positive' };
+        const updated = articlesRef.current.map(a => 
+          a.id === currArtId ? { ...a, measurements: [...a.measurements, newM] } : a
+        );
+        updateState(updated);
+        setLastAddedMeasurementId(newMeasId);
+        voiceStateRef.current = { articleId: currArtId, rowId: newMeasId, field: 'description' };
+        setVoiceActiveRowId(newMeasId);
+        setVoiceActiveField('description');
+        playUISound('newline');
+        setVoiceFeedbackNotice("Nuovo rigo creato");
+        setTimeout(() => focusMeasurementCell(newMeasId, 'description'), 120);
+        return;
+      }
+
+      if (analysis.command === 'parziale') {
+        handleAddSubtotal(currArtId);
+        playUISound('confirm');
+        setVoiceFeedbackNotice("Parziale inserito");
+        return;
+      }
+
+      // 2. Inserimento valore testo / numero
+      if (currField === 'description') {
+        const textVal = analysis.valueText || transcript;
+        handleUpdateMeasurement(currArtId, currRowId, 'description', textVal);
+        focusMeasurementCell(currRowId, 'description');
+        playUISound('move');
+        if (analysis.autoAdvance) {
+          handleVoiceAdvance(currArtId, currRowId, 'description');
+        }
+      } else {
+        if (analysis.valueNumber !== undefined) {
+          handleUpdateMeasurement(currArtId, currRowId, currField, analysis.valueNumber);
+          focusMeasurementCell(currRowId, currField);
+          playUISound('move');
+          if (analysis.autoAdvance) {
+            handleVoiceAdvance(currArtId, currRowId, currField);
+          }
+        }
+      }
     };
 
+    recognition.onerror = (event: any) => {
+      console.warn("SpeechRecognition notice:", event.error);
+    };
+
+    // Ascolto continuo: si riavvia automaticamente in onend finché l'utente non clicca per spegnerlo!
     recognition.onend = () => {
+      if (isVoiceRunningRef.current) {
+        try {
+          recognition.start();
+        } catch (e) {
+          setTimeout(() => {
+            if (isVoiceRunningRef.current) {
+              try { recognition.start(); } catch (err) {}
+            }
+          }, 150);
+        }
+      } else {
         setRecordingArticleId(null);
+        setVoiceActiveRowId(null);
+        setVoiceFeedbackNotice(null);
+      }
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn("Errore avvio riconoscimento:", e);
+    }
   };
 
   const handleToggleItemDisplayMode = (articleId: string) => {
@@ -2356,7 +2707,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed text-center space-y-4 ${viewMode === 'SICUREZZA' ? 'border-orange-100 bg-orange-50/30' : 'border-blue-100 bg-slate-50/30'}`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white border ${viewMode === 'SICUREZZA' ? 'text-orange-200 border-orange-50' : 'text-blue-200 border-blue-50'}`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                       <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onToggleArticleEnabled={handleToggleArticleEnabled} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} onStartVoiceDictation={handleStartVoiceDictation} smartRepeatActiveId={smartRepeatActiveId} onOpenContextMenu={handleOpenContextMenu} />
+                                        <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onToggleArticleEnabled={handleToggleArticleEnabled} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} onStartVoiceDictation={handleStartVoiceDictation} smartRepeatActiveId={smartRepeatActiveId} onMeasurementDrop={handleMeasurementDrop} voiceActiveRowId={voiceActiveRowId} voiceActiveField={voiceActiveField} onOpenContextMenu={handleOpenContextMenu} />
                                     ))
                                 )}
                             </table>
@@ -2400,6 +2751,45 @@ const App: React.FC = () => {
               onToggleArticleEnabled={handleToggleArticleEnabled}
               onClose={() => setContextMenuTarget(null)}
             />
+          )}
+
+          {/* BANNER FLUTTUANTE CONTROLLO DETTATURA VOCALE CONTINUA */}
+          {recordingArticleId && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[250] bg-slate-950/95 text-white px-5 py-3 rounded-2xl shadow-2xl border-2 border-purple-500/80 backdrop-blur-md flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
+              <div className="flex items-center gap-2.5">
+                <div className="relative flex items-center justify-center p-2 bg-purple-600 rounded-xl text-white shadow-md">
+                  <Mic className="w-5 h-5 animate-pulse" />
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping"></span>
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900"></span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-purple-300">
+                      Dettatura Continua Attiva
+                    </span>
+                    <span className="bg-purple-900/80 border border-purple-400 text-purple-200 text-[10px] font-black uppercase px-2 py-0.5 rounded-full font-mono">
+                      Cella: {voiceActiveField === 'description' ? 'Descrizione' : voiceActiveField === 'multiplier' ? 'Parti Uguali' : voiceActiveField === 'length' ? 'Lunghezza' : voiceActiveField === 'width' ? 'Larghezza' : 'Altezza/Peso'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-300 font-medium truncate max-w-md">
+                    {voiceFeedbackNotice || "Parla liberamente lungo il rigo. Dì 'Avanti' per avanzare o creare un nuovo rigo."}
+                  </div>
+                </div>
+              </div>
+
+              <div className="hidden md:flex items-center gap-1.5 text-[10px] text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
+                <span className="text-purple-400 font-bold">Comandi:</span>
+                <span>"Avanti"</span> • <span>"Indietro"</span> • <span>"Cancella"</span> • <span>"Nuovo rigo"</span>
+              </div>
+
+              <button
+                onClick={() => handleStartVoiceDictation(recordingArticleId)}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all shadow hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap"
+                title="Spegni riconoscimento vocale"
+              >
+                Disattiva
+              </button>
+            </div>
           )}
         </>
       )}
