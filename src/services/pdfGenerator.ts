@@ -467,7 +467,7 @@ const drawTableFrame = (doc: any, startY: number, endY: number) => {
 };
 
 const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[], allArticles: Article[], globalCounter: { current: number }, projectInfo: ProjectInfo, doc: any) => {
-    const catArticles = articles.filter(a => a.categoryCode === cat.code);
+    const catArticles = articles.filter(a => a.categoryCode === cat.code && a.isEnabled !== false);
     if (catArticles.length === 0) return;
 
     const isSafety = cat.type === 'safety';
@@ -1026,6 +1026,343 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
 
 export const generateComputoSicurezzaPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
     return generateComputoMetricPdf(projectInfo, categories, articles, 'safety');
+};
+
+export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
+  try {
+    const { jsPDF, autoTable } = await getLibs();
+    const doc = new jsPDF();
+    const tableBody: any[] = [];
+    const pageHeight = doc.internal.pageSize.height;
+
+    tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
+
+    // Master sequential index map per mantenere la numerazione globale originale
+    const masterIndexMap = new Map<string, number>();
+    let masterCount = 1;
+    categories.forEach(cat => {
+        if (cat.isSuperCategory) return;
+        articles.filter(a => a.categoryCode === cat.code).forEach(art => {
+            masterIndexMap.set(art.id, masterCount++);
+        });
+    });
+
+    const topLevels = categories.filter(c => !c.parentId && c.isEnabled !== false);
+    let totalActiveArticles = 0;
+    
+    topLevels.forEach(root => {
+        if (root.isSuperCategory) {
+            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory && c.isEnabled !== false);
+            if (children.length > 0) {
+                tableBody.push([
+                    { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+                    { content: `AREA: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
+                ]);
+                children.forEach(child => {
+                    const catArticles = articles.filter(a => a.categoryCode === child.code && a.isEnabled !== false);
+                    if (catArticles.length === 0) return;
+                    totalActiveArticles += catArticles.length;
+
+                    tableBody.push([
+                        { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+                        { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+                        { content: `${child.code} - ${child.name}`, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
+                        '', '', '', '', '', '', ''
+                    ]);
+
+                    catArticles.forEach((art, artIndex) => {
+                        const wbsN = getWbsNumber(child.code);
+                        const artNum = `${wbsN}.${artIndex + 1}`;
+                        const gNum = art.originalGlobalIndex || masterIndexMap.get(art.id) || (artIndex + 1);
+
+                        let finalDescription = cleanText(art.description);
+                        if (projectInfo.descriptionLength === 'short') {
+                            doc.setFontSize(8.5);
+                            const splitLines = doc.splitTextToSize(finalDescription, 55); 
+                            if (splitLines.length > 6) {
+                                finalDescription = splitLines.slice(0, 6).join('\n') + ' .....';
+                            }
+                        }
+
+                        tableBody.push([
+                            { 
+                              content: `${gNum}\n(${artNum})`, 
+                              styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
+                            },
+                            { 
+                              content: formatTariffCode(art.code, 18, 6.8, doc), 
+                              styles: { 
+                                isArt: true, 
+                                fontStyle: 'bold', 
+                                cellPadding: { top: 3, bottom: 1, left: 0.5, right: 0.5 }, 
+                                fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), 
+                                halign: 'center',
+                                overflow: 'linebreak'
+                              } 
+                            },
+                            { 
+                              content: finalDescription, 
+                              styles: { 
+                                isArt: true, 
+                                isArtDesc: true,
+                                fontStyle: 'normal', 
+                                cellPadding: { left: 2.5, right: 2.5, top: 3.5, bottom: 1.5 }, 
+                                fontSize: 8.5, 
+                                valign: 'top', 
+                                textColor: [20, 20, 20]
+                              } 
+                            },
+                            '', '', '', '', '', '', ''
+                        ]);
+
+                        if (art.measurements && art.measurements.length > 0) {
+                            let runningPartial = 0;
+                            art.measurements.forEach((m) => {
+                                const isDeduction = m.type === 'deduction';
+                                let val = calculateMeasurementValue(m);
+                                let displayVal = val;
+                                if (m.type === 'subtotal') {
+                                    displayVal = runningPartial;
+                                    runningPartial = 0;
+                                } else {
+                                    runningPartial += val;
+                                }
+                                
+                                const rowTextColor = isDeduction ? [200, 0, 0] : [60, 60, 60];
+
+                                tableBody.push([ 
+                                    '', '', 
+                                    { 
+                                      content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, 
+                                      styles: { 
+                                        fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', 
+                                        halign: m.type === 'subtotal' ? 'right' : 'left', 
+                                        textColor: rowTextColor, 
+                                        cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, 
+                                        fontSize: 8 
+                                      } 
+                                    }, 
+                                    { content: formatNumber(m.multiplier), styles: { halign: 'center', textColor: rowTextColor } }, 
+                                    { content: formatNumber(m.length), styles: { halign: 'center', textColor: rowTextColor } }, 
+                                    { content: formatNumber(m.width), styles: { halign: 'center', textColor: rowTextColor } }, 
+                                    { content: formatNumber(m.height), styles: { halign: 'center', textColor: rowTextColor } }, 
+                                    { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', cellPadding: { left: 1.5 }, fontSize: 8, textColor: rowTextColor } }, 
+                                    '', '' 
+                                ]);
+                            });
+                        }
+
+                        tableBody.push([ 
+                            '', '', 
+                            { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, 
+                            '', '', '', '', 
+                            { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, 
+                            { content: '', styles: { halign: 'right', isTotalRow: true } }, 
+                            { content: '', styles: { halign: 'right', isTotalRow: true } } 
+                        ]);
+                        tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
+                    });
+                });
+            }
+        } else {
+            const catArticles = articles.filter(a => a.categoryCode === root.code && a.isEnabled !== false);
+            if (catArticles.length === 0) return;
+            totalActiveArticles += catArticles.length;
+
+            tableBody.push([
+                { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+                { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+                { content: `${root.code} - ${root.name}`, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
+                '', '', '', '', '', '', ''
+            ]);
+
+            catArticles.forEach((art, artIndex) => {
+                const wbsN = getWbsNumber(root.code);
+                const artNum = `${wbsN}.${artIndex + 1}`;
+                const gNum = art.originalGlobalIndex || masterIndexMap.get(art.id) || (artIndex + 1);
+
+                let finalDescription = cleanText(art.description);
+                if (projectInfo.descriptionLength === 'short') {
+                    doc.setFontSize(8.5);
+                    const splitLines = doc.splitTextToSize(finalDescription, 55); 
+                    if (splitLines.length > 6) {
+                        finalDescription = splitLines.slice(0, 6).join('\n') + ' .....';
+                    }
+                }
+
+                tableBody.push([
+                    { 
+                      content: `${gNum}\n(${artNum})`, 
+                      styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
+                    },
+                    { 
+                      content: formatTariffCode(art.code, 18, 6.8, doc), 
+                      styles: { 
+                        isArt: true, 
+                        fontStyle: 'bold', 
+                        cellPadding: { top: 3, bottom: 1, left: 0.5, right: 0.5 }, 
+                        fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), 
+                        halign: 'center',
+                        overflow: 'linebreak'
+                      } 
+                    },
+                    { 
+                      content: finalDescription, 
+                      styles: { 
+                        isArt: true, 
+                        isArtDesc: true,
+                        fontStyle: 'normal', 
+                        cellPadding: { left: 2.5, right: 2.5, top: 3.5, bottom: 1.5 }, 
+                        fontSize: 8.5, 
+                        valign: 'top', 
+                        textColor: [20, 20, 20]
+                      } 
+                    },
+                    '', '', '', '', '', '', ''
+                ]);
+
+                if (art.measurements && art.measurements.length > 0) {
+                    let runningPartial = 0;
+                    art.measurements.forEach((m) => {
+                        const isDeduction = m.type === 'deduction';
+                        let val = calculateMeasurementValue(m);
+                        let displayVal = val;
+                        if (m.type === 'subtotal') {
+                            displayVal = runningPartial;
+                            runningPartial = 0;
+                        } else {
+                            runningPartial += val;
+                        }
+                        
+                        const rowTextColor = isDeduction ? [200, 0, 0] : [60, 60, 60];
+
+                        tableBody.push([ 
+                            '', '', 
+                            { 
+                              content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, 
+                              styles: { 
+                                fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', 
+                                halign: m.type === 'subtotal' ? 'right' : 'left', 
+                                textColor: rowTextColor, 
+                                cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, 
+                                fontSize: 8 
+                              } 
+                            }, 
+                            { content: formatNumber(m.multiplier), styles: { halign: 'center', textColor: rowTextColor } }, 
+                            { content: formatNumber(m.length), styles: { halign: 'center', textColor: rowTextColor } }, 
+                            { content: formatNumber(m.width), styles: { halign: 'center', textColor: rowTextColor } }, 
+                            { content: formatNumber(m.height), styles: { halign: 'center', textColor: rowTextColor } }, 
+                            { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', cellPadding: { left: 1.5 }, fontSize: 8, textColor: rowTextColor } }, 
+                            '', '' 
+                        ]);
+                    });
+                }
+
+                tableBody.push([ 
+                    '', '', 
+                    { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, 
+                    '', '', '', '', 
+                    { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, 
+                    { content: '', styles: { halign: 'right', isTotalRow: true } }, 
+                    { content: '', styles: { halign: 'right', isTotalRow: true } } 
+                ]);
+                tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
+            });
+        }
+    });
+
+    const integrityHash = await computeProjectIntegrityHash(
+        projectInfo,
+        categories,
+        articles.filter(a => a.isEnabled !== false),
+        0,
+        "COMPUTO METRICO SUBAPPALTO"
+    );
+
+    tableBody.push([
+        { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+        { 
+            content: `RIEPILOGO COMPUTO METRICO (VOCI ATTIVE: ${totalActiveArticles})`, 
+            colSpan: 6, 
+            styles: { 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 10.5, 
+                cellPadding: { top: 4, bottom: 4, right: 3, left: 3 }, 
+                fillColor: [244, 247, 252], 
+                textColor: [15, 23, 42],
+                isClosingTotalRow: true
+            } 
+        },
+        { 
+            content: 'OFFERTA €', 
+            colSpan: 2, 
+            styles: { 
+                fontStyle: 'bold', 
+                halign: 'center', 
+                fontSize: 9.5, 
+                cellPadding: { top: 4, bottom: 4, right: 3, left: 3 }, 
+                fillColor: [244, 247, 252], 
+                textColor: [0, 32, 128],
+                isClosingTotalRow: true
+            } 
+        }
+    ]);
+
+    autoTable(doc, {
+      head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'PAR.UG', 'LUNG.', 'LARG.', 'H/PESO', 'QUANTITÀ', 'PREZZO OFF. €', 'IMPORTO OFF. €']],
+      body: tableBody,
+      startY: 42,
+      margin: { left: 10, right: 10, top: 38, bottom: 25 },
+      theme: 'plain',
+      styles: { fontSize: 8, cellPadding: 1, overflow: 'linebreak' },
+      columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 22, halign: 'center' },
+          2: { cellWidth: 60 },
+          3: { cellWidth: 10, halign: 'center' },
+          4: { cellWidth: 12, halign: 'center' },
+          5: { cellWidth: 12, halign: 'center' },
+          6: { cellWidth: 12, halign: 'center' },
+          7: { cellWidth: 18, halign: 'right' },
+          8: { cellWidth: 18, halign: 'right' },
+          9: { cellWidth: 16, halign: 'right' }
+      },
+      headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      didDrawPage: (data: any) => {
+          const currentTableStartY = data.pageNumber === 1 ? 44 : 38;
+          const defaultTableEndY = pageHeight - 25;
+          drawHeader(doc, projectInfo, "COMPUTO METRICO", data.pageNumber, 0, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          drawGridLines(doc, currentTableStartY, defaultTableEndY); 
+          drawTableFrame(doc, currentTableStartY, defaultTableEndY);
+          drawFooter(doc, data.pageNumber, 0, 0, doc.internal.pageSize.width, doc.internal.pageSize.height, false, true);
+      }
+    });
+
+    // Sezione firme e validazione offerta
+    const finalY = (doc as any).lastAutoTable.finalY || (pageHeight - 50);
+    if (finalY + 40 > pageHeight - 20) {
+        doc.addPage();
+        drawHeader(doc, projectInfo, "COMPUTO METRICO", doc.getNumberOfPages(), 0, doc.internal.pageSize.width, doc.internal.pageSize.height);
+    }
+    const signY = finalY + 40 > pageHeight - 20 ? 45 : finalY + 10;
+    
+    doc.setDrawColor(44, 62, 80);
+    doc.setLineWidth(0.4);
+    doc.line(10, signY, 200, signY);
+    doc.setLineWidth(0.15);
+    doc.line(10, signY + 0.8, 200, signY + 0.8);
+
+    doc.setFontSize(8.5); doc.setFont("helvetica", "bold"); doc.setTextColor(40, 50, 70);
+    doc.text(`Il Progettista / D.L.`, 30, signY + 8, { align: 'center' });
+    doc.text(`L'Impresa Concorrente / Subappaltatrice`, 160, signY + 8, { align: 'center' });
+    doc.setFontSize(7.5); doc.setFont("helvetica", "italic"); doc.setTextColor(120, 130, 145);
+    doc.text(`(Timbro e Firma per Consegna)`, 30, signY + 12, { align: 'center' });
+    doc.text(`(Timbro e Firma per Offerta Economica)`, 160, signY + 12, { align: 'center' });
+
+    applyDocumentFootersAndSecurity(doc, integrityHash);
+    window.open(URL.createObjectURL(doc.output('blob')), '_blank');
+  } catch (error) { console.error(error); alert("Errore generazione Computo Metrico Subappalto."); }
 };
 
 export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {

@@ -38,6 +38,8 @@ export interface Article {
   quantity: number;
   linkedAnalysisId?: string;
   isLocked?: boolean;
+  isEnabled?: boolean;
+  originalGlobalIndex?: number;
   displayMode?: number; 
   soaCategory?: string; 
   groundingUrls?: any[];

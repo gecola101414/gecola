@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { 
-  Plus, Sigma, CopyPlus, PlusCircle, MinusCircle, Trash2, X
+  Plus, Sigma, CopyPlus, PlusCircle, MinusCircle, Trash2, X, Power, PowerOff, Lightbulb
 } from 'lucide-react';
 import { Article, Measurement } from '../types';
 
@@ -19,6 +19,7 @@ export interface ContextMenuProps {
   onSetMeasurementType?: (articleId: string, mId: string, type: 'positive' | 'deduction') => void;
   onAddMeasurementWithType?: (articleId: string, type: 'positive' | 'deduction') => void;
   onDeleteMeasurement?: (articleId: string, mId: string) => void;
+  onToggleArticleEnabled?: (articleId: string) => void;
   onClose: () => void;
 }
 
@@ -37,6 +38,7 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
   onSetMeasurementType,
   onAddMeasurementWithType,
   onDeleteMeasurement,
+  onToggleArticleEnabled,
   onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -223,6 +225,34 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
                 <span>Elimina Rigo</span>
               </div>
               <span className="text-[9px] font-mono opacity-60 group-hover:opacity-100 bg-white/10 px-1.5 py-0.5 rounded">Canc</span>
+            </button>
+          </div>
+        )}
+
+        {/* 6. Accendi / Spegni Singola Voce (Gestione Sottocomputo Subappalto) */}
+        {onToggleArticleEnabled && (
+          <div className="pt-1.5 border-t border-slate-700/60 mt-1">
+            <button
+              onClick={() => {
+                onToggleArticleEnabled(article.id);
+                onClose();
+              }}
+              className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left text-xs font-bold transition-all group ${
+                article.isEnabled === false
+                  ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500 hover:text-white border border-amber-500/40'
+                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700'
+              }`}
+              title={article.isEnabled === false ? "Riattiva voce nel computo" : "Disattiva ed escludi da sottocomputi/subappalto"}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className={`p-1 rounded-lg ${article.isEnabled === false ? 'bg-amber-500/30 text-amber-300' : 'bg-slate-700 text-slate-400'} group-hover:bg-white/20 group-hover:text-white transition-colors`}>
+                  {article.isEnabled === false ? <Power className="w-3.5 h-3.5 text-amber-400" /> : <PowerOff className="w-3.5 h-3.5 text-slate-400" />}
+                </span>
+                <span>{article.isEnabled === false ? 'Riattiva Voce' : 'Spegni / Escludi Voce'}</span>
+              </div>
+              <span className={`text-[8.5px] font-mono uppercase px-1.5 py-0.5 rounded ${article.isEnabled === false ? 'bg-amber-400/30 text-amber-200' : 'bg-slate-700 text-slate-400'}`}>
+                {article.isEnabled === false ? 'OFF' : 'ON'}
+              </span>
             </button>
           </div>
         )}

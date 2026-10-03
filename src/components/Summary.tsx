@@ -22,7 +22,7 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles, a
         .filter(c => c.isEnabled !== false && !c.isSuperCategory)
         .map(cat => {
           const catTotal = articles
-            .filter(a => a.categoryCode === cat.code)
+            .filter(a => a.categoryCode === cat.code && a.isEnabled !== false)
             .reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
           return { ...cat, total: catTotal };
       }).filter(c => c.total > 0.01);
@@ -34,6 +34,7 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles, a
       let untaggedTotal = 0;
 
       articles.forEach(art => {
+          if (art.isEnabled === false) return;
           const cat = categories.find(c => c.code === art.categoryCode);
           if (cat && cat.isEnabled === false) return;
 
