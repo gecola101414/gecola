@@ -2133,17 +2133,14 @@ const App: React.FC = () => {
                 <div className="flex items-center space-x-2">
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Progetto"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Progetto</span></button>
                     <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
-                    <div className="relative">
-                        <button onClick={(e) => { e.stopPropagation(); setIsSaveMenuOpen(!isSaveMenuOpen); setIsPrintMenuOpen(false); }} className="p-2 transition-colors flex items-center gap-1 text-slate-300 hover:text-blue-400"><Save className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isSaveMenuOpen ? 'rotate-180' : ''}`} /></button>
-                        {isSaveMenuOpen && (
-                            <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-xl py-2 z-[100] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                                <button onClick={() => { setIsSaveMenuOpen(false); setIsSaveModalOpen(true); }} className="w-full px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3 border-b border-slate-100 font-bold"><Save className="w-4 h-4 text-blue-600" />Salva & Esporta Progetto...</button>
-                                <button onClick={() => { setIsSaveMenuOpen(false); handleSmartSave(false, true); playUISound('confirm'); }} className="w-full px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3 border-b border-slate-100"><Coins className="w-3.5 h-3.5 text-blue-500" />Salva Backup Rapido (.json)</button>
-                                <button onClick={() => { setIsSaveMenuOpen(false); generateComputoMetricoSubappaltoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-2.5 text-xs text-emerald-800 hover:bg-emerald-50 flex items-center gap-3 border-b border-slate-100 font-bold"><Briefcase className="w-3.5 h-3.5 text-emerald-600" />Computo Subappalto Excel (.xls)</button>
-                                <button onClick={() => { setIsSaveMenuOpen(false); generateComputoExcel(projectInfo, categories, articles); }} className="w-full px-4 py-2 text-xs text-slate-700 hover:bg-emerald-50 flex items-center gap-3"><FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />Computo Estimativo Excel (.xls)</button>
-                            </div>
-                        )}
-                    </div>
+                    <button 
+                      onClick={() => { setIsSaveModalOpen(true); playUISound('confirm'); }} 
+                      className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-slate-200 hover:text-white bg-blue-600/80 hover:bg-blue-600 border border-blue-500 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer"
+                      title="Salva con Nome (CME / CM)"
+                    >
+                      <Save className="w-4 h-4 text-white" />
+                      <span className="text-xs font-bold">Salva</span>
+                    </button>
                     <div className="relative">
                         <button onClick={(e) => { e.stopPropagation(); setIsPrintMenuOpen(!isPrintMenuOpen); setIsSaveMenuOpen(false); }} className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1"><FileText className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isPrintMenuOpen && (

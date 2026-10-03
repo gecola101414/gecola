@@ -5,9 +5,7 @@ const getWbsNumber = (code: string) => {
     return match ? parseInt(match[1], 10) : code;
 };
 
-export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
-  const fileName = `${projectInfo.title.replace(/\s+/g, '_')}_Computo.xls`;
-  
+export const buildComputoExcelXml = (projectInfo: ProjectInfo, categories: Category[], articles: Article[]): string => {
   let xml = `<?xml version="1.0"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -88,7 +86,7 @@ export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Categ
    <NumberFormat ss:Format="#,##0.00"/>
   </Style>
  </Styles>
- <Worksheet ss:Name="Computo Metrico">
+ <Worksheet ss:Name="Computo Metrico Estimativo">
   <Table ss:ExpandedColumnCount="10" x:FullColumns="1" x:FullRows="1" ss:DefaultRowHeight="15">
    <Column ss:Width="40"/>
    <Column ss:Width="80"/>
@@ -119,7 +117,7 @@ export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Categ
 
   categories.forEach(cat => {
     if (!cat.isEnabled) return;
-    const catArticles = articles.filter(a => a.categoryCode === cat.code);
+    const catArticles = articles.filter(a => a.categoryCode === cat.code && a.isEnabled !== false);
     if (catArticles.length === 0) return;
 
     xml += `
@@ -192,18 +190,23 @@ export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Categ
  </Worksheet>
 </Workbook>`;
 
+  return xml;
+};
+
+export const generateComputoExcel = (projectInfo: ProjectInfo, categories: Category[], articles: Article[], customFileName?: string) => {
+  const fileName = customFileName || `${projectInfo.title.replace(/\s+/g, '_')}_CME.xls`;
+  const xml = buildComputoExcelXml(projectInfo, categories, articles);
+
   const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = fileName;
+  link.download = fileName.endsWith('.xls') ? fileName : `${fileName}.xls`;
   link.click();
   URL.revokeObjectURL(url);
 };
 
-export const generateComputoMetricoSubappaltoExcel = (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
-  const fileName = `${projectInfo.title.replace(/\s+/g, '_')}_Computo_Metrico_Subappalto.xls`;
-  
+export const buildComputoMetricoSubappaltoExcelXml = (projectInfo: ProjectInfo, categories: Category[], articles: Article[]): string => {
   // Master index map per mantenere la numerazione originale coerente
   const masterIndexMap = new Map<string, number>();
   let masterCount = 1;
@@ -415,11 +418,18 @@ export const generateComputoMetricoSubappaltoExcel = (projectInfo: ProjectInfo, 
  </Worksheet>
 </Workbook>`;
 
+  return xml;
+};
+
+export const generateComputoMetricoSubappaltoExcel = (projectInfo: ProjectInfo, categories: Category[], articles: Article[], customFileName?: string) => {
+  const fileName = customFileName || `${projectInfo.title.replace(/\s+/g, '_')}_CM.xls`;
+  const xml = buildComputoMetricoSubappaltoExcelXml(projectInfo, categories, articles);
+
   const blob = new Blob([xml], { type: 'application/vnd.ms-excel' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = fileName;
+  link.download = fileName.endsWith('.xls') ? fileName : `${fileName}.xls`;
   link.click();
   URL.revokeObjectURL(url);
 };
