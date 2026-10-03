@@ -291,6 +291,7 @@ interface ArticleGroupProps {
   onMeasurementDrop?: (sourceArticleId: string, measurementId: string, targetArticleId: string, targetMeasurementId?: string, position?: 'top' | 'bottom') => void;
   voiceActiveRowId?: string | null;
   voiceActiveField?: VoiceField;
+  onVoiceCellFocus?: (rowId: string, field: VoiceField) => void;
   onOpenContextMenu?: (e: React.MouseEvent, article: Article, measurement?: Measurement | null) => void;
 }
 
@@ -407,7 +408,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
      onOpenPaintingCalculator, onToggleSmartRepeat, onStartVoiceDictation, smartRepeatActiveId, 
      onViewAnalysis, lastAddedMeasurementId, onColumnFocus, onToggleItemDisplayMode,
      onArticleDragStart, onArticleDrop, onArticleDragEnd, onOpenContextMenu,
-     onMeasurementDragStart, onMeasurementDrop, voiceActiveRowId, voiceActiveField
+     onMeasurementDragStart, onMeasurementDrop, voiceActiveRowId, voiceActiveField, onVoiceCellFocus
    } = props;
    
    const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
@@ -936,7 +937,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                             data-m-id={m.id}
                                             data-field="description"
                                             autoFocus={m.id === lastAddedMeasurementId} 
-                                            onFocus={() => { onColumnFocus('desc'); handleFocusRow(m.id); }} 
+                                            onFocus={() => { onColumnFocus('desc'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'description'); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'description', isLastMeasRow)}
                                             className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-slate-300 disabled:cursor-not-allowed ${isRowVoiceActive && voiceActiveField === 'description' ? 'ring-2 ring-purple-500 bg-purple-100/70 rounded px-1 animate-pulse font-bold' : ''} ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`} 
@@ -962,7 +963,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         )}
                     </td>
                     <td className={`border-r border-slate-200 p-0 transition-colors ${isRowVoiceActive && voiceActiveField === 'multiplier' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40')}`}>
-                        {!isPrintMode && !isSubtotal ? <FastNumberInput data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-slate-300 disabled:cursor-not-allowed h-full font-mono tabular-nums ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: `13.5px` }} initialValue={m.multiplier} onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'multiplier', val)} /> : (m.multiplier && <div className={`text-center font-mono tabular-nums whitespace-nowrap overflow-hidden ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: getDynamicNumberFontSize(m.multiplier, 13.5, 4, 8.5) }} title={String(m.multiplier)}>{m.multiplier}</div>)}
+                        {!isPrintMode && !isSubtotal ? <FastNumberInput data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'multiplier'); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-slate-300 disabled:cursor-not-allowed h-full font-mono tabular-nums ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: `13.5px` }} initialValue={m.multiplier} onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'multiplier', val)} /> : (m.multiplier && <div className={`text-center font-mono tabular-nums whitespace-nowrap overflow-hidden ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: getDynamicNumberFontSize(m.multiplier, 13.5, 4, 8.5) }} title={String(m.multiplier)}>{m.multiplier}</div>)}
                     </td>
                     <td className={`border-r border-slate-200 p-0 transition-all duration-300 relative 
                         ${isRowVoiceActive && voiceActiveField === 'length' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (inheritedFields.includes('length') ? 'bg-slate-100' : 
@@ -971,7 +972,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         {isSubtotal ? <div className="text-center text-slate-300">-</div> : (
                              !isPrintMode ? <FastNumberInput data-m-id={m.id} data-field="length" 
                                 disabled={areControlsDisabled || inheritedFields.includes('length')} 
-                                onFocus={() => { onColumnFocus('len'); handleFocusRow(m.id); }} 
+                                onFocus={() => { onColumnFocus('len'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'length'); }} 
                                 onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                 onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'length', isLastMeasRow)} 
                                 className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full font-mono tabular-nums
@@ -993,7 +994,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         {isSubtotal ? <div className="text-center text-slate-300">-</div> : (
                              !isPrintMode ? <FastNumberInput data-m-id={m.id} data-field="width" 
                                 disabled={areControlsDisabled || inheritedFields.includes('width')} 
-                                onFocus={() => { onColumnFocus('wid'); handleFocusRow(m.id); }} 
+                                onFocus={() => { onColumnFocus('wid'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'width'); }} 
                                 onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                 onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'width', isLastMeasRow)} 
                                 className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full font-mono tabular-nums
@@ -1017,7 +1018,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                     <div className="h-full w-full relative">
                                         <FastNumberInput data-m-id={m.id} data-field="height" data-last-meas-field="true" 
                                             disabled={areControlsDisabled || inheritedFields.includes('height')} 
-                                            onFocus={() => { onColumnFocus('h'); handleFocusRow(m.id); }} 
+                                            onFocus={() => { onColumnFocus('h'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'height'); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'height', isLastMeasRow)} 
                                             className={`w-full text-center bg-transparent border-none text-xs focus:bg-white disabled:cursor-not-allowed h-full font-mono tabular-nums
@@ -2131,6 +2132,14 @@ const App: React.FC = () => {
     }
   };
 
+  const handleVoiceCellFocus = (rowId: string, field: VoiceField) => {
+    if (recordingArticleId) {
+      voiceStateRef.current = { articleId: recordingArticleId, rowId, field };
+      setVoiceActiveRowId(rowId);
+      setVoiceActiveField(field);
+    }
+  };
+
   const handleStartVoiceDictation = (articleId: string) => {
     // Se già attiva per questa voce, disattiviamo
     if (isVoiceRunningRef.current && recordingArticleId === articleId) {
@@ -2187,8 +2196,13 @@ const App: React.FC = () => {
     voiceRecognitionRef.current = recognition;
 
     recognition.onresult = (event: any) => {
-      const lastIndex = event.results.length - 1;
-      const transcript = event.results[lastIndex][0].transcript.trim();
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i][0]) {
+          transcript += ' ' + event.results[i][0].transcript;
+        }
+      }
+      transcript = transcript.trim();
       if (!transcript) return;
 
       const { articleId: currArtId, rowId: currRowId, field: currField } = voiceStateRef.current;
@@ -2197,34 +2211,26 @@ const App: React.FC = () => {
       const analysis = analyzeVoiceTranscript(transcript, currField);
       setVoiceFeedbackNotice(`"${transcript}"`);
 
-      // 1. Comandi Vocali
-      if (analysis.command === 'avanti') {
-        if (analysis.valueText !== undefined) {
-          handleUpdateMeasurement(currArtId, currRowId, 'description', analysis.valueText);
-        } else if (analysis.valueNumber !== undefined) {
-          handleUpdateMeasurement(currArtId, currRowId, currField, analysis.valueNumber);
-        }
-        handleVoiceAdvance(currArtId, currRowId, currField);
-        return;
-      }
-
+      // 1. Comando Indietro
       if (analysis.command === 'indietro') {
         handleVoiceBackward(currArtId, currRowId, currField);
         return;
       }
 
+      // 2. Comando Cancella
       if (analysis.command === 'cancella') {
         if (currField === 'description') {
           handleUpdateMeasurement(currArtId, currRowId, 'description', '');
         } else {
           handleUpdateMeasurement(currArtId, currRowId, currField, undefined);
         }
-        focusMeasurementCell(currRowId, currField);
-        playUISound('move');
         setVoiceFeedbackNotice("Dato cancellato");
+        playUISound('toggle');
+        setTimeout(() => focusMeasurementCell(currRowId, currField), 50);
         return;
       }
 
+      // 3. Comando Cancella Rigo
       if (analysis.command === 'cancella_rigo') {
         handleDeleteMeasurement(currArtId, currRowId);
         playUISound('toggle');
@@ -2241,6 +2247,7 @@ const App: React.FC = () => {
         return;
       }
 
+      // 4. Comando Nuovo Rigo
       if (analysis.command === 'nuovo_rigo') {
         const newMeasId = Math.random().toString(36).substr(2, 9);
         const newM: Measurement = { id: newMeasId, description: '', type: 'positive' };
@@ -2258,6 +2265,7 @@ const App: React.FC = () => {
         return;
       }
 
+      // 5. Comando Parziale
       if (analysis.command === 'parziale') {
         handleAddSubtotal(currArtId);
         playUISound('confirm');
@@ -2265,24 +2273,24 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. Inserimento valore testo / numero
+      // 6. Comando puro AVANTI (senza altri dati inseriti)
+      if (analysis.command === 'avanti' && analysis.valueText === undefined && analysis.valueNumber === undefined) {
+        handleVoiceAdvance(currArtId, currRowId, currField);
+        return;
+      }
+
+      // 7. INSERIMENTO VALORE E AVANZAMENTO AUTOMATICO A OGNI RICONOSCIMENTO!
+      // "al termine di ogni riconoscimento va avanti automaticamente lungo il rigo"
+      // "se in una cella riconosce la parola avanti toglie avanti dalla descrizione e passa alla cella dopo"
       if (currField === 'description') {
-        const textVal = analysis.valueText || transcript;
+        const textVal = analysis.valueText !== undefined ? analysis.valueText : transcript;
         handleUpdateMeasurement(currArtId, currRowId, 'description', textVal);
-        focusMeasurementCell(currRowId, 'description');
-        playUISound('move');
-        if (analysis.autoAdvance) {
-          handleVoiceAdvance(currArtId, currRowId, 'description');
-        }
+        handleVoiceAdvance(currArtId, currRowId, 'description');
       } else {
         if (analysis.valueNumber !== undefined) {
           handleUpdateMeasurement(currArtId, currRowId, currField, analysis.valueNumber);
-          focusMeasurementCell(currRowId, currField);
-          playUISound('move');
-          if (analysis.autoAdvance) {
-            handleVoiceAdvance(currArtId, currRowId, currField);
-          }
         }
+        handleVoiceAdvance(currArtId, currRowId, currField);
       }
     };
 
@@ -2707,7 +2715,7 @@ const App: React.FC = () => {
                                     <tbody><tr><td colSpan={11} className="py-24"><div className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed text-center space-y-4 ${viewMode === 'SICUREZZA' ? 'border-orange-100 bg-orange-50/30' : 'border-blue-100 bg-slate-50/30'}`}><div className={`p-8 rounded-[2.5rem] shadow-inner bg-white border ${viewMode === 'SICUREZZA' ? 'text-orange-200 border-orange-50' : 'text-blue-200 border-blue-50'}`}><Zap className="w-16 h-16" /></div><h3 className={`text-3xl font-black uppercase tracking-tighter text-slate-400`}>Capitolo Vuoto</h3></div></td></tr></tbody>
                                 ) : (
                                     activeArticles.map((article, artIndex) => (
-                                        <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onToggleArticleEnabled={handleToggleArticleEnabled} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} onStartVoiceDictation={handleStartVoiceDictation} smartRepeatActiveId={smartRepeatActiveId} onMeasurementDrop={handleMeasurementDrop} voiceActiveRowId={voiceActiveRowId} voiceActiveField={voiceActiveField} onOpenContextMenu={handleOpenContextMenu} />
+                                        <ArticleGroup key={article.id} article={article} index={artIndex} globalIndex={globalArticleIndexMap.get(article.id) || 0} allArticles={articles} isPrintMode={false} isCategoryLocked={activeCategory.isLocked} isSurveyorGuardActive={isSurveyorGuardActive} projectSettings={projectInfo} lastMovedItemId={lastMovedItemId} recordingArticleId={recordingArticleId} onUpdateArticle={handleUpdateArticle} onEditArticleDetails={handleEditArticleDetails} onDeleteArticle={handleDeleteArticle} onToggleArticleEnabled={handleToggleArticleEnabled} onAddMeasurement={handleAddMeasurement} onAddSubtotal={handleAddSubtotal} onUpdateMeasurement={handleUpdateMeasurement} onDeleteMeasurement={handleDeleteMeasurement} onOpenLinkModal={handleOpenLinkModal} onScrollToArticle={handleScrollToArticle} onArticleDragStart={handleArticleDragStart} onArticleDrop={handleArticleDrop} onArticleDragEnd={onArticleDragEnd} lastAddedMeasurementId={lastAddedMeasurementId} onColumnFocus={setActiveColumn} onViewAnalysis={handleViewLinkedAnalysis} onInsertExternalArticle={handleInsertExternalArticle} onToggleArticleLock={handleToggleArticleLock} onOpenRebarCalculator={handleOpenRebarCalculator} onOpenPaintingCalculator={handleOpenPaintingCalculator} onToggleSmartRepeat={handleToggleSmartRepeat} onToggleItemDisplayMode={handleToggleItemDisplayMode} onStartVoiceDictation={handleStartVoiceDictation} smartRepeatActiveId={smartRepeatActiveId} onMeasurementDrop={handleMeasurementDrop} voiceActiveRowId={voiceActiveRowId} voiceActiveField={voiceActiveField} onVoiceCellFocus={handleVoiceCellFocus} onOpenContextMenu={handleOpenContextMenu} />
                                     ))
                                 )}
                             </table>

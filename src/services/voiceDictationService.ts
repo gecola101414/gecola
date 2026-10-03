@@ -262,87 +262,96 @@ export function parseItalianSpokenNumber(text: string): number | null {
 }
 
 /**
- * Analizza la trascrizione vocale e determina l'azione o il valore per la cella corrente
+ * Analizza la trascrizione vocale e determina l'azione o il valore per la cella corrente.
+ * - Al termine di ogni riconoscimento va avanti automaticamente lungo il rigo.
+ * - Se riconosce la parola "avanti" nel testo, la toglie dalla descrizione/valore e passa subito alla cella successiva.
+ * - Riconosce in modo flessibile "avanti", "indietro", "cancella", "nuovo rigo", "parziale".
  */
 export function analyzeVoiceTranscript(
   rawTranscript: string, 
   currentField: VoiceField
 ): VoiceActionResult {
-  const trimmed = rawTranscript.trim();
-  const lower = trimmed.toLowerCase();
+  // Pulisce punteggiatura iniziale e finale comune del motore vocale (es. "avanti.", "12,5.", "fondazioni!")
+  let clean = rawTranscript.trim().replace(/^[\s.,;:!?\-—_]+|[\s.,;:!?\-—_]+$/g, '');
+  let lower = clean.toLowerCase();
 
-  // 1. Comandi di Navigazione Pura
-  if (['avanti', 'prossimo', 'successivo', 'next', 'avanza'].includes(lower)) {
-    return { command: 'avanti' };
-  }
+  // 1. Normalizzazione comandi di navigazione principali (anche con variazioni fonetiche)
+  const isPureAvanti = /^(?:avanti|a\s+vanti|vai\s+avanti|avanza|prossimo|successivo|next)$/i.test(lower);
+  const isPureIndietro = /^(?:indietro|in\s+dietro|torna\s+indietro|dietro|precedente|back)$/i.test(lower);
+  const isPureCancella = /^(?:cancella|elimina|pulisci|svuota|cancella\s+tutto)$/i.test(lower);
+  const isPureCancellaRigo = /^(?:cancella\s+rigo|elimina\s+rigo|cancella\s+riga|elimina\s+riga)$/i.test(lower);
+  const isPureNuovoRigo = /^(?:nuovo\s+rigo|nuova\s+riga|nuova\s+misura|rigo\s+nuovo|a\s+capo|invio)$/i.test(lower);
+  const isPureParziale = /^(?:sommano|parziale|subtotale|totale\s+parziale)$/i.test(lower);
 
-  if (['indietro', 'precedente', 'back', 'torna indietro'].includes(lower)) {
+  if (isPureIndietro) {
     return { command: 'indietro' };
   }
 
-  if (['cancella rigo', 'elimina rigo', 'cancella riga', 'elimina riga'].includes(lower)) {
+  if (isPureCancellaRigo) {
     return { command: 'cancella_rigo' };
   }
 
-  if (['cancella', 'elimina', 'pulisci', 'svuota', 'cancella tutto'].includes(lower)) {
+  if (isPureCancella) {
     return { command: 'cancella' };
   }
 
-  if (['nuovo rigo', 'nuova riga', 'nuova misura', 'rigo nuovo', 'a capo', 'invio'].includes(lower)) {
+  if (isPureNuovoRigo) {
     return { command: 'nuovo_rigo' };
   }
 
-  if (['sommano', 'parziale', 'subtotale', 'totale parziale'].includes(lower)) {
+  if (isPureParziale) {
     return { command: 'parziale' };
   }
 
-  // 2. Dettatura con comando "avanti" in coda (es: "fondazioni corpo b avanti", "5 virgola 2 avanti")
-  const trailingAvantiMatch = lower.match(/^(.*?)[\s,]+(?:avanti|successivo|next)$/);
-  if (trailingAvantiMatch) {
-    const content = trailingAvantiMatch[1].trim();
-    if (currentField === 'description') {
-      return {
-        valueText: content,
-        autoAdvance: true,
-        command: 'avanti'
-      };
-    } else {
-      const num = parseItalianSpokenNumber(content);
-      if (num !== null) {
-        return {
-          valueNumber: num,
-          autoAdvance: true,
-          command: 'avanti'
-        };
-      }
-    }
+  if (isPureAvanti) {
+    return { command: 'avanti', autoAdvance: true };
   }
 
-  // 3. Valore inserito nella cella attiva
+  // 2. Se riconosce la parola "avanti" all'interno della frase o in coda:
+  // "se in una cella riconsce la parola avanti toglie avanti dalla descrizione e passa alla cella dopo"
+  const avantiRegex = /\b(?:avanti|vai\s+avanti|a\s+vanti|next)\b/gi;
+  if (avantiRegex.test(clean)) {
+    clean = clean.replace(avantiRegex, '').replace(/\s{2,}/g, ' ').trim().replace(/^[\s.,;:!?\-—_]+|[\s.,;:!?\-—_]+$/g, '');
+    lower = clean.toLowerCase();
+  }
+
+  // Se dopo aver tolto "avanti" non è rimasto testo, è stato semplicemente un comando avanti
+  if (!clean) {
+    return { command: 'avanti', autoAdvance: true };
+  }
+
+  // 3. Estrazione dati: al termine di ogni riconoscimento va avanti automaticamente lungo il rigo
   if (currentField === 'description') {
-    // In descrizione si inserisce direttamente il testo parlato naturale
     return {
-      valueText: trimmed
+      valueText: clean,
+      autoAdvance: true // Va avanti automaticamente alla cella successiva!
     };
   } else {
-    // In celle numeriche (parti uguali, lunghezza, larghezza, altezza)
+    // In celle numeriche (multiplier, length, width, height)
     const num = parseItalianSpokenNumber(lower);
     if (num !== null) {
       return {
-        valueNumber: num
+        valueNumber: num,
+        autoAdvance: true // Va avanti automaticamente alla cella successiva!
       };
     }
-    // Se non è riuscito a parsare un numero puro ma l'utente ha detto un numero in cifre
-    const rawNumberMatch = trimmed.match(/^[\d.,]+$/);
+
+    // Se sono cifre grezze (es. "12,5" o "3.5" o "4")
+    const rawNumberMatch = clean.match(/^[\d.,]+$/);
     if (rawNumberMatch) {
-      const parsedFloat = parseFloat(trimmed.replace(',', '.'));
+      const parsedFloat = parseFloat(clean.replace(',', '.'));
       if (!isNaN(parsedFloat)) {
-        return { valueNumber: parsedFloat };
+        return {
+          valueNumber: parsedFloat,
+          autoAdvance: true
+        };
       }
     }
 
+    // Fallback: passa il testo e avanza comunque
     return {
-      valueText: trimmed
+      valueText: clean,
+      autoAdvance: true
     };
   }
 }
