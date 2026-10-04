@@ -202,6 +202,15 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   const [manualStirrupsCount, setManualStirrupsCount] = useState<number | null>(null);
   const [manualStirrupDev, setManualStirrupDev] = useState<number | null>(null);
 
+  // Input strings per permettere cancellazione totale con Backspace senza reset forzato
+  const [multiplierInput, setMultiplierInput] = useState<string>('1');
+  const [baseCmInput, setBaseCmInput] = useState<string>('30');
+  const [heightCmInput, setHeightCmInput] = useState<string>('50');
+  const [lengthMInput, setLengthMInput] = useState<string>('5.00');
+  const [coverCmInput, setCoverCmInput] = useState<string>('3.0');
+  const [pitchInput, setPitchInput] = useState<string>('15');
+  const [countInput, setCountInput] = useState<string>('34');
+
   // Opzioni Inserimento
   const [separateDiameters, setSeparateDiameters] = useState<boolean>(true);
   const [includeSubtotal, setIncludeSubtotal] = useState<boolean>(true);
@@ -230,6 +239,179 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     updateCameraPosition?: () => void;
   } | null>(null);
 
+  // Aggiornamento bidirezionale Passo Staffe <-> Numero Staffe
+  const handlePitchChange = (raw: string) => {
+    setPitchInput(raw);
+    const p = parseFloat(raw.replace(',', '.'));
+    if (!isNaN(p) && p > 0) {
+      setStirrupPitchCm(p);
+      const totalLenCm = lengthM * 100;
+      const n = Math.max(1, Math.floor(totalLenCm / p) + 1);
+      setManualStirrupsCount(n);
+      setCountInput(n.toString());
+    }
+  };
+
+  const handlePitchBlur = () => {
+    const p = parseFloat(pitchInput.replace(',', '.'));
+    if (isNaN(p) || p <= 0) {
+      setPitchInput(stirrupPitchCm > 0 ? stirrupPitchCm.toString() : '15');
+      if (stirrupPitchCm <= 0) setStirrupPitchCm(15);
+    } else {
+      setPitchInput(p.toString());
+    }
+  };
+
+  const handleCountChange = (raw: string) => {
+    setCountInput(raw);
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 1) {
+      setManualStirrupsCount(n);
+      const totalLenCm = lengthM * 100;
+      const p = n > 1 ? Math.max(1, parseFloat(((totalLenCm / (n - 1))).toFixed(1))) : Math.round(totalLenCm);
+      setStirrupPitchCm(p);
+      setPitchInput(p.toString());
+    }
+  };
+
+  const handleCountBlur = () => {
+    const n = parseInt(countInput, 10);
+    if (isNaN(n) || n < 1) {
+      const fallbackN = effectiveStirrupsCount > 0 ? effectiveStirrupsCount : 1;
+      setCountInput(fallbackN.toString());
+      setManualStirrupsCount(fallbackN);
+    } else {
+      setCountInput(n.toString());
+    }
+  };
+
+  // Stepper increment / decrement per Passo e Numero Staffe
+  const handleStepPitch = (delta: number) => {
+    const current = parseFloat(pitchInput.replace(',', '.')) || stirrupPitchCm || 15;
+    const next = Math.max(2.5, parseFloat((current + delta).toFixed(1)));
+    setStirrupPitchCm(next);
+    setPitchInput(next.toString());
+    const totalLenCm = lengthM * 100;
+    const n = Math.max(1, Math.floor(totalLenCm / next) + 1);
+    setManualStirrupsCount(n);
+    setCountInput(n.toString());
+  };
+
+  const handleStepCount = (delta: number) => {
+    const current = parseInt(countInput, 10) || effectiveStirrupsCount || 1;
+    const next = Math.max(1, current + delta);
+    setManualStirrupsCount(next);
+    setCountInput(next.toString());
+    const totalLenCm = lengthM * 100;
+    const p = next > 1 ? Math.max(1, parseFloat(((totalLenCm / (next - 1))).toFixed(1))) : Math.round(totalLenCm);
+    setStirrupPitchCm(p);
+    setPitchInput(p.toString());
+  };
+
+  const handleSetDirectPitch = (targetPitch: number) => {
+    setStirrupPitchCm(targetPitch);
+    setPitchInput(targetPitch.toString());
+    const totalLenCm = lengthM * 100;
+    const n = Math.max(1, Math.floor(totalLenCm / targetPitch) + 1);
+    setManualStirrupsCount(n);
+    setCountInput(n.toString());
+  };
+
+  const handleMultiplierChange = (raw: string) => {
+    setMultiplierInput(raw);
+    const m = parseInt(raw, 10);
+    if (!isNaN(m) && m > 0) {
+      setElementMultiplier(m);
+    }
+  };
+
+  const handleMultiplierBlur = () => {
+    const m = parseInt(multiplierInput, 10);
+    if (isNaN(m) || m < 1) {
+      setMultiplierInput(elementMultiplier.toString());
+    } else {
+      setMultiplierInput(m.toString());
+    }
+  };
+
+  const handleBaseChange = (raw: string) => {
+    setBaseCmInput(raw);
+    const b = parseFloat(raw);
+    if (!isNaN(b) && b > 0) setBaseCm(b);
+  };
+  const handleBaseBlur = () => {
+    const b = parseFloat(baseCmInput);
+    if (isNaN(b) || b <= 0) setBaseCmInput(baseCm.toString());
+    else setBaseCmInput(b.toString());
+  };
+
+  const handleHeightChange = (raw: string) => {
+    setHeightCmInput(raw);
+    const h = parseFloat(raw);
+    if (!isNaN(h) && h > 0) setHeightCm(h);
+  };
+  const handleHeightBlur = () => {
+    const h = parseFloat(heightCmInput);
+    if (isNaN(h) || h <= 0) setHeightCmInput(heightCm.toString());
+    else setHeightCmInput(h.toString());
+  };
+
+  const handleLengthChange = (raw: string) => {
+    setLengthMInput(raw);
+    const l = parseFloat(raw);
+    if (!isNaN(l) && l > 0) {
+      setLengthM(l);
+      // Ricalcola staffe mantenendo il passo corrente
+      const totalLenCm = l * 100;
+      const p = stirrupPitchCm > 0 ? stirrupPitchCm : 15;
+      const n = Math.max(2, Math.floor(totalLenCm / p) + 1);
+      setManualStirrupsCount(n);
+      setCountInput(n.toString());
+    }
+  };
+  const handleLengthBlur = () => {
+    const l = parseFloat(lengthMInput);
+    if (isNaN(l) || l <= 0) setLengthMInput(lengthM.toFixed(2));
+    else setLengthMInput(l.toFixed(2));
+  };
+
+  const handleCoverChange = (raw: string) => {
+    setCoverCmInput(raw);
+    const c = parseFloat(raw);
+    if (!isNaN(c) && c > 0) setCoverCm(c);
+  };
+  const handleCoverBlur = () => {
+    const c = parseFloat(coverCmInput);
+    if (isNaN(c) || c <= 0) setCoverCmInput(coverCm.toString());
+    else setCoverCmInput(c.toString());
+  };
+
+  // Funzione per centrare perfettamente la vista 3D
+  const handleResetCenter = () => {
+    if (!threeStateRef.current) return;
+    const { spherical, target, updateCameraPosition } = threeStateRef.current;
+    target.set(0, 0, 0);
+    const L = Math.max(0.5, Math.min(12, lengthM));
+    if (viewPreset === 'iso') {
+      spherical.theta = Math.PI * 0.25;
+      spherical.phi = isColumn ? Math.PI * 0.38 : Math.PI * 0.33;
+      spherical.radius = isColumn ? Math.max(4.8, L * 1.35) : Math.max(4.8, L * 1.35);
+    } else if (viewPreset === 'front') {
+      spherical.theta = 0;
+      spherical.phi = Math.PI / 2;
+      spherical.radius = isColumn ? Math.max(4.2, L * 1.25) : 5.8;
+    } else if (viewPreset === 'section') {
+      spherical.theta = isColumn ? 0 : Math.PI / 2;
+      spherical.phi = isColumn ? 0.05 : Math.PI / 2;
+      spherical.radius = isColumn ? 3.5 : 3.8;
+    } else if (viewPreset === 'top') {
+      spherical.theta = 0;
+      spherical.phi = 0.05;
+      spherical.radius = isColumn ? 4.2 : 6.8;
+    }
+    updateCameraPosition?.();
+  };
+
   // Cambia preset tipo struttura
   const handleSelectPreset = (cat: StructureCategory) => {
     setStructureType(cat);
@@ -237,9 +419,13 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     const p = PRESETS[cat];
     setElementName(p.defaultName);
     setBaseCm(p.defaultB);
+    setBaseCmInput(p.defaultB.toString());
     setHeightCm(p.defaultH);
+    setHeightCmInput(p.defaultH.toString());
     setLengthM(p.defaultL);
+    setLengthMInput(p.defaultL.toFixed(2));
     setCoverCm(p.defaultCover);
+    setCoverCmInput(p.defaultCover.toString());
     setTopBarsCount(p.topBarsCount);
     setTopBarsDia(p.topBarsDia);
     setTopBarsLength(parseFloat((p.defaultL + 0.50).toFixed(2)));
@@ -252,7 +438,10 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     setSideBarsLength(parseFloat((p.defaultL + 0.50).toFixed(2)));
     setStirrupDia(p.stirrupDia);
     setStirrupPitchCm(p.stirrupPitch);
-    setManualStirrupsCount(null);
+    setPitchInput(p.stirrupPitch.toString());
+    const initialCount = Math.floor((p.defaultL * 100) / p.stirrupPitch) + 1;
+    setManualStirrupsCount(initialCount);
+    setCountInput(initialCount.toString());
     setManualStirrupDev(null);
   };
 
@@ -443,7 +632,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       alpha: false,
       powerPreference: 'high-performance'
     });
-    renderer.setSize(width, height);
+    renderer.setSize(width, height, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -578,17 +767,28 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     canvas.addEventListener('touchend', onTouchEnd, { passive: true });
 
     // Resize observer
-    const resizeObserver = new ResizeObserver(() => {
+    const handleResize = () => {
       if (!canvas || !threeStateRef.current) return;
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
+      const container = canvas.parentElement;
+      const rect = container ? container.getBoundingClientRect() : canvas.getBoundingClientRect();
+      const w = Math.floor(rect.width || canvas.clientWidth || 600);
+      const h = Math.floor(rect.height || canvas.clientHeight || 450);
       if (w > 0 && h > 0) {
         threeStateRef.current.camera.aspect = w / h;
         threeStateRef.current.camera.updateProjectionMatrix();
-        threeStateRef.current.renderer.setSize(w, h);
+        threeStateRef.current.renderer.setSize(w, h, false);
       }
-    });
-    resizeObserver.observe(canvas);
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    if (canvas.parentElement) {
+      resizeObserver.observe(canvas.parentElement);
+    } else {
+      resizeObserver.observe(canvas);
+    }
+
+    requestAnimationFrame(handleResize);
+    [30, 100, 200, 400, 800].forEach(delay => setTimeout(handleResize, delay));
 
     // Loop di rendering a 60 FPS
     const animate = () => {
@@ -623,17 +823,18 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   // Aggiorna la vista della telecamera quando cambia il preset di vista o tipo struttura
   useEffect(() => {
     if (!threeStateRef.current) return;
-    const { spherical, updateCameraPosition } = threeStateRef.current;
+    const { spherical, target, updateCameraPosition } = threeStateRef.current;
+    target.set(0, 0, 0);
     const L = Math.max(0.5, Math.min(12, lengthM));
 
     if (viewPreset === 'iso') {
-      spherical.theta = Math.PI / 4;
-      spherical.phi = isColumn ? Math.PI / 2.8 : Math.PI / 3;
-      spherical.radius = isColumn ? Math.max(5.5, L * 1.5) : 7.5;
+      spherical.theta = Math.PI * 0.25;
+      spherical.phi = isColumn ? Math.PI * 0.38 : Math.PI * 0.33;
+      spherical.radius = isColumn ? Math.max(4.8, L * 1.35) : Math.max(4.8, L * 1.35);
     } else if (viewPreset === 'front') {
       spherical.theta = 0;
       spherical.phi = Math.PI / 2;
-      spherical.radius = isColumn ? Math.max(5.0, L * 1.4) : 6.5;
+      spherical.radius = isColumn ? Math.max(4.2, L * 1.25) : 5.8;
     } else if (viewPreset === 'section') {
       if (isColumn) {
         // Per il pilastro la sezione è orizzontale: telecamera dall'alto verso il basso
@@ -644,12 +845,12 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
         // Per la trave la sezione è trasversale vista in testata
         spherical.theta = Math.PI / 2;
         spherical.phi = Math.PI / 2;
-        spherical.radius = 4.0;
+        spherical.radius = 3.8;
       }
     } else if (viewPreset === 'top') {
       spherical.theta = 0;
       spherical.phi = 0.05;
-      spherical.radius = isColumn ? 4.5 : 8.0;
+      spherical.radius = isColumn ? 4.2 : 6.8;
     }
     updateCameraPosition?.();
   }, [viewPreset, structureType, orientation, lengthM, isColumn]);
@@ -844,18 +1045,18 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 
         const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
 
-        // Distribuzione verticale dal basso all'alto lungo Y
-        const halfL = L / 2;
-        const startY = -halfL + 0.06;
-        const endY = halfL - 0.06;
+        // Distribuzione verticale dal basso all'alto lungo Y perfettamente centrata
         const pitchY = (stirrupPitchCm / 100);
+        const maxSpanY = Math.max(0, L - 0.12);
+        const desiredSpanY = Math.min(maxSpanY, (numStirrups - 1) * pitchY);
+        const startY = -desiredSpanY / 2;
 
         for (let s = 0; s < numStirrups; s++) {
           const curY = startY + s * pitchY;
-          if (curY > endY + 0.02) break;
+          if (curY > L / 2 - 0.04) break;
 
           const stirrupMesh = new THREE.Mesh(stirrupGeo, stirrupMat);
-          stirrupMesh.position.set(0, curY, 0); // Posizionata a quota Y
+          stirrupMesh.position.set(0, curY, 0); // Posizionata a quota Y centrata
           stirrupMesh.castShadow = true;
           rootGroup.add(stirrupMesh);
         }
@@ -952,15 +1153,15 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 
         const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
 
-        // Posizionamento lungo Z
-        const halfL = L / 2;
-        const startZ = -halfL + 0.05;
-        const endZ = halfL - 0.05;
+        // Posizionamento lungo Z perfettamente centrato
         const pitchZ = (stirrupPitchCm / 100);
+        const maxSpanZ = Math.max(0, L - 0.10);
+        const desiredSpanZ = Math.min(maxSpanZ, (numStirrups - 1) * pitchZ);
+        const startZ = -desiredSpanZ / 2;
 
         for (let s = 0; s < numStirrups; s++) {
           const curZ = startZ + s * pitchZ;
-          if (curZ > endZ + 0.02) break;
+          if (curZ > L / 2 - 0.03) break;
 
           const stirrupMesh = new THREE.Mesh(stirrupGeo, stirrupMat);
           stirrupMesh.position.z = curZ;
@@ -1071,6 +1272,14 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 
               <div className="flex items-center gap-1.5 bg-slate-900/90 backdrop-blur-md p-1 rounded-xl border border-slate-800 shadow-xl pointer-events-auto">
                 <button
+                  onClick={handleResetCenter}
+                  className="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-1.5 border border-slate-700/60"
+                  title="Centra perfettamente l'elemento 3D nella vista"
+                >
+                  <Compass className="w-3.5 h-3.5 text-orange-400" />
+                  Centra
+                </button>
+                <button
                   onClick={() => setXRayMode(xRayMode === 'transparent' ? 'rebarOnly' : xRayMode === 'rebarOnly' ? 'opaque' : 'transparent')}
                   className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${xRayMode === 'rebarOnly' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
                   title="Modalità Visualizzazione (Trasparente, Solo Ferri, Calcestruzzo Pieno)"
@@ -1088,29 +1297,33 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
               </div>
             </div>
 
-            {/* CANVAS 3D INTERATTIVO */}
-            <div className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing">
-              <canvas ref={canvasRef} className="w-full h-full block" />
+            {/* CANVAS 3D INTERATTIVO - PERFETTAMENTE CENTRATO */}
+            <div className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing overflow-hidden min-h-[300px]">
+              <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
               
-              {/* Badge Quote 3D sovrimpresse */}
-              <div className="absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-2 pointer-events-none">
-                <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
-                  <span className="text-orange-400 font-bold">SEZIONE:</span> {baseCm}×{heightCm} cm
+              {/* Badge Quote 3D sovrimpresse - posizionate in modo bilanciato per non sbilanciare la vista */}
+              <div className="absolute bottom-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between pointer-events-none gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                    <span className="text-orange-400 font-bold">SEZIONE:</span> {baseCm}×{heightCm} cm
+                  </div>
+                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                    <span className="text-cyan-400 font-bold">{isColumn ? 'ALTEZZA H:' : 'LUNGH:'}</span> {lengthM.toFixed(2)} m
+                  </div>
                 </div>
-                <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
-                  <span className="text-cyan-400 font-bold">{isColumn ? 'ALTEZZA H:' : 'LUNGH:'}</span> {lengthM.toFixed(2)} m
-                </div>
-                <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
-                  <span className="text-emerald-400 font-bold">STAFFE:</span> {effectiveStirrupsCount} staffe @ {stirrupPitchCm}cm
-                </div>
-                <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
-                  <span className="text-amber-400 font-bold">ASSETTO:</span> {isColumn ? '↕ Verticale (Pilastro)' : '↔ Orizzontale (Trave)'}
+                <div className="flex items-center gap-2">
+                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                    <span className="text-emerald-400 font-bold">STAFFE:</span> {effectiveStirrupsCount} staffe @ {stirrupPitchCm}cm
+                  </div>
+                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                    <span className="text-amber-400 font-bold">ASSETTO:</span> {isColumn ? '↕ Verticale (Pilastro)' : '↔ Orizzontale (Trave)'}
+                  </div>
                 </div>
               </div>
 
               {/* Suggerimento interazione mouse */}
-              <div className="absolute bottom-3 right-3 z-10 text-[10px] text-slate-500 font-medium hidden sm:block pointer-events-none">
-                Trascina: Ruota • Rotellina: Zoom • Shift+Drag: Sposta
+              <div className="absolute top-14 right-3 z-10 text-[10px] text-slate-500 font-medium hidden sm:block pointer-events-none bg-slate-900/70 px-2 py-1 rounded-md border border-slate-800/60">
+                Ruota: Trascina • Zoom: Rotellina
               </div>
             </div>
 
@@ -1235,10 +1448,12 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                       Pezzi Uguali
                     </label>
                     <input
-                      type="number"
-                      min="1"
-                      value={elementMultiplier}
-                      onChange={(e) => setElementMultiplier(Math.max(1, parseInt(e.target.value) || 1))}
+                      type="text"
+                      inputMode="numeric"
+                      value={multiplierInput}
+                      onChange={(e) => handleMultiplierChange(e.target.value)}
+                      onBlur={handleMultiplierBlur}
+                      placeholder="1"
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-center text-orange-400 outline-none focus:border-orange-500"
                     />
                   </div>
@@ -1248,11 +1463,11 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Base (cm)</label>
                     <input
-                      type="number"
-                      min="10"
-                      max="300"
-                      value={baseCm}
-                      onChange={(e) => setBaseCm(Math.max(5, parseFloat(e.target.value) || 0))}
+                      type="text"
+                      inputMode="numeric"
+                      value={baseCmInput}
+                      onChange={(e) => handleBaseChange(e.target.value)}
+                      onBlur={handleBaseBlur}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
                     />
                   </div>
@@ -1261,11 +1476,11 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                       {isColumn ? 'Profondità (cm)' : 'Altezza (cm)'}
                     </label>
                     <input
-                      type="number"
-                      min="10"
-                      max="300"
-                      value={heightCm}
-                      onChange={(e) => setHeightCm(Math.max(5, parseFloat(e.target.value) || 0))}
+                      type="text"
+                      inputMode="numeric"
+                      value={heightCmInput}
+                      onChange={(e) => handleHeightChange(e.target.value)}
+                      onBlur={handleHeightBlur}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
                     />
                   </div>
@@ -1274,23 +1489,22 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                       {isColumn ? 'H Pilastro (m)' : 'Lunghezza (m)'}
                     </label>
                     <input
-                      type="number"
-                      step="0.1"
-                      min="0.5"
-                      value={lengthM}
-                      onChange={(e) => setLengthM(Math.max(0.2, parseFloat(e.target.value) || 0))}
+                      type="text"
+                      inputMode="decimal"
+                      value={lengthMInput}
+                      onChange={(e) => handleLengthChange(e.target.value)}
+                      onBlur={handleLengthBlur}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
                     />
                   </div>
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Copriferro (cm)</label>
                     <input
-                      type="number"
-                      step="0.5"
-                      min="1"
-                      max="10"
-                      value={coverCm}
-                      onChange={(e) => setCoverCm(Math.max(1, parseFloat(e.target.value) || 2.5))}
+                      type="text"
+                      inputMode="decimal"
+                      value={coverCmInput}
+                      onChange={(e) => handleCoverChange(e.target.value)}
+                      onBlur={handleCoverBlur}
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
                     />
                   </div>
@@ -1458,6 +1672,27 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   </span>
                 </div>
 
+                {/* Preset Rapidi Passo Staffe */}
+                <div className="flex items-center justify-between gap-1.5 bg-slate-900/60 p-2 rounded-xl border border-slate-700/50">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0">Preset Passo:</span>
+                  <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
+                    {[10, 12.5, 15, 20, 25, 30].map(pVal => (
+                      <button
+                        key={pVal}
+                        type="button"
+                        onClick={() => handleSetDirectPitch(pVal)}
+                        className={`px-2 py-1 rounded-lg text-xs font-mono font-bold transition-all ${
+                          stirrupPitchCm === pVal
+                            ? 'bg-orange-500 text-white shadow-sm ring-1 ring-orange-400'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                        }`}
+                      >
+                        {pVal}cm
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
@@ -1467,6 +1702,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                       {[6, 8, 10].map(dia => (
                         <button
                           key={dia}
+                          type="button"
                           onClick={() => setStirrupDia(dia)}
                           className={`py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
                             stirrupDia === dia
@@ -1481,33 +1717,71 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
-                      Passo Staffe (cm)
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 flex items-center justify-between">
+                      <span>Passo (cm)</span>
+                      <span className="text-[9px] text-orange-400 font-normal">interasse</span>
                     </label>
-                    <input
-                      type="number"
-                      min="5"
-                      max="50"
-                      value={stirrupPitchCm}
-                      onChange={(e) => {
-                        setStirrupPitchCm(Math.max(5, parseInt(e.target.value) || 15));
-                        setManualStirrupsCount(null);
-                      }}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-center text-orange-400 outline-none focus:border-orange-500"
-                    />
+                    <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden focus-within:border-orange-500 transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => handleStepPitch(-2.5)}
+                        className="px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors font-bold text-xs"
+                        title="Riduci passo di 2.5 cm"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={pitchInput}
+                        onChange={(e) => handlePitchChange(e.target.value)}
+                        onBlur={handlePitchBlur}
+                        placeholder="15"
+                        className="w-full bg-transparent px-1 py-2 text-sm font-mono font-bold text-center text-orange-400 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleStepPitch(2.5)}
+                        className="px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors font-bold text-xs"
+                        title="Aumenta passo di 2.5 cm"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
-                      N. Staffe Calcolato
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 flex items-center justify-between">
+                      <span>N. Staffe</span>
+                      <span className="text-[9px] text-cyan-400 font-normal">totale barre</span>
                     </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={effectiveStirrupsCount}
-                      onChange={(e) => setManualStirrupsCount(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-mono font-bold text-center text-white outline-none focus:border-orange-500"
-                    />
+                    <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden focus-within:border-orange-500 transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => handleStepCount(-1)}
+                        className="px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors font-bold text-xs"
+                        title="Rimuovi 1 staffa"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={countInput}
+                        onChange={(e) => handleCountChange(e.target.value)}
+                        onBlur={handleCountBlur}
+                        placeholder="21"
+                        className="w-full bg-transparent px-1 py-2 text-sm font-mono font-bold text-center text-white outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleStepCount(1)}
+                        className="px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors font-bold text-xs"
+                        title="Aggiungi 1 staffa"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                 </div>
 

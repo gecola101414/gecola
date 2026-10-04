@@ -34,7 +34,7 @@ import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems, cleanDescription } from './services/geminiService';
-import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateComputoMetricoSubappaltoPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf } from './services/pdfGenerator';
+import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateComputoMetricoSubappaltoPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf, generateDistintaFerriPdf } from './services/pdfGenerator';
 import { generateComputoExcel, generateComputoMetricoSubappaltoExcel } from './services/excelGenerator';
 import { VoiceField, MEASUREMENT_FIELDS, analyzeVoiceTranscript } from './services/voiceDictationService';
 
@@ -417,6 +417,31 @@ const FastNumberInput: React.FC<FastNumberInputProps> = ({ initialValue, onCommi
     />
   );
 };
+
+// Icona Pilastrino 3D con 4 ferri verticali e 3 staffe sagomate
+export const RebarCagePillarIcon: React.FC<{ className?: string }> = ({ className = "w-3.5 h-3.5" }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    {/* 4 Ferri Longitudinali Angolari Verticali */}
+    <line x1="6.5" y1="2" x2="6.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-500" />
+    <line x1="17.5" y1="2" x2="17.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-500" />
+    <line x1="12" y1="4.5" x2="12" y2="23.5" stroke="currentColor" strokeWidth="1.8" className="text-cyan-600" />
+    <line x1="12" y1="0.5" x2="12" y2="19.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="1.5 1.5" opacity="0.6" className="text-cyan-400" />
+
+    {/* 3 Staffe Orizzontali Sagomate 3D in Prospettiva Assonometrica */}
+    {/* Staffa 1 - Alta */}
+    <polygon points="6.5,6 12,3.5 17.5,6 12,8.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-500" />
+    {/* Staffa 2 - Media */}
+    <polygon points="6.5,12 12,9.5 17.5,12 12,14.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-500" />
+    {/* Staffa 3 - Bassa */}
+    <polygon points="6.5,18 12,15.5 17.5,18 12,20.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-500" />
+  </svg>
+);
 
 const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
    const { 
@@ -827,8 +852,16 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                         MISURAZIONI & SVILUPPO:
                     </span>
                     <div className="flex items-center gap-1 bg-slate-100/80 p-0.5 rounded-lg border border-slate-200/80">
+                        {onOpenRebarCalculator && (
+                            <button 
+                                onClick={() => onOpenRebarCalculator(article.id)} 
+                                className={`p-1 rounded transition-all ${isSafetyCategory ? 'hover:text-orange-600 hover:bg-white' : 'hover:text-orange-500 hover:bg-white'} text-slate-500 group relative`} 
+                                title="Calcolo Parametrico Armature 3D & Staffe (Pilastrino / Trave)"
+                            >
+                                <RebarCagePillarIcon className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                            </button>
+                        )}
                         <button onClick={() => onOpenPaintingCalculator(article.id)} className={`p-1 rounded transition-colors ${isSafetyCategory ? 'hover:text-orange-600 hover:bg-white' : 'hover:text-blue-600 hover:bg-white'} text-slate-500`} title="Calcolo Automatico Pitturazioni"><Paintbrush className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => onOpenRebarCalculator(article.id)} className="p-1 rounded transition-colors hover:text-orange-600 hover:bg-white text-slate-500" title="Calcolo Ferri d'Armatura"><Grid3X3 className="w-3.5 h-3.5" /></button>
                         <button onClick={() => onToggleSmartRepeat(article.id)} className={`p-1 rounded transition-all ${smartRepeatActiveId === article.id ? (isSafetyCategory ? 'bg-orange-600 text-white shadow' : 'bg-blue-600 text-white shadow') : (isSafetyCategory ? 'text-slate-500 hover:text-orange-600 hover:bg-white' : 'text-slate-500 hover:text-blue-600 hover:bg-white')}`} title="Smart Repeat (Clona rigo precedente)"><CopyPlus className="w-3.5 h-3.5" /></button>
                         <button 
                             onClick={() => onStartVoiceDictation(article.id)} 
@@ -2559,19 +2592,6 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                    <button 
-                      onClick={() => {
-                        const targetId = activeArticles[0]?.id || articles[0]?.id || null;
-                        if (targetId) setRebarTargetArticleId(targetId);
-                        setIsRebarModalOpen(true);
-                        playUISound('toggle');
-                      }}
-                      className="px-2.5 py-1.5 transition-all flex items-center gap-1.5 text-orange-200 hover:text-white bg-orange-600/30 hover:bg-orange-600/70 border border-orange-500/40 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer"
-                      title="Armature 3D Parametriche & Calcolo Ferri/Staffe"
-                    >
-                      <Grid3X3 className="w-4 h-4 text-orange-400" />
-                      <span className="text-xs font-bold hidden xl:inline">Armature 3D</span>
-                    </button>
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Progetto"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Progetto</span></button>
                     <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <button 
@@ -2588,6 +2608,7 @@ const App: React.FC = () => {
                             <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-xl py-2 z-[100] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3 font-bold"><FileText className="w-4 h-4 text-blue-500" />Computo Estimativo (.pdf)</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricoSubappaltoPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-emerald-800 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100"><Briefcase className="w-4 h-4 text-emerald-600" />Computo Metrico Subappalto (.pdf)</button>
+                                <button onClick={() => { setIsPrintMenuOpen(false); generateDistintaFerriPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-amber-800 hover:bg-amber-50 flex items-center gap-3 font-bold border-b border-slate-100"><RebarCagePillarIcon className="w-4 h-4" />Distinta Ferri e Sagomario (.pdf)</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateComputoSicurezzaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-orange-50 flex items-center gap-3 font-bold"><ShieldAlert className="w-3.5 h-3.5 text-orange-500" />Computo Oneri Sicurezza</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-3.5 h-3.5 text-slate-500" />Elenco Prezzi Unitari</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-3.5 h-3.5 text-cyan-600" />Stima Manodopera</button>

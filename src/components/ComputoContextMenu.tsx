@@ -1,8 +1,33 @@
 import React, { useEffect, useRef } from 'react';
 import { 
-  Plus, Sigma, CopyPlus, PlusCircle, MinusCircle, Trash2, X, Power, PowerOff, Lightbulb, Grid3X3
+  Plus, Sigma, CopyPlus, PlusCircle, MinusCircle, Trash2, X, Power, PowerOff, Lightbulb
 } from 'lucide-react';
 import { Article, Measurement } from '../types';
+
+// Icona Pilastrino 3D con 4 ferri verticali e 3 staffe sagomate
+export const RebarCagePillarIcon: React.FC<{ className?: string }> = ({ className = "w-4 h-4" }) => (
+  <svg 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+  >
+    {/* 4 Ferri Longitudinali Angolari Verticali */}
+    <line x1="6.5" y1="2" x2="6.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-400" />
+    <line x1="17.5" y1="2" x2="17.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-400" />
+    <line x1="12" y1="4.5" x2="12" y2="23.5" stroke="currentColor" strokeWidth="1.8" className="text-cyan-300" />
+    <line x1="12" y1="0.5" x2="12" y2="19.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="1.5 1.5" opacity="0.6" className="text-cyan-500" />
+
+    {/* 3 Staffe Orizzontali Sagomate 3D in Prospettiva Assonometrica */}
+    {/* Staffa 1 - Alta */}
+    <polygon points="6.5,6 12,3.5 17.5,6 12,8.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-400" />
+    {/* Staffa 2 - Media */}
+    <polygon points="6.5,12 12,9.5 17.5,12 12,14.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-400" />
+    {/* Staffa 3 - Bassa */}
+    <polygon points="6.5,18 12,15.5 17.5,18 12,20.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-400" />
+  </svg>
+);
 
 export interface ContextMenuProps {
   x: number;
@@ -188,7 +213,7 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
           >
             <div className="flex items-center gap-2.5">
               <span className="p-1 rounded-lg bg-orange-500/20 text-orange-400 group-hover:bg-white/20 group-hover:text-white transition-colors">
-                <Grid3X3 className="w-4 h-4" />
+                <RebarCagePillarIcon className="w-4 h-4" />
               </span>
               <span>Armatura 3D Ferri/Staffe</span>
             </div>

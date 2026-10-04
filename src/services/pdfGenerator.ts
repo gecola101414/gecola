@@ -1,5 +1,6 @@
 
 import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
+import { REBAR_WEIGHTS } from '../constants';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
 const units = ['', 'uno', 'due', 'tre', 'quattro', 'cinque', 'sei', 'sette', 'otto', 'nove'];
@@ -2225,3 +2226,453 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
 };
 
 export const generateProfessionalPdf = generateComputoMetricPdf;
+
+/**
+ * Genera la Distinta dei Ferri d'Armatura e Sagomario Ufficiale (.pdf)
+ * Estrae e cataloga tutti i ferri longitudinali e le staffe inserite nel computo
+ * (sia generate dal modellatore 3D parametrico che inserite nelle voci di computo).
+ */
+export const generateDistintaFerriPdf = async (
+    projectInfo: ProjectInfo,
+    categories: Category[],
+    articles: Article[]
+) => {
+    try {
+        const { jsPDF, autoTable } = await getLibs();
+        const doc = new jsPDF({ orientation: 'portrait', format: 'a4', unit: 'mm' });
+        const pageWidth = doc.internal.pageSize.width;
+        const pageHeight = doc.internal.pageSize.height;
+
+        interface ExtractedRebarRow {
+            id: string;
+            elementName: string;
+            desc: string;
+            categoryType: 'longitudinale' | 'staffa' | 'generico';
+            diameter: number;
+            pieces: number;
+            singleLength: number;
+            totalLength: number;
+            unitWeight: number; // kg/m
+            totalWeight: number; // kg
+            articleCode?: string;
+        }
+
+        const items: ExtractedRebarRow[] = [];
+
+        // Scansione di tutti gli articoli e relative misurazioni
+        articles.forEach(art => {
+            const isSteelArticle = 
+                art.unit?.toLowerCase().includes('kg') && 
+                (art.description?.toLowerCase().includes('acciaio') || 
+                 art.description?.toLowerCase().includes('ferr') || 
+                 art.description?.toLowerCase().includes('b450') ||
+                 art.description?.toLowerCase().includes('armatur'));
+
+            (art.measurements || []).forEach(m => {
+                if (!m || m.type === 'subtotal') return;
+                const text = (m.description || '').trim();
+
+                const isRebarRow = isSteelArticle || 
+                    /(?:Ø|ø|tondin|staff|ferr|b450|armatur)/i.test(text);
+
+                if (!isRebarRow) return;
+
+                // Estrazione diametro
+                let dia = 0;
+                const diaMatch = text.match(/(?:Ø|ø|d|D|diam(?:etro)?\.?\s*[:=]?\s*)(\d+)/i);
+                if (diaMatch) {
+                    dia = parseInt(diaMatch[1], 10);
+                } else if (m.height && m.height > 0) {
+                    const found = REBAR_WEIGHTS.find(rw => Math.abs(rw.weight - m.height!) < 0.05);
+                    if (found) dia = found.diameter;
+                }
+                if (dia === 0) dia = 16;
+
+                // Peso teorico unitario kg/m
+                const nominalMatch = REBAR_WEIGHTS.find(rw => rw.diameter === dia);
+                const unitWeight = (m.height && m.height > 0) 
+                    ? m.height 
+                    : (nominalMatch ? nominalMatch.weight : parseFloat((dia * dia * 0.006166).toFixed(3)));
+
+                const pieces = Math.max(1, m.multiplier || 1);
+                const singleLength = Math.max(0, m.length || 0);
+                const totalLength = parseFloat((pieces * singleLength).toFixed(2));
+                const totalWeight = parseFloat((totalLength * unitWeight).toFixed(2));
+
+                // Nome dell'elemento strutturale
+                let elementName = 'Elemento in C.A.';
+                if (text.includes(' - ')) {
+                    elementName = text.split(' - ')[0].trim();
+                } else if (text.includes(':')) {
+                    elementName = text.split(':')[0].trim();
+                } else if (art.code) {
+                    elementName = `Voce ${art.code}`;
+                }
+
+                // Categoria armatura
+                let catType: 'longitudinale' | 'staffa' | 'generico' = 'generico';
+                if (/staff/i.test(text)) {
+                    catType = 'staffa';
+                } else if (/longitudin|tondin|sup|inf|parete|spina/i.test(text)) {
+                    catType = 'longitudinale';
+                }
+
+                items.push({
+                    id: m.id,
+                    elementName,
+                    desc: text,
+                    categoryType: catType,
+                    diameter: dia,
+                    pieces,
+                    singleLength,
+                    totalLength,
+                    unitWeight: parseFloat(unitWeight.toFixed(3)),
+                    totalWeight,
+                    articleCode: art.code
+                });
+            });
+        });
+
+        if (items.length === 0) {
+            alert("Nessun ferro d'armatura o staffa trovato nel computo. Inserisci prima gli elementi strutturali con il modellatore 3D (tasto destro sulla voce -> Armatura 3D) oppure aggiungi misurazioni con diametro Ø.");
+            return;
+        }
+
+        // Raggruppamento per Elemento Strutturale (Trave T1, Pilastro P1...)
+        const elementsMap = new Map<string, ExtractedRebarRow[]>();
+        items.forEach(it => {
+            const arr = elementsMap.get(it.elementName) || [];
+            arr.push(it);
+            elementsMap.set(it.elementName, arr);
+        });
+
+        // Hash di integrità del documento
+        const rawIntegrityData = items.map(it => `${it.elementName}:${it.diameter}:${it.pieces}:${it.totalWeight}`).join(';');
+        const integrityHash = await computeSha256(rawIntegrityData);
+
+        // Corpo tabella dettagliata elementi
+        const detailTableBody: any[] = [];
+        let grandTotalSteelKg = 0;
+        let posCounter = 1;
+
+        elementsMap.forEach((elRows, elName) => {
+            // Riga Intestazione Elemento Strutturale
+            detailTableBody.push([
+                { 
+                    content: `ELEMENTO STRUTTURALE: ${elName.toUpperCase()}`, 
+                    colSpan: 9, 
+                    styles: { 
+                        fillColor: [30, 41, 59], 
+                        textColor: [255, 255, 255], 
+                        fontStyle: 'bold', 
+                        fontSize: 8.5,
+                        cellPadding: 3
+                    } 
+                }
+            ]);
+
+            let elSubtotalKg = 0;
+            let elFerriKg = 0;
+            let elStaffeKg = 0;
+
+            elRows.forEach(row => {
+                elSubtotalKg += row.totalWeight;
+                grandTotalSteelKg += row.totalWeight;
+                if (row.categoryType === 'staffa') {
+                    elStaffeKg += row.totalWeight;
+                } else {
+                    elFerriKg += row.totalWeight;
+                }
+
+                // Pulizia descrizione per la tabella
+                let cleanDesc = row.desc;
+                if (cleanDesc.includes(' - ')) {
+                    cleanDesc = cleanDesc.split(' - ').slice(1).join(' - ');
+                }
+
+                detailTableBody.push([
+                    { content: posCounter++, styles: { halign: 'center', fontStyle: 'bold' } },
+                    { content: elName, styles: { fontStyle: 'bold', textColor: [15, 23, 42] } },
+                    { content: cleanDesc, styles: { halign: 'left' } },
+                    { content: `Ø${row.diameter}`, styles: { halign: 'center', fontStyle: 'bold', textColor: [194, 65, 12] } },
+                    { content: row.pieces, styles: { halign: 'center' } },
+                    { content: row.singleLength.toFixed(2), styles: { halign: 'right', fontStyle: 'bold' } },
+                    { content: row.totalLength.toFixed(2), styles: { halign: 'right' } },
+                    { content: row.unitWeight.toFixed(3), styles: { halign: 'right' } },
+                    { content: row.totalWeight.toFixed(2), styles: { halign: 'right', fontStyle: 'bold', textColor: [30, 58, 138] } }
+                ]);
+            });
+
+            // Subtotale per elemento
+            detailTableBody.push([
+                { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+                { 
+                    content: `SUBTOTALE ${elName.toUpperCase()} (Ferri: ${elFerriKg.toFixed(2)} kg | Staffe: ${elStaffeKg.toFixed(2)} kg)`, 
+                    colSpan: 6, 
+                    styles: { 
+                        halign: 'right', 
+                        fontStyle: 'bold', 
+                        fillColor: [241, 245, 249],
+                        textColor: [51, 65, 85]
+                    } 
+                },
+                { 
+                    content: `${elSubtotalKg.toFixed(2)} kg`, 
+                    styles: { 
+                        halign: 'right', 
+                        fontStyle: 'bold', 
+                        fillColor: [241, 245, 249],
+                        textColor: [194, 65, 12] 
+                    } 
+                }
+            ]);
+
+            // Separatore vuoto
+            detailTableBody.push([{ content: '', colSpan: 9, styles: { cellPadding: 1, lineWidth: 0 } }]);
+        });
+
+        // Intestazione prima pagina
+        const drawDistintaHeader = (d: any, pageNum: number) => {
+            d.setTextColor(15, 23, 42);
+            if (pageNum === 1) {
+                d.setFontSize(14);
+                d.setFont("helvetica", "bold");
+                d.text("DISTINTA DEI FERRI E SAGOMARIO D'ARMATURA", pageWidth / 2, 14, { align: 'center' });
+                
+                d.setFontSize(8.5);
+                d.setFont("helvetica", "normal");
+                d.text("Acciaio in barre tonde nervate B450C ad aderenza migliorata (D.M. 17/01/2018 NTC)", pageWidth / 2, 19, { align: 'center' });
+
+                d.setFontSize(8);
+                d.setFont("helvetica", "bold");
+                d.text(`OPERA / PROGETTO: ${projectInfo.title}`, 10, 26);
+                d.setFont("helvetica", "normal");
+                d.text(`COMMITTENTE: ${projectInfo.client}`, 10, 31);
+                d.text(`PROGETTISTA DELLE STRUTTURE: ${projectInfo.designer}`, 10, 36);
+                d.text(`LOCALITÀ CANTIERE: ${projectInfo.location}   |   DATA: ${projectInfo.date}`, 10, 41);
+
+                d.setDrawColor(203, 213, 225);
+                d.setLineWidth(0.3);
+                d.line(10, 44, pageWidth - 10, 44);
+            } else {
+                d.setFontSize(7.5);
+                d.setFont("helvetica", "bold");
+                d.text(`DISTINTA FERRI - ${projectInfo.title}`, 10, 12);
+                d.setDrawColor(226, 232, 240);
+                d.setLineWidth(0.2);
+                d.line(10, 14, pageWidth - 10, 14);
+            }
+        };
+
+        // Generazione Tabella 1: Elementi Dettagliati
+        autoTable(doc, {
+            head: [[
+                { content: 'Pos.', styles: { halign: 'center' } },
+                { content: 'Elemento', styles: { halign: 'left' } },
+                { content: 'Sagoma / Descrizione Barra', styles: { halign: 'left' } },
+                { content: 'Ø (mm)', styles: { halign: 'center' } },
+                { content: 'N. Barre', styles: { halign: 'center' } },
+                { content: 'L. Sing. (m)', styles: { halign: 'right' } },
+                { content: 'Svil. Tot. (m)', styles: { halign: 'right' } },
+                { content: 'Peso (kg/m)', styles: { halign: 'right' } },
+                { content: 'Peso Tot. (kg)', styles: { halign: 'right' } }
+            ]],
+            body: detailTableBody,
+            startY: 47,
+            margin: { left: 10, right: 10, top: 18, bottom: 20 },
+            theme: 'grid',
+            headStyles: {
+                fillColor: [15, 23, 42],
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                fontSize: 7.5,
+                cellPadding: 2.5
+            },
+            bodyStyles: {
+                fontSize: 7,
+                cellPadding: 2,
+                textColor: [30, 41, 59]
+            },
+            columnStyles: {
+                0: { cellWidth: 10 },
+                1: { cellWidth: 26 },
+                2: { cellWidth: 'auto' },
+                3: { cellWidth: 14 },
+                4: { cellWidth: 14 },
+                5: { cellWidth: 18 },
+                6: { cellWidth: 20 },
+                7: { cellWidth: 18 },
+                8: { cellWidth: 22 }
+            },
+            didDrawPage: (data) => {
+                drawDistintaHeader(doc, data.pageNumber);
+            }
+        });
+
+        // 2. RIEPILOGO SAGOMARIO PER DIAMETRO (Ø)
+        const diameterMap = new Map<number, { totalLen: number; count: number; totalWeight: number }>();
+        items.forEach(it => {
+            const prev = diameterMap.get(it.diameter) || { totalLen: 0, count: 0, totalWeight: 0 };
+            prev.totalLen += it.totalLength;
+            prev.count += it.pieces;
+            prev.totalWeight += it.totalWeight;
+            diameterMap.set(it.diameter, prev);
+        });
+
+        // Ordina diametri crescenti (6, 8, 10, 12, 14, 16...)
+        const sortedDiameters = Array.from(diameterMap.keys()).sort((a, b) => a - b);
+
+        const summaryTableBody: any[] = [];
+        let summaryTotalPieces = 0;
+        let summaryTotalLenM = 0;
+        let summaryTotalWeightKg = 0;
+
+        sortedDiameters.forEach(dia => {
+            const data = diameterMap.get(dia)!;
+            const nominal = REBAR_WEIGHTS.find(rw => rw.diameter === dia)?.weight || parseFloat((dia * dia * 0.006166).toFixed(3));
+            const perc = grandTotalSteelKg > 0 ? (data.totalWeight / grandTotalSteelKg) * 100 : 0;
+            const weightQli = data.totalWeight / 100;
+
+            summaryTotalPieces += data.count;
+            summaryTotalLenM += data.totalLen;
+            summaryTotalWeightKg += data.totalWeight;
+
+            summaryTableBody.push([
+                { content: `Ø ${dia} mm`, styles: { halign: 'center', fontStyle: 'bold', textColor: [194, 65, 12] } },
+                { content: data.count, styles: { halign: 'center' } },
+                { content: data.totalLen.toFixed(2), styles: { halign: 'right' } },
+                { content: nominal.toFixed(3), styles: { halign: 'right' } },
+                { content: data.totalWeight.toFixed(2), styles: { halign: 'right', fontStyle: 'bold' } },
+                { content: weightQli.toFixed(2), styles: { halign: 'right' } },
+                { content: `${perc.toFixed(1)} %`, styles: { halign: 'right', textColor: [71, 85, 105] } }
+            ]);
+        });
+
+        // Totale generale riepilogo
+        summaryTableBody.push([
+            { content: 'TOTALE COMPLESSIVO ACCIAIO', styles: { fontStyle: 'bold', fillColor: [241, 245, 249] } },
+            { content: summaryTotalPieces, styles: { halign: 'center', fontStyle: 'bold', fillColor: [241, 245, 249] } },
+            { content: `${summaryTotalLenM.toFixed(2)} m`, styles: { halign: 'right', fontStyle: 'bold', fillColor: [241, 245, 249] } },
+            { content: '-', styles: { halign: 'center', fillColor: [241, 245, 249] } },
+            { content: `${summaryTotalWeightKg.toFixed(2)} kg`, styles: { halign: 'right', fontStyle: 'bold', textColor: [194, 65, 12], fillColor: [241, 245, 249] } },
+            { content: `${(summaryTotalWeightKg / 100).toFixed(2)} q.li`, styles: { halign: 'right', fontStyle: 'bold', fillColor: [241, 245, 249] } },
+            { content: '100.0 %', styles: { halign: 'right', fontStyle: 'bold', fillColor: [241, 245, 249] } }
+        ]);
+
+        let currentY = (doc as any).lastAutoTable.finalY + 8;
+        if (currentY > pageHeight - 85) {
+            doc.addPage();
+            currentY = 22;
+        }
+
+        // Titolo Sezione Sagomario
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(15, 23, 42);
+        doc.text("RIEPILOGO FABBISOGNO E SAGOMARIO PER DIAMETRO (Ø)", 10, currentY);
+
+        autoTable(doc, {
+            head: [[
+                { content: 'Diametro', styles: { halign: 'center' } },
+                { content: 'N. Barre / Staffe', styles: { halign: 'center' } },
+                { content: 'Sviluppo Totale (m)', styles: { halign: 'right' } },
+                { content: 'Peso Nominale (kg/m)', styles: { halign: 'right' } },
+                { content: 'Peso Totale (kg)', styles: { halign: 'right' } },
+                { content: 'Peso in Quintali (q.li)', styles: { halign: 'right' } },
+                { content: 'Incidenza (%)', styles: { halign: 'right' } }
+            ]],
+            body: summaryTableBody,
+            startY: currentY + 3,
+            margin: { left: 10, right: 10, top: 18, bottom: 20 },
+            theme: 'grid',
+            headStyles: {
+                fillColor: [51, 65, 85],
+                textColor: [255, 255, 255],
+                fontStyle: 'bold',
+                fontSize: 7.5,
+                cellPadding: 2.5
+            },
+            bodyStyles: {
+                fontSize: 7.5,
+                cellPadding: 2
+            },
+            didDrawPage: (data) => {
+                drawDistintaHeader(doc, data.pageNumber);
+            }
+        });
+
+        // 3. QUADRO DI FORNITURA CANTIERE & SFRIDO
+        let finalY = (doc as any).lastAutoTable.finalY + 8;
+        if (finalY > pageHeight - 65) {
+            doc.addPage();
+            finalY = 22;
+        }
+
+        const sfridoKg = summaryTotalWeightKg * 0.05; // +5% sfrido di cantiere / sovrapposizioni NTC
+        const totaleLordoKg = summaryTotalWeightKg + sfridoKg;
+        const tonnellateLorde = totaleLordoKg / 1000;
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(10, finalY, pageWidth - 20, 24, 2, 2, 'FD');
+
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(15, 23, 42);
+        doc.text("QUADRO DI ORDINAZIONE CANTIERE:", 14, finalY + 6);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text(`• Acciaio Netto Sagomato in opera:`, 14, finalY + 12);
+        doc.setFont("helvetica", "bold");
+        doc.text(`${summaryTotalWeightKg.toFixed(2)} kg  (${ (summaryTotalWeightKg / 100).toFixed(2) } q.li)`, 80, finalY + 12);
+
+        doc.setFont("helvetica", "normal");
+        doc.text(`• Sfrido tecnico lavorazione e sovrapposizioni (+5% NTC):`, 14, finalY + 17);
+        doc.setFont("helvetica", "bold");
+        doc.text(`+${sfridoKg.toFixed(2)} kg`, 80, finalY + 17);
+
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(194, 65, 12);
+        doc.text(`• FABBISOGNO TOTALE LORDO D'ORDINAZIONE:`, 14, finalY + 22);
+        doc.text(`${totaleLordoKg.toFixed(2)} kg  =  ${(totaleLordoKg / 100).toFixed(2)} q.li  (${tonnellateLorde.toFixed(3)} ton)`, 80, finalY + 22);
+
+        // Blocco Firme
+        let signY = finalY + 32;
+        if (signY > pageHeight - 35) {
+            doc.addPage();
+            signY = 25;
+        }
+
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(71, 85, 105);
+        doc.text(`${projectInfo.location}, lì ${projectInfo.date}`, 10, signY);
+
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(15, 23, 42);
+        doc.text("IL PROGETTISTA DELLE STRUTTURE", 35, signY + 6, { align: 'center' });
+        doc.setLineWidth(0.2);
+        doc.setDrawColor(148, 163, 184);
+        doc.line(10, signY + 18, 65, signY + 18);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.text(`(${projectInfo.designer})`, 35, signY + 22, { align: 'center' });
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text("L'IMPRESA APPALTATRICE / FERRIERA", 160, signY + 6, { align: 'center' });
+        doc.line(135, signY + 18, 190, signY + 18);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.text(`(Timbro e Firma per Accettazione Sagomario)`, 160, signY + 22, { align: 'center' });
+
+        // Footer e numerazione pagine
+        applyDocumentFootersAndSecurity(doc, integrityHash);
+
+        window.open(URL.createObjectURL(doc.output('blob')), '_blank');
+    } catch (error) {
+        console.error("Errore generazione Distinta Ferri PDF:", error);
+        alert("Si è verificato un errore durante la generazione della Distinta Ferri PDF.");
+    }
+};
