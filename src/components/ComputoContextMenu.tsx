@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { 
-  Plus, Sigma, CopyPlus, PlusCircle, MinusCircle, Trash2, X, Power, PowerOff, Lightbulb
+  Plus, Sigma, CopyPlus, PlusCircle, MinusCircle, Trash2, X, Power, PowerOff, Lightbulb, Grid3X3
 } from 'lucide-react';
 import { Article, Measurement } from '../types';
 
@@ -20,6 +20,7 @@ export interface ContextMenuProps {
   onAddMeasurementWithType?: (articleId: string, type: 'positive' | 'deduction') => void;
   onDeleteMeasurement?: (articleId: string, mId: string) => void;
   onToggleArticleEnabled?: (articleId: string) => void;
+  onOpenRebarCalculator?: (articleId: string) => void;
   onClose: () => void;
 }
 
@@ -39,6 +40,7 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
   onAddMeasurementWithType,
   onDeleteMeasurement,
   onToggleArticleEnabled,
+  onOpenRebarCalculator,
   onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -173,6 +175,26 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
           </div>
           <span className="text-[9px] font-mono opacity-60 group-hover:opacity-100 bg-white/10 px-1.5 py-0.5 rounded">Clona</span>
         </button>
+
+        {/* Armatura 3D & Ferri / Staffe */}
+        {onOpenRebarCalculator && (
+          <button
+            disabled={isLocked}
+            onClick={() => {
+              onOpenRebarCalculator(article.id);
+              onClose();
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left text-xs font-bold text-slate-100 hover:bg-orange-600/90 hover:text-white transition-all group disabled:opacity-40 disabled:pointer-events-none"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="p-1 rounded-lg bg-orange-500/20 text-orange-400 group-hover:bg-white/20 group-hover:text-white transition-colors">
+                <Grid3X3 className="w-4 h-4" />
+              </span>
+              <span>Armatura 3D Ferri/Staffe</span>
+            </div>
+            <span className="text-[9px] font-mono opacity-60 group-hover:opacity-100 bg-white/10 px-1.5 py-0.5 rounded">3D</span>
+          </button>
+        )}
 
         {/* 4. Positivi e Negativi */}
         <div className="pt-1.5 pb-0.5">

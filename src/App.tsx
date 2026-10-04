@@ -2391,7 +2391,34 @@ const App: React.FC = () => {
   const handleToggleCategoryVisibility = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c); updateState(articles, newCats); playUISound('toggle'); };
   const handleSaveCategory = (name: string, isSuper: boolean, color: string, soa?: string) => { if (editingCategory) { const newCats = categories.map(c => c.id === editingCategory.id ? { ...c, name, isSuperCategory: isSuper, color, soaCategory: soa } : c); updateState(articles, newCats); } else { const newCode = generateNextWbsCode(categories); const newCat: Category = { id: `cat_${Date.now()}`, code: newCode, name, isEnabled: true, isLocked: false, isSuperCategory: isSuper, type: viewMode === 'SICUREZZA' ? 'safety' : 'work', color: color, soaCategory: soa }; let newCatsList = isSuper ? [newCat, ...categories] : [...categories, newCat]; const result = renumberCategories(newCatsList, articles); updateState(result.newArticles, result.newCategories); setSelectedCategoryCode(newCat.code); const assignedCode = result.codeMap[newCat.code] || newCat.code; setLastMovedItemId(assignedCode); setTimeout(() => setLastMovedItemId(null), 3000); } setIsCategoryModalOpen(false); playUISound('confirm'); };
   const handleResetProject = () => { window.open(window.location.href, '_blank'); playUISound('newline'); };
-  const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { if (!rebarTargetArticleId) return; const updated = articles.map(art => { if (art.id !== rebarTargetArticleId) return art; const newMeasures: Measurement[] = measurements.map(m => ({ id: Math.random().toString(36).substr(2, 9), description: m.description, type: 'positive' as const, multiplier: m.multiplier, length: m.length, width: undefined, height: m.weight })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsRebarModalOpen(false); };
+  const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { 
+    const effectiveTargetId = rebarTargetArticleId || articles.find(a => 
+      a.unit?.toLowerCase().includes('kg') || 
+      a.description?.toLowerCase().includes('acciaio') || 
+      a.description?.toLowerCase().includes('ferr') ||
+      a.description?.toLowerCase().includes('b450')
+    )?.id || articles[0]?.id;
+
+    if (!effectiveTargetId) return;
+
+    const newMeasures: Measurement[] = measurements.map(m => ({ 
+      id: Math.random().toString(36).substr(2, 9), 
+      description: m.description, 
+      type: 'positive' as const, 
+      multiplier: m.multiplier, 
+      length: m.length, 
+      width: undefined, 
+      height: m.weight 
+    }));
+
+    const updated = articles.map(art => { 
+      if (art.id !== effectiveTargetId) return art; 
+      return { ...art, measurements: [...art.measurements, ...newMeasures] }; 
+    }); 
+    updateState(updated); 
+    playUISound('confirm');
+    setIsRebarModalOpen(false); 
+  };
   const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { if (paintingTargetArticleId) { const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsPaintingModalOpen(false); } };
   const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, ...[newArticle]]); setLastAddedMeasurementId(newMeasId); handleScrollToArticle(newArtId, undefined, targetCatCode); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
   const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: wbsDisplayMode, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); if (newArticles.length > 0) handleScrollToArticle(newArticles[0].id, undefined, newArticles[0].categoryCode); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
@@ -2532,6 +2559,19 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center space-x-2">
+                    <button 
+                      onClick={() => {
+                        const targetId = activeArticles[0]?.id || articles[0]?.id || null;
+                        if (targetId) setRebarTargetArticleId(targetId);
+                        setIsRebarModalOpen(true);
+                        playUISound('toggle');
+                      }}
+                      className="px-2.5 py-1.5 transition-all flex items-center gap-1.5 text-orange-200 hover:text-white bg-orange-600/30 hover:bg-orange-600/70 border border-orange-500/40 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer"
+                      title="Armature 3D Parametriche & Calcolo Ferri/Staffe"
+                    >
+                      <Grid3X3 className="w-4 h-4 text-orange-400" />
+                      <span className="text-xs font-bold hidden xl:inline">Armature 3D</span>
+                    </button>
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Progetto"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Progetto</span></button>
                     <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <button 
@@ -2780,7 +2820,14 @@ const App: React.FC = () => {
           <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
           <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerateLocal} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />
           <HelpManualModal isOpen={isManualOpen} onClose={() => setIsManualOpen(false)} />
-          <RebarCalculatorModal isOpen={isRebarModalOpen} onClose={() => setIsRebarModalOpen(false)} onAdd={handleAddRebarMeasurement} />
+          <RebarCalculatorModal 
+            isOpen={isRebarModalOpen} 
+            onClose={() => setIsRebarModalOpen(false)} 
+            onAdd={handleAddRebarMeasurement} 
+            articles={articles}
+            targetArticleId={rebarTargetArticleId}
+            onSelectTargetArticle={(id) => setRebarTargetArticleId(id)}
+          />
           <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
           {contextMenuTarget && (
             <ComputoContextMenu
@@ -2799,6 +2846,7 @@ const App: React.FC = () => {
               onAddMeasurementWithType={handleAddMeasurementWithType}
               onDeleteMeasurement={handleDeleteMeasurement}
               onToggleArticleEnabled={handleToggleArticleEnabled}
+              onOpenRebarCalculator={handleOpenRebarCalculator}
               onClose={() => setContextMenuTarget(null)}
             />
           )}
