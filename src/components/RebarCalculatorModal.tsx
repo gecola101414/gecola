@@ -168,8 +168,11 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 }) => {
   // --- STATO CONFIGURAZIONE STRUTTURALE ---
   const [structureType, setStructureType] = useState<StructureCategory>('beam');
+  const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
   const [elementName, setElementName] = useState<string>('Trave T1');
   const [elementMultiplier, setElementMultiplier] = useState<number>(1);
+
+  const isColumn = structureType === 'column' || orientation === 'vertical';
 
   // Dimensioni calcestruzzo (in cm e m)
   const [baseCm, setBaseCm] = useState<number>(30);
@@ -218,16 +221,19 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     camera: THREE.PerspectiveCamera;
     renderer: THREE.WebGLRenderer;
     rootGroup: THREE.Group;
+    gridHelper?: THREE.GridHelper;
     isDragging: boolean;
     prevMousePos: { x: number; y: number };
     spherical: { radius: number; theta: number; phi: number };
     target: THREE.Vector3;
     animFrameId: number | null;
+    updateCameraPosition?: () => void;
   } | null>(null);
 
   // Cambia preset tipo struttura
   const handleSelectPreset = (cat: StructureCategory) => {
     setStructureType(cat);
+    setOrientation(cat === 'column' ? 'vertical' : 'horizontal');
     const p = PRESETS[cat];
     setElementName(p.defaultName);
     setBaseCm(p.defaultB);
@@ -486,11 +492,13 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       camera,
       renderer,
       rootGroup,
+      gridHelper,
       isDragging: false,
       prevMousePos: { x: 0, y: 0 },
       spherical,
       target,
-      animFrameId: null
+      animFrameId: null,
+      updateCameraPosition
     };
 
     // Mouse Controls per orbit & zoom fluido
@@ -612,33 +620,44 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     };
   }, [isOpen]);
 
-  // Aggiorna la vista della telecamera quando cambia il preset di vista
+  // Aggiorna la vista della telecamera quando cambia il preset di vista o tipo struttura
   useEffect(() => {
     if (!threeStateRef.current) return;
-    const { spherical } = threeStateRef.current;
+    const { spherical, updateCameraPosition } = threeStateRef.current;
+    const L = Math.max(0.5, Math.min(12, lengthM));
+
     if (viewPreset === 'iso') {
       spherical.theta = Math.PI / 4;
-      spherical.phi = Math.PI / 3;
-      spherical.radius = 7.5;
+      spherical.phi = isColumn ? Math.PI / 2.8 : Math.PI / 3;
+      spherical.radius = isColumn ? Math.max(5.5, L * 1.5) : 7.5;
     } else if (viewPreset === 'front') {
       spherical.theta = 0;
       spherical.phi = Math.PI / 2;
-      spherical.radius = 6.5;
+      spherical.radius = isColumn ? Math.max(5.0, L * 1.4) : 6.5;
     } else if (viewPreset === 'section') {
-      spherical.theta = Math.PI / 2;
-      spherical.phi = Math.PI / 2;
-      spherical.radius = 4.0;
+      if (isColumn) {
+        // Per il pilastro la sezione è orizzontale: telecamera dall'alto verso il basso
+        spherical.theta = 0;
+        spherical.phi = 0.05;
+        spherical.radius = 3.5;
+      } else {
+        // Per la trave la sezione è trasversale vista in testata
+        spherical.theta = Math.PI / 2;
+        spherical.phi = Math.PI / 2;
+        spherical.radius = 4.0;
+      }
     } else if (viewPreset === 'top') {
       spherical.theta = 0;
       spherical.phi = 0.05;
-      spherical.radius = 8.0;
+      spherical.radius = isColumn ? 4.5 : 8.0;
     }
-  }, [viewPreset]);
+    updateCameraPosition?.();
+  }, [viewPreset, structureType, orientation, lengthM, isColumn]);
 
   // --- COSTRUZIONE GEOMETRIA PARAMETRICA 3D ---
   useEffect(() => {
     if (!threeStateRef.current) return;
-    const { rootGroup } = threeStateRef.current;
+    const { rootGroup, gridHelper } = threeStateRef.current;
 
     // Pulisci vecchi mesh
     while (rootGroup.children.length > 0) {
@@ -655,22 +674,32 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     }
 
     // Scala dimensionale per Three.js: 1 unità = 1 metro
-    // La trave si sviluppa lungo l'asse Z, la base su X, l'altezza su Y
     const b = Math.max(0.1, baseCm / 100);
     const h = Math.max(0.1, heightCm / 100);
     const L = Math.max(0.5, Math.min(12, lengthM));
-    const c = Math.max(0.01, Math.min(b / 2 - 0.02, coverCm / 100));
+    const c = Math.max(0.01, Math.min(Math.min(b, h) / 2 - 0.02, coverCm / 100));
+
+    // Posiziona il piano di griglia alla base dell'elemento (appoggio a terra)
+    if (gridHelper) {
+      gridHelper.position.y = isColumn ? -L / 2 : -h / 2;
+    }
 
     // 1. BLOCCO CALCESTRUZZO (Trasparente o Solido)
+    // Gradazione grigio cemento armato aumentata del 10% (0x3d4a5c, finitura minerale profonda, opacità 0.36)
     if (xRayMode !== 'rebarOnly') {
-      const concreteGeo = new THREE.BoxGeometry(b, h, L);
+      // Per il pilastro la geometria sta verticale: larghezza b (X), altezza L (Y), profondità h (Z)
+      // Per la trave: larghezza b (X), altezza h (Y), lunghezza L (Z)
+      const concreteGeo = isColumn 
+        ? new THREE.BoxGeometry(b, L, h) 
+        : new THREE.BoxGeometry(b, h, L);
+
       const concreteMat = new THREE.MeshPhysicalMaterial({
-        color: 0x64748b,
+        color: 0x3d4a5c, // Grigio cemento armato strutturale aumentato del 10% di profondità cromatica
         transparent: true,
-        opacity: xRayMode === 'opaque' ? 0.95 : 0.22,
-        roughness: 0.3,
-        metalness: 0.1,
-        clearcoat: 0.2,
+        opacity: xRayMode === 'opaque' ? 0.98 : 0.36, // +10% presenza materica in trasparenza
+        roughness: 0.50, // Finitura getto di calcestruzzo naturale
+        metalness: 0.06,
+        clearcoat: 0.20,
         depthWrite: xRayMode === 'opaque'
       });
       const concreteMesh = new THREE.Mesh(concreteGeo, concreteMat);
@@ -678,15 +707,28 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       concreteMesh.receiveShadow = true;
       rootGroup.add(concreteMesh);
 
-      // Spigoli marcati tipo blueprint CAD
+      // Spigoli marcati tipo blueprint CAD tecnico
       const edges = new THREE.EdgesGeometry(concreteGeo);
       const lineMat = new THREE.LineBasicMaterial({
-        color: 0x94a3b8,
+        color: 0xa0aec0,
         transparent: true,
-        opacity: 0.4
+        opacity: 0.70
       });
       const wireframe = new THREE.LineSegments(edges, lineMat);
       rootGroup.add(wireframe);
+
+      // Piastra / basamento di fondazione alla base del pilastro verticale
+      if (isColumn) {
+        const footingGeo = new THREE.BoxGeometry(b * 1.5, 0.06, h * 1.5);
+        const footingMat = new THREE.MeshStandardMaterial({
+          color: 0x242e3d, // Magrone / fondazione basale
+          roughness: 0.85
+        });
+        const footingMesh = new THREE.Mesh(footingGeo, footingMat);
+        footingMesh.position.set(0, -L / 2 - 0.03, 0);
+        footingMesh.receiveShadow = true;
+        rootGroup.add(footingMesh);
+      }
     }
 
     // Materiali Acciaio
@@ -705,113 +747,230 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     // Dimensioni interne della staffa
     const stirrupDiaM = (stirrupDia / 1000);
     const stirrupRadius = Math.max(0.003, stirrupDiaM / 2);
-    const innerBx = b - 2 * c - stirrupDiaM;
-    const innerHy = h - 2 * c - stirrupDiaM;
 
-    const xLeft = -innerBx / 2;
-    const xRight = innerBx / 2;
-    const yBot = -innerHy / 2;
-    const yTop = innerHy / 2;
+    if (isColumn) {
+      // ==========================================
+      // PILASTRO IN C.A. (ORIENTAMENTO VERTICALE)
+      // ==========================================
+      const innerBx = b - 2 * c - stirrupDiaM;
+      const innerHz = h - 2 * c - stirrupDiaM;
 
-    // 2. FERRI LONGITUDINALI (Tondini)
-    const addLongitudinalBar = (x: number, y: number, diaMm: number, barLenM: number) => {
-      const radius = Math.max(0.004, (diaMm / 2000));
-      const len = Math.max(0.2, barLenM);
-      const barGeo = new THREE.CylinderGeometry(radius, radius, len, 16);
-      const barMesh = new THREE.Mesh(barGeo, rebarMat);
-      barMesh.rotation.x = Math.PI / 2; // Allineato lungo asse Z
-      barMesh.position.set(x, y, 0);
-      barMesh.castShadow = true;
-      rootGroup.add(barMesh);
+      const xLeft = -innerBx / 2;
+      const xRight = innerBx / 2;
+      const zBot = -innerHz / 2;
+      const zTop = innerHz / 2;
 
-      // Ganci di chiusura 90° alle estremità per realismo strutturale
-      const hookLen = radius * 8;
-      const hookGeo = new THREE.CylinderGeometry(radius, radius, hookLen, 12);
-      const hookZ1 = new THREE.Mesh(hookGeo, rebarMat);
-      hookZ1.position.set(x, y + (y > 0 ? -hookLen / 2 : hookLen / 2), len / 2);
-      rootGroup.add(hookZ1);
+      // Funzione per inserire barra verticale lungo l'asse Y
+      const addColumnBar = (x: number, z: number, diaMm: number, barLenM: number) => {
+        const radius = Math.max(0.004, (diaMm / 2000));
+        const len = Math.max(0.2, barLenM);
+        const barGeo = new THREE.CylinderGeometry(radius, radius, len, 16);
+        const barMesh = new THREE.Mesh(barGeo, rebarMat);
+        barMesh.position.set(x, 0, z); // Eretto in verticale lungo asse Y!
+        barMesh.castShadow = true;
+        rootGroup.add(barMesh);
 
-      const hookZ2 = new THREE.Mesh(hookGeo, rebarMat);
-      hookZ2.position.set(x, y + (y > 0 ? -hookLen / 2 : hookLen / 2), -len / 2);
-      rootGroup.add(hookZ2);
-    };
+        // Ganci di ripresa sismica in testa (+Y) e al piede (-Y)
+        const hookLen = radius * 7;
+        const hookGeo = new THREE.CylinderGeometry(radius, radius, hookLen, 12);
 
-    // A. Ferri Superiori
-    if (topBarsCount > 0) {
-      if (topBarsCount === 1) {
-        addLongitudinalBar(0, yTop, topBarsDia, topBarsLength);
-      } else {
-        const stepX = (xRight - xLeft) / (topBarsCount - 1);
-        for (let i = 0; i < topBarsCount; i++) {
-          addLongitudinalBar(xLeft + i * stepX, yTop, topBarsDia, topBarsLength);
+        // Gancio in testa (verso l'interno)
+        const hookTop = new THREE.Mesh(hookGeo, rebarMat);
+        hookTop.rotation.z = Math.PI / 2;
+        hookTop.position.set(x + (x > 0 ? -hookLen / 2 : hookLen / 2), len / 2, z);
+        rootGroup.add(hookTop);
+
+        // Gancio al piede (ancoraggio plinto / fondazione)
+        const hookBot = new THREE.Mesh(hookGeo, rebarMat);
+        hookBot.rotation.z = Math.PI / 2;
+        hookBot.position.set(x + (x > 0 ? hookLen / 2 : -hookLen / 2), -len / 2, z);
+        rootGroup.add(hookBot);
+      };
+
+      // A. Ferri Faccia Posteriore (Z = zTop)
+      if (topBarsCount > 0) {
+        if (topBarsCount === 1) {
+          addColumnBar(0, zTop, topBarsDia, topBarsLength);
+        } else {
+          const stepX = (xRight - xLeft) / (topBarsCount - 1);
+          for (let i = 0; i < topBarsCount; i++) {
+            addColumnBar(xLeft + i * stepX, zTop, topBarsDia, topBarsLength);
+          }
         }
       }
-    }
 
-    // B. Ferri Inferiori
-    if (botBarsCount > 0) {
-      if (botBarsCount === 1) {
-        addLongitudinalBar(0, yBot, botBarsDia, botBarsLength);
-      } else {
-        const stepX = (xRight - xLeft) / (botBarsCount - 1);
-        for (let i = 0; i < botBarsCount; i++) {
-          addLongitudinalBar(xLeft + i * stepX, yBot, botBarsDia, botBarsLength);
+      // B. Ferri Faccia Anteriore (Z = zBot)
+      if (botBarsCount > 0) {
+        if (botBarsCount === 1) {
+          addColumnBar(0, zBot, botBarsDia, botBarsLength);
+        } else {
+          const stepX = (xRight - xLeft) / (botBarsCount - 1);
+          for (let i = 0; i < botBarsCount; i++) {
+            addColumnBar(xLeft + i * stepX, zBot, botBarsDia, botBarsLength);
+          }
         }
       }
-    }
 
-    // C. Ferri di Parete
-    if (enableSideBars && sideBarsCount > 0) {
-      const pairs = Math.floor(sideBarsCount / 2);
-      if (pairs > 0) {
-        const stepY = (yTop - yBot) / (pairs + 1);
-        for (let p = 1; p <= pairs; p++) {
-          const yPos = yBot + p * stepY;
-          addLongitudinalBar(xLeft, yPos, sideBarsDia, sideBarsLength);
-          addLongitudinalBar(xRight, yPos, sideBarsDia, sideBarsLength);
+      // C. Ferri di Parete Pilastro (distribuiti lungo Z sui lati xLeft e xRight)
+      if (enableSideBars && sideBarsCount > 0) {
+        const pairs = Math.floor(sideBarsCount / 2);
+        if (pairs > 0) {
+          const stepZ = (zTop - zBot) / (pairs + 1);
+          for (let p = 1; p <= pairs; p++) {
+            const zPos = zBot + p * stepZ;
+            addColumnBar(xLeft, zPos, sideBarsDia, sideBarsLength);
+            addColumnBar(xRight, zPos, sideBarsDia, sideBarsLength);
+          }
         }
       }
-    }
 
-    // 3. STAFFE (Stirrups) LUNGO LA LUNGHEZZA
-    const numStirrups = effectiveStirrupsCount;
-    if (numStirrups > 0) {
-      // Costruisci curva chiusa di 1 staffa rettangolare sul piano XY
-      const path = new THREE.CurvePath<THREE.Vector3>();
-      const p1 = new THREE.Vector3(xLeft, yTop, 0);
-      const p2 = new THREE.Vector3(xRight, yTop, 0);
-      const p3 = new THREE.Vector3(xRight, yBot, 0);
-      const p4 = new THREE.Vector3(xLeft, yBot, 0);
+      // Staffe Orizzontali (anelli chiusi sul piano X-Z distribuiti lungo l'altezza Y)
+      const numStirrups = effectiveStirrupsCount;
+      if (numStirrups > 0) {
+        const path = new THREE.CurvePath<THREE.Vector3>();
+        const p1 = new THREE.Vector3(xLeft, 0, zTop);
+        const p2 = new THREE.Vector3(xRight, 0, zTop);
+        const p3 = new THREE.Vector3(xRight, 0, zBot);
+        const p4 = new THREE.Vector3(xLeft, 0, zBot);
 
-      path.add(new THREE.LineCurve3(p1, p2));
-      path.add(new THREE.LineCurve3(p2, p3));
-      path.add(new THREE.LineCurve3(p3, p4));
-      path.add(new THREE.LineCurve3(p4, p1));
+        path.add(new THREE.LineCurve3(p1, p2));
+        path.add(new THREE.LineCurve3(p2, p3));
+        path.add(new THREE.LineCurve3(p3, p4));
+        path.add(new THREE.LineCurve3(p4, p1));
 
-      // Aggiungi gancio sismico a 135° in alto
-      const hookPt = new THREE.Vector3(xLeft + 0.04, yTop - 0.04, 0);
-      path.add(new THREE.LineCurve3(p1, hookPt));
+        // Gancio di chiusura sismica a 135° nel piano X-Z
+        const hookPt = new THREE.Vector3(xLeft + 0.04, 0, zTop - 0.04);
+        path.add(new THREE.LineCurve3(p1, hookPt));
 
-      const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
+        const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
 
-      // Posizionamento lungo Z
-      const halfL = L / 2;
-      const startZ = -halfL + 0.05;
-      const endZ = halfL - 0.05;
-      const pitchZ = (stirrupPitchCm / 100);
+        // Distribuzione verticale dal basso all'alto lungo Y
+        const halfL = L / 2;
+        const startY = -halfL + 0.06;
+        const endY = halfL - 0.06;
+        const pitchY = (stirrupPitchCm / 100);
 
-      for (let s = 0; s < numStirrups; s++) {
-        const curZ = startZ + s * pitchZ;
-        if (curZ > endZ + 0.02) break;
+        for (let s = 0; s < numStirrups; s++) {
+          const curY = startY + s * pitchY;
+          if (curY > endY + 0.02) break;
 
-        const stirrupMesh = new THREE.Mesh(stirrupGeo, stirrupMat);
-        stirrupMesh.position.z = curZ;
-        stirrupMesh.castShadow = true;
-        rootGroup.add(stirrupMesh);
+          const stirrupMesh = new THREE.Mesh(stirrupGeo, stirrupMat);
+          stirrupMesh.position.set(0, curY, 0); // Posizionata a quota Y
+          stirrupMesh.castShadow = true;
+          rootGroup.add(stirrupMesh);
+        }
+      }
+    } else {
+      // ==========================================
+      // TRAVE / CORDOLO / SOLETTA (ORIZZONTALE LUNGO Z)
+      // ==========================================
+      const innerBx = b - 2 * c - stirrupDiaM;
+      const innerHy = h - 2 * c - stirrupDiaM;
+
+      const xLeft = -innerBx / 2;
+      const xRight = innerBx / 2;
+      const yBot = -innerHy / 2;
+      const yTop = innerHy / 2;
+
+      // 2. FERRI LONGITUDINALI (Tondini lungo Z)
+      const addLongitudinalBar = (x: number, y: number, diaMm: number, barLenM: number) => {
+        const radius = Math.max(0.004, (diaMm / 2000));
+        const len = Math.max(0.2, barLenM);
+        const barGeo = new THREE.CylinderGeometry(radius, radius, len, 16);
+        const barMesh = new THREE.Mesh(barGeo, rebarMat);
+        barMesh.rotation.x = Math.PI / 2; // Allineato lungo asse Z
+        barMesh.position.set(x, y, 0);
+        barMesh.castShadow = true;
+        rootGroup.add(barMesh);
+
+        // Ganci di chiusura 90° alle estremità per realismo strutturale
+        const hookLen = radius * 8;
+        const hookGeo = new THREE.CylinderGeometry(radius, radius, hookLen, 12);
+        const hookZ1 = new THREE.Mesh(hookGeo, rebarMat);
+        hookZ1.position.set(x, y + (y > 0 ? -hookLen / 2 : hookLen / 2), len / 2);
+        rootGroup.add(hookZ1);
+
+        const hookZ2 = new THREE.Mesh(hookGeo, rebarMat);
+        hookZ2.position.set(x, y + (y > 0 ? -hookLen / 2 : hookLen / 2), -len / 2);
+        rootGroup.add(hookZ2);
+      };
+
+      // A. Ferri Superiori
+      if (topBarsCount > 0) {
+        if (topBarsCount === 1) {
+          addLongitudinalBar(0, yTop, topBarsDia, topBarsLength);
+        } else {
+          const stepX = (xRight - xLeft) / (topBarsCount - 1);
+          for (let i = 0; i < topBarsCount; i++) {
+            addLongitudinalBar(xLeft + i * stepX, yTop, topBarsDia, topBarsLength);
+          }
+        }
+      }
+
+      // B. Ferri Inferiori
+      if (botBarsCount > 0) {
+        if (botBarsCount === 1) {
+          addLongitudinalBar(0, yBot, botBarsDia, botBarsLength);
+        } else {
+          const stepX = (xRight - xLeft) / (botBarsCount - 1);
+          for (let i = 0; i < botBarsCount; i++) {
+            addLongitudinalBar(xLeft + i * stepX, yBot, botBarsDia, botBarsLength);
+          }
+        }
+      }
+
+      // C. Ferri di Parete
+      if (enableSideBars && sideBarsCount > 0) {
+        const pairs = Math.floor(sideBarsCount / 2);
+        if (pairs > 0) {
+          const stepY = (yTop - yBot) / (pairs + 1);
+          for (let p = 1; p <= pairs; p++) {
+            const yPos = yBot + p * stepY;
+            addLongitudinalBar(xLeft, yPos, sideBarsDia, sideBarsLength);
+            addLongitudinalBar(xRight, yPos, sideBarsDia, sideBarsLength);
+          }
+        }
+      }
+
+      // 3. STAFFE LUNGO LA LUNGHEZZA Z
+      const numStirrups = effectiveStirrupsCount;
+      if (numStirrups > 0) {
+        const path = new THREE.CurvePath<THREE.Vector3>();
+        const p1 = new THREE.Vector3(xLeft, yTop, 0);
+        const p2 = new THREE.Vector3(xRight, yTop, 0);
+        const p3 = new THREE.Vector3(xRight, yBot, 0);
+        const p4 = new THREE.Vector3(xLeft, yBot, 0);
+
+        path.add(new THREE.LineCurve3(p1, p2));
+        path.add(new THREE.LineCurve3(p2, p3));
+        path.add(new THREE.LineCurve3(p3, p4));
+        path.add(new THREE.LineCurve3(p4, p1));
+
+        // Aggiungi gancio sismico a 135° in alto
+        const hookPt = new THREE.Vector3(xLeft + 0.04, yTop - 0.04, 0);
+        path.add(new THREE.LineCurve3(p1, hookPt));
+
+        const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
+
+        // Posizionamento lungo Z
+        const halfL = L / 2;
+        const startZ = -halfL + 0.05;
+        const endZ = halfL - 0.05;
+        const pitchZ = (stirrupPitchCm / 100);
+
+        for (let s = 0; s < numStirrups; s++) {
+          const curZ = startZ + s * pitchZ;
+          if (curZ > endZ + 0.02) break;
+
+          const stirrupMesh = new THREE.Mesh(stirrupGeo, stirrupMat);
+          stirrupMesh.position.z = curZ;
+          stirrupMesh.castShadow = true;
+          rootGroup.add(stirrupMesh);
+        }
       }
     }
   }, [
-    baseCm, heightCm, lengthM, coverCm,
+    structureType, orientation, isColumn, baseCm, heightCm, lengthM, coverCm,
     topBarsCount, topBarsDia, topBarsLength,
     botBarsCount, botBarsDia, botBarsLength,
     enableSideBars, sideBarsCount, sideBarsDia, sideBarsLength,
@@ -939,10 +1098,13 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   <span className="text-orange-400 font-bold">SEZIONE:</span> {baseCm}×{heightCm} cm
                 </div>
                 <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
-                  <span className="text-cyan-400 font-bold">LUNGH:</span> {lengthM.toFixed(2)} m
+                  <span className="text-cyan-400 font-bold">{isColumn ? 'ALTEZZA H:' : 'LUNGH:'}</span> {lengthM.toFixed(2)} m
                 </div>
                 <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
                   <span className="text-emerald-400 font-bold">STAFFE:</span> {effectiveStirrupsCount} staffe @ {stirrupPitchCm}cm
+                </div>
+                <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300">
+                  <span className="text-amber-400 font-bold">ASSETTO:</span> {isColumn ? '↕ Verticale (Pilastro)' : '↔ Orizzontale (Trave)'}
                 </div>
               </div>
 
@@ -1003,10 +1165,38 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
               
               {/* 1. SELEZIONE TIPO ELEMENTO OMOGENEO */}
               <div>
-                <label className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center justify-between mb-2">
-                  <span>1. Tipo Elemento Strutturale</span>
-                  <span className="text-[10px] font-mono text-orange-400 lowercase">preset parametrici</span>
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-black uppercase text-slate-400 tracking-wider">
+                    1. Tipo Elemento Strutturale
+                  </label>
+                  {/* Switch rapido Orientamento 3D */}
+                  <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setOrientation('horizontal')}
+                      className={`px-2 py-0.5 rounded-md transition-all ${
+                        !isColumn
+                          ? 'bg-orange-500 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Disponi orizzontale come trave/cordolo"
+                    >
+                      ↔ Orizzontale
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrientation('vertical')}
+                      className={`px-2 py-0.5 rounded-md transition-all ${
+                        isColumn
+                          ? 'bg-orange-500 text-white shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Disponi verticale come pilastro"
+                    >
+                      ↕ Verticale
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   {(Object.keys(PRESETS) as StructureCategory[]).map(cat => (
                     <button
@@ -1067,7 +1257,9 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Altezza (cm)</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                      {isColumn ? 'Profondità (cm)' : 'Altezza (cm)'}
+                    </label>
                     <input
                       type="number"
                       min="10"
@@ -1078,7 +1270,9 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Lunghezza (m)</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                      {isColumn ? 'H Pilastro (m)' : 'Lunghezza (m)'}
+                    </label>
                     <input
                       type="number"
                       step="0.1"
