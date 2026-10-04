@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { 
   X, Save, Grid3X3, Layers, Plus, Trash2, ChevronRight, Check,
   RotateCcw, Eye, Box, Sliders, Hash, ArrowRight, ShieldCheck,
-  Maximize2, Sparkles, HelpCircle, RefreshCw, ZoomIn, ZoomOut, Compass
+  Maximize2, Sparkles, HelpCircle, RefreshCw, ZoomIn, ZoomOut, Compass,
+  CircleDot, Disc
 } from 'lucide-react';
 import { REBAR_WEIGHTS } from '../constants';
 import { Article } from '../types';
@@ -26,13 +27,13 @@ interface RebarCalculatorModalProps {
   onSelectTargetArticle?: (articleId: string) => void;
 }
 
-export type StructureCategory = 'beam' | 'column' | 'curb' | 'footing' | 'slab' | 'custom';
+export type StructureCategory = 'beam' | 'column' | 'circular_column' | 'curb' | 'footing' | 'slab' | 'custom';
 
 interface StructurePreset {
   id: StructureCategory;
   label: string;
   defaultName: string;
-  defaultB: number; // cm
+  defaultB: number; // cm (o Diametro per circolare)
   defaultH: number; // cm
   defaultL: number; // m
   defaultCover: number; // cm
@@ -66,7 +67,7 @@ const PRESETS: Record<StructureCategory, StructurePreset> = {
   },
   column: {
     id: 'column',
-    label: 'Pilastro in C.A.',
+    label: 'Pilastro Rettangolare',
     defaultName: 'Pilastro P1',
     defaultB: 30,
     defaultH: 30,
@@ -81,9 +82,26 @@ const PRESETS: Record<StructureCategory, StructurePreset> = {
     stirrupDia: 8,
     stirrupPitch: 15
   },
+  circular_column: {
+    id: 'circular_column',
+    label: 'Pilastro Circolare',
+    defaultName: 'Pilastro Circolare PC1',
+    defaultB: 40, // Diametro D in cm
+    defaultH: 40,
+    defaultL: 3.50,
+    defaultCover: 3.5,
+    topBarsCount: 0,
+    topBarsDia: 16,
+    botBarsCount: 8, // N. barre radiali longitudinali
+    botBarsDia: 16,
+    sideBarsCount: 0,
+    sideBarsDia: 16,
+    stirrupDia: 8,
+    stirrupPitch: 10
+  },
   curb: {
     id: 'curb',
-    label: 'Cordolo / Trave Fondaz.',
+    label: 'Cordolo / Fondazione',
     defaultName: 'Cordolo C1',
     defaultB: 40,
     defaultH: 60,
@@ -134,7 +152,7 @@ const PRESETS: Record<StructureCategory, StructurePreset> = {
   },
   custom: {
     id: 'custom',
-    label: 'Elemento Personalizzato',
+    label: 'Elemento Libero',
     defaultName: 'Elemento E1',
     defaultB: 30,
     defaultH: 40,
@@ -167,25 +185,29 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   onSelectTargetArticle
 }) => {
   // --- STATO CONFIGURAZIONE STRUTTURALE ---
-  const [structureType, setStructureType] = useState<StructureCategory>('beam');
+  const [structureType, setStructureType] = useState<StructureCategory | null>(null);
   const [orientation, setOrientation] = useState<'horizontal' | 'vertical'>('horizontal');
-  const [elementName, setElementName] = useState<string>('Trave T1');
+  const [elementName, setElementName] = useState<string>('');
   const [elementMultiplier, setElementMultiplier] = useState<number>(1);
 
-  const isColumn = structureType === 'column' || orientation === 'vertical';
+  // Per pilastro circolare: tipologia staffa ('spiral' per elica continua, 'rings' per anelli chiusi)
+  const [circularStirrupType, setCircularStirrupType] = useState<'spiral' | 'rings'>('spiral');
 
-  // Dimensioni calcestruzzo (in cm e m)
+  const isCircular = structureType === 'circular_column';
+  const isColumn = structureType === 'column' || structureType === 'circular_column' || orientation === 'vertical';
+
+  // Dimensioni calcestruzzo (in cm e m). Per circolare baseCm rappresenta il Diametro D
   const [baseCm, setBaseCm] = useState<number>(30);
   const [heightCm, setHeightCm] = useState<number>(50);
   const [lengthM, setLengthM] = useState<number>(5.00);
   const [coverCm, setCoverCm] = useState<number>(3.0);
 
-  // Ferri Longitudinali Superiori
+  // Ferri Longitudinali Superiori (per travi/rettangolari)
   const [topBarsCount, setTopBarsCount] = useState<number>(2);
   const [topBarsDia, setTopBarsDia] = useState<number>(14);
   const [topBarsLength, setTopBarsLength] = useState<number>(5.50);
 
-  // Ferri Longitudinali Inferiori
+  // Ferri Longitudinali Inferiori / Radiali corona circolare
   const [botBarsCount, setBotBarsCount] = useState<number>(4);
   const [botBarsDia, setBotBarsDia] = useState<number>(16);
   const [botBarsLength, setBotBarsLength] = useState<number>(5.50);
@@ -202,6 +224,14 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   const [manualStirrupsCount, setManualStirrupsCount] = useState<number | null>(null);
   const [manualStirrupDev, setManualStirrupDev] = useState<number | null>(null);
 
+  // Reset tipologia all'apertura del modale (nessuna tipologia selezionata all'avvio)
+  useEffect(() => {
+    if (isOpen) {
+      setStructureType(null);
+      setElementName('');
+    }
+  }, [isOpen]);
+
   // Input strings per permettere cancellazione totale con Backspace senza reset forzato
   const [multiplierInput, setMultiplierInput] = useState<string>('1');
   const [baseCmInput, setBaseCmInput] = useState<string>('30');
@@ -210,6 +240,14 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   const [coverCmInput, setCoverCmInput] = useState<string>('3.0');
   const [pitchInput, setPitchInput] = useState<string>('15');
   const [countInput, setCountInput] = useState<string>('34');
+
+  // Input strings per numero e lunghezze barre (evitano reset prematuro durante digitazione es. 12)
+  const [botBarsCountInput, setBotBarsCountInput] = useState<string>('4');
+  const [topBarsCountInput, setTopBarsCountInput] = useState<string>('2');
+  const [sideBarsCountInput, setSideBarsCountInput] = useState<string>('2');
+  const [botBarsLengthInput, setBotBarsLengthInput] = useState<string>('5.50');
+  const [topBarsLengthInput, setTopBarsLengthInput] = useState<string>('5.50');
+  const [sideBarsLengthInput, setSideBarsLengthInput] = useState<string>('5.50');
 
   // Opzioni Inserimento
   const [separateDiameters, setSeparateDiameters] = useState<boolean>(true);
@@ -334,6 +372,113 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     }
   };
 
+  // Handlers per Barre Inferiori / Radiali
+  const handleBotBarsCountChange = (raw: string) => {
+    setBotBarsCountInput(raw);
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 0) {
+      setBotBarsCount(n);
+    }
+  };
+
+  const handleBotBarsCountBlur = () => {
+    const n = parseInt(botBarsCountInput, 10);
+    if (isNaN(n) || n < (isCircular ? 1 : 0)) {
+      const fallback = isCircular ? Math.max(1, botBarsCount || 6) : Math.max(0, botBarsCount);
+      setBotBarsCount(fallback);
+      setBotBarsCountInput(fallback.toString());
+    } else {
+      setBotBarsCountInput(n.toString());
+    }
+  };
+
+  const handleBotBarsLengthChange = (raw: string) => {
+    setBotBarsLengthInput(raw);
+    const l = parseFloat(raw.replace(',', '.'));
+    if (!isNaN(l) && l >= 0) {
+      setBotBarsLength(l);
+    }
+  };
+
+  const handleBotBarsLengthBlur = () => {
+    const l = parseFloat(botBarsLengthInput.replace(',', '.'));
+    if (isNaN(l) || l <= 0) {
+      setBotBarsLengthInput(botBarsLength.toFixed(2));
+    } else {
+      setBotBarsLengthInput(l.toFixed(2));
+    }
+  };
+
+  // Handlers per Barre Superiori
+  const handleTopBarsCountChange = (raw: string) => {
+    setTopBarsCountInput(raw);
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 0) {
+      setTopBarsCount(n);
+    }
+  };
+
+  const handleTopBarsCountBlur = () => {
+    const n = parseInt(topBarsCountInput, 10);
+    if (isNaN(n) || n < 0) {
+      setTopBarsCountInput(topBarsCount.toString());
+    } else {
+      setTopBarsCountInput(n.toString());
+    }
+  };
+
+  const handleTopBarsLengthChange = (raw: string) => {
+    setTopBarsLengthInput(raw);
+    const l = parseFloat(raw.replace(',', '.'));
+    if (!isNaN(l) && l >= 0) {
+      setTopBarsLength(l);
+    }
+  };
+
+  const handleTopBarsLengthBlur = () => {
+    const l = parseFloat(topBarsLengthInput.replace(',', '.'));
+    if (isNaN(l) || l <= 0) {
+      setTopBarsLengthInput(topBarsLength.toFixed(2));
+    } else {
+      setTopBarsLengthInput(l.toFixed(2));
+    }
+  };
+
+  // Handlers per Barre Parete / Laterali
+  const handleSideBarsCountChange = (raw: string) => {
+    setSideBarsCountInput(raw);
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 0) {
+      setSideBarsCount(n);
+    }
+  };
+
+  const handleSideBarsCountBlur = () => {
+    const n = parseInt(sideBarsCountInput, 10);
+    if (isNaN(n) || n < 0) {
+      setSideBarsCountInput(sideBarsCount.toString());
+    } else {
+      setSideBarsCountInput(n.toString());
+    }
+  };
+
+  const handleSideBarsLengthChange = (raw: string) => {
+    setSideBarsLengthInput(raw);
+    const l = parseFloat(raw.replace(',', '.'));
+    if (!isNaN(l) && l >= 0) {
+      setSideBarsLength(l);
+    }
+  };
+
+  const handleSideBarsLengthBlur = () => {
+    const l = parseFloat(sideBarsLengthInput.replace(',', '.'));
+    if (isNaN(l) || l <= 0) {
+      setSideBarsLengthInput(sideBarsLength.toFixed(2));
+    } else {
+      setSideBarsLengthInput(l.toFixed(2));
+    }
+  };
+
   const handleBaseChange = (raw: string) => {
     setBaseCmInput(raw);
     const b = parseFloat(raw);
@@ -415,7 +560,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   // Cambia preset tipo struttura
   const handleSelectPreset = (cat: StructureCategory) => {
     setStructureType(cat);
-    setOrientation(cat === 'column' ? 'vertical' : 'horizontal');
+    setOrientation(cat === 'column' || cat === 'circular_column' ? 'vertical' : 'horizontal');
     const p = PRESETS[cat];
     setElementName(p.defaultName);
     setBaseCm(p.defaultB);
@@ -427,15 +572,21 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     setCoverCm(p.defaultCover);
     setCoverCmInput(p.defaultCover.toString());
     setTopBarsCount(p.topBarsCount);
+    setTopBarsCountInput(p.topBarsCount.toString());
     setTopBarsDia(p.topBarsDia);
     setTopBarsLength(parseFloat((p.defaultL + 0.50).toFixed(2)));
+    setTopBarsLengthInput((p.defaultL + 0.50).toFixed(2));
     setBotBarsCount(p.botBarsCount);
+    setBotBarsCountInput(p.botBarsCount.toString());
     setBotBarsDia(p.botBarsDia);
     setBotBarsLength(parseFloat((p.defaultL + 0.50).toFixed(2)));
+    setBotBarsLengthInput((p.defaultL + 0.50).toFixed(2));
     setEnableSideBars(p.sideBarsCount > 0);
     setSideBarsCount(p.sideBarsCount);
+    setSideBarsCountInput(p.sideBarsCount.toString());
     setSideBarsDia(p.sideBarsDia);
     setSideBarsLength(parseFloat((p.defaultL + 0.50).toFixed(2)));
+    setSideBarsLengthInput((p.defaultL + 0.50).toFixed(2));
     setStirrupDia(p.stirrupDia);
     setStirrupPitchCm(p.stirrupPitch);
     setPitchInput(p.stirrupPitch.toString());
@@ -449,32 +600,66 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   const handleApplyAnchorageLengths = () => {
     const extraAnchorTop = (40 * topBarsDia * 2) / 1000; // in m
     const extraAnchorBot = (40 * botBarsDia * 2) / 1000;
-    setTopBarsLength(parseFloat((lengthM + extraAnchorTop).toFixed(2)));
-    setBotBarsLength(parseFloat((lengthM + extraAnchorBot).toFixed(2)));
+    const newTopL = parseFloat((lengthM + extraAnchorTop).toFixed(2));
+    const newBotL = parseFloat((lengthM + extraAnchorBot).toFixed(2));
+    setTopBarsLength(newTopL);
+    setTopBarsLengthInput(newTopL.toFixed(2));
+    setBotBarsLength(newBotL);
+    setBotBarsLengthInput(newBotL.toFixed(2));
     if (enableSideBars) {
-      setSideBarsLength(parseFloat((lengthM + (40 * sideBarsDia * 2) / 1000).toFixed(2)));
+      const newSideL = parseFloat((lengthM + (40 * sideBarsDia * 2) / 1000).toFixed(2));
+      setSideBarsLength(newSideL);
+      setSideBarsLengthInput(newSideL.toFixed(2));
     }
   };
 
   // --- CALCOLI GEOMETRICI & STATISTICI ---
-  // Calcolo automatico numero staffe: L(cm) / passo + 1
+  // Calcolo automatico numero staffe: L(cm) / passo + 1 (per spirale: numero di spire)
   const autoStirrupsCount = useMemo(() => {
     if (stirrupPitchCm <= 0) return 0;
+    if (isCircular && circularStirrupType === 'spiral') {
+      return Math.max(3, Math.floor((lengthM * 100) / stirrupPitchCm) + 3);
+    }
     return Math.floor((lengthM * 100) / stirrupPitchCm) + 1;
-  }, [lengthM, stirrupPitchCm]);
+  }, [lengthM, stirrupPitchCm, isCircular, circularStirrupType]);
 
   const effectiveStirrupsCount = manualStirrupsCount !== null ? manualStirrupsCount : autoStirrupsCount;
 
-  // Sviluppo geometrico staffa in metri: 2*(b - 2c) + 2*(h - 2c) + 2*(10*dia)
+  // Sviluppo geometrico staffa in metri
   const autoStirrupDevelopmentM = useMemo(() => {
+    if (isCircular) {
+      const effDiamM = Math.max(0.05, (baseCm - 2 * coverCm) / 100);
+      if (circularStirrupType === 'spiral') {
+        // Singola spira elicoidale
+        const pitchM = stirrupPitchCm / 100;
+        const turnLength = Math.sqrt(Math.pow(Math.PI * effDiamM, 2) + Math.pow(pitchM, 2));
+        return parseFloat(turnLength.toFixed(3));
+      } else {
+        // Anello circolare chiuso con sovrapposizione ganci sismici 135° (2 * 10 diametri, min 7cm cad.)
+        const ringPerimeter = Math.PI * effDiamM;
+        const hookPerSideM = Math.max(0.07, 10 * (stirrupDia / 1000));
+        const hooksM = 2 * hookPerSideM;
+        return parseFloat((ringPerimeter + hooksM).toFixed(2));
+      }
+    }
     const internalB = Math.max(2, baseCm - 2 * coverCm);
     const internalH = Math.max(2, heightCm - 2 * coverCm);
     const perimeterCm = 2 * internalB + 2 * internalH;
-    const hooksCm = 2 * (10 * (stirrupDia / 10)); // 2 ganci a 135° da 10 diametri
+    // 2 ganci antisismici a 135° da 10 diametri (min 7 cm ciascuno per norma tecnica NTC2018 / EC2)
+    const hookPerSideCm = Math.max(7.0, 10 * (stirrupDia / 10));
+    const hooksCm = 2 * hookPerSideCm;
     return parseFloat(((perimeterCm + hooksCm) / 100).toFixed(2));
-  }, [baseCm, heightCm, coverCm, stirrupDia]);
+  }, [isCircular, circularStirrupType, baseCm, heightCm, coverCm, stirrupDia, stirrupPitchCm]);
 
   const effectiveStirrupDevM = manualStirrupDev !== null ? manualStirrupDev : autoStirrupDevelopmentM;
+
+  // Sviluppo totale spirale continua in metri (se spirale continua)
+  const totalSpiralLengthM = useMemo(() => {
+    if (isCircular && circularStirrupType === 'spiral') {
+      return parseFloat((effectiveStirrupsCount * effectiveStirrupDevM + 0.40).toFixed(2)); // +40cm ancoraggi
+    }
+    return 0;
+  }, [isCircular, circularStirrupType, effectiveStirrupsCount, effectiveStirrupDevM]);
 
   // Pesi lineari unitari (kg/m)
   const topBarsUnitWeight = getNominalWeight(topBarsDia);
@@ -483,31 +668,84 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
   const stirrupUnitWeight = getNominalWeight(stirrupDia);
 
   // Pesi parziali singolo elemento
-  const singleTopBarsWeight = topBarsCount * topBarsLength * topBarsUnitWeight;
+  const singleTopBarsWeight = (isCircular ? 0 : topBarsCount) * topBarsLength * topBarsUnitWeight;
   const singleBotBarsWeight = botBarsCount * botBarsLength * botBarsUnitWeight;
-  const singleSideBarsWeight = (enableSideBars ? sideBarsCount : 0) * sideBarsLength * sideBarsUnitWeight;
+  const singleSideBarsWeight = (isCircular || !enableSideBars ? 0 : sideBarsCount) * sideBarsLength * sideBarsUnitWeight;
   const singleTotalLongBarsWeight = singleTopBarsWeight + singleBotBarsWeight + singleSideBarsWeight;
 
-  const singleStirrupsWeight = effectiveStirrupsCount * effectiveStirrupDevM * stirrupUnitWeight;
+  const singleStirrupsWeight = (isCircular && circularStirrupType === 'spiral')
+    ? totalSpiralLengthM * stirrupUnitWeight
+    : effectiveStirrupsCount * effectiveStirrupDevM * stirrupUnitWeight;
+    
   const singleTotalSteelWeight = singleTotalLongBarsWeight + singleStirrupsWeight;
 
   // Calcolo con moltiplicatore elementi
   const totalBatchSteelWeight = singleTotalSteelWeight * elementMultiplier;
 
   // Volume calcestruzzo e incidenza kg/m3
-  const concreteVolumeM3 = (baseCm / 100) * (heightCm / 100) * lengthM * elementMultiplier;
+  const concreteVolumeM3 = isCircular
+    ? Math.PI * Math.pow((baseCm / 200), 2) * lengthM * elementMultiplier
+    : (baseCm / 100) * (heightCm / 100) * lengthM * elementMultiplier;
   const steelRatioKgM3 = concreteVolumeM3 > 0 ? totalBatchSteelWeight / concreteVolumeM3 : 0;
 
   // --- GENERAZIONE RIGHI PER IL COMPUTO METRICO ---
   const currentElementRows: GeneratedRebarRow[] = useMemo(() => {
+    if (!structureType) return [];
     const rows: GeneratedRebarRow[] = [];
-    const prefix = elementName ? elementName.trim() : 'Elemento C.A.';
+    const prefix = elementName ? elementName.trim() : (isCircular ? 'Pilastro Circolare' : 'Elemento C.A.');
+    const elemTag = elementMultiplier > 1 ? `(N. ${elementMultiplier} elementi uguali)` : '';
+
+    if (isCircular) {
+      // 1. Ferri Longitudinali Radiali a Corona
+      if (botBarsCount > 0) {
+        rows.push({
+          description: elementMultiplier > 1
+            ? `${prefix} ${elemTag} - Ferri longitudinali radiali (${botBarsCount}Ø${botBarsDia} cad. × ${elementMultiplier} elem. = tot. ${elementMultiplier * botBarsCount} ferri, L=${botBarsLength.toFixed(2)}m)`
+            : `${prefix} - Ferri longitudinali radiali (${botBarsCount}Ø${botBarsDia} L=${botBarsLength.toFixed(2)}m)`,
+          multiplier: elementMultiplier * botBarsCount,
+          length: botBarsLength,
+          weight: botBarsUnitWeight,
+          diameter: botBarsDia,
+          category: 'ferri'
+        });
+      }
+
+      // 2. Staffa a Spirale o Staffe Circolari Chiuse
+      if (circularStirrupType === 'spiral') {
+        rows.push({
+          description: elementMultiplier > 1
+            ? `${prefix} ${elemTag} - Armatura a Spirale Continua Ø${stirrupDia} p=${stirrupPitchCm}cm (Elica L=${totalSpiralLengthM.toFixed(2)}m cad. × ${elementMultiplier} elem. = tot. ${(totalSpiralLengthM * elementMultiplier).toFixed(2)}m, ~${effectiveStirrupsCount} spire/elem.)`
+            : `${prefix} - Armatura a Spirale Continua Ø${stirrupDia} p=${stirrupPitchCm}cm (Elica continua L=${totalSpiralLengthM.toFixed(2)}m, ~${effectiveStirrupsCount} spire)`,
+          multiplier: elementMultiplier,
+          length: totalSpiralLengthM,
+          weight: stirrupUnitWeight,
+          diameter: stirrupDia,
+          category: 'staffe'
+        });
+      } else {
+        if (effectiveStirrupsCount > 0) {
+          rows.push({
+            description: elementMultiplier > 1
+              ? `${prefix} ${elemTag} - Staffe Circolari Chiuse Ø${stirrupDia} p=${stirrupPitchCm}cm (${effectiveStirrupsCount} staffe cad. × ${elementMultiplier} elem. = tot. ${elementMultiplier * effectiveStirrupsCount} staffe, sviluppo 1 staffa = ${effectiveStirrupDevM.toFixed(2)}m)`
+              : `${prefix} - Staffe Circolari Chiuse Ø${stirrupDia} p=${stirrupPitchCm}cm (N. ${effectiveStirrupsCount} cerchiature, sviluppo 1 staffa = ${effectiveStirrupDevM.toFixed(2)}m)`,
+            multiplier: elementMultiplier * effectiveStirrupsCount,
+            length: effectiveStirrupDevM,
+            weight: stirrupUnitWeight,
+            diameter: stirrupDia,
+            category: 'staffe'
+          });
+        }
+      }
+      return rows;
+    }
 
     if (separateDiameters) {
       // 1. Ferri Longitudinali Inferiori
       if (botBarsCount > 0) {
         rows.push({
-          description: `${prefix} - Ferri longitudinali inf. (${botBarsCount}Ø${botBarsDia} L=${botBarsLength.toFixed(2)}m)`,
+          description: elementMultiplier > 1
+            ? `${prefix} ${elemTag} - Ferri longitudinali inf. (${botBarsCount}Ø${botBarsDia} cad. × ${elementMultiplier} elem. = tot. ${elementMultiplier * botBarsCount} ferri, L=${botBarsLength.toFixed(2)}m)`
+            : `${prefix} - Ferri longitudinali inf. (${botBarsCount}Ø${botBarsDia} L=${botBarsLength.toFixed(2)}m)`,
           multiplier: elementMultiplier * botBarsCount,
           length: botBarsLength,
           weight: botBarsUnitWeight,
@@ -519,7 +757,9 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       // 2. Ferri Longitudinali Superiori
       if (topBarsCount > 0) {
         rows.push({
-          description: `${prefix} - Ferri longitudinali sup. (${topBarsCount}Ø${topBarsDia} L=${topBarsLength.toFixed(2)}m)`,
+          description: elementMultiplier > 1
+            ? `${prefix} ${elemTag} - Ferri longitudinali sup. (${topBarsCount}Ø${topBarsDia} cad. × ${elementMultiplier} elem. = tot. ${elementMultiplier * topBarsCount} ferri, L=${topBarsLength.toFixed(2)}m)`
+            : `${prefix} - Ferri longitudinali sup. (${topBarsCount}Ø${topBarsDia} L=${topBarsLength.toFixed(2)}m)`,
           multiplier: elementMultiplier * topBarsCount,
           length: topBarsLength,
           weight: topBarsUnitWeight,
@@ -531,7 +771,9 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       // 3. Ferri di Parete
       if (enableSideBars && sideBarsCount > 0) {
         rows.push({
-          description: `${prefix} - Ferri di parete / spina (${sideBarsCount}Ø${sideBarsDia} L=${sideBarsLength.toFixed(2)}m)`,
+          description: elementMultiplier > 1
+            ? `${prefix} ${elemTag} - Ferri di parete / spina (${sideBarsCount}Ø${sideBarsDia} cad. × ${elementMultiplier} elem. = tot. ${elementMultiplier * sideBarsCount} ferri, L=${sideBarsLength.toFixed(2)}m)`
+            : `${prefix} - Ferri di parete / spina (${sideBarsCount}Ø${sideBarsDia} L=${sideBarsLength.toFixed(2)}m)`,
           multiplier: elementMultiplier * sideBarsCount,
           length: sideBarsLength,
           weight: sideBarsUnitWeight,
@@ -545,7 +787,9 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       if (totalBars > 0) {
         const weightedKgPerM = singleTotalLongBarsWeight / (totalBars * lengthM || 1);
         rows.push({
-          description: `${prefix} - Ferri longitudinali (${botBarsCount}Ø${botBarsDia} + ${topBarsCount}Ø${topBarsDia}${enableSideBars ? ' + ' + sideBarsCount + 'Ø' + sideBarsDia : ''}) L=${lengthM.toFixed(2)}m`,
+          description: elementMultiplier > 1
+            ? `${prefix} ${elemTag} - Ferri longitudinali (${botBarsCount}Ø${botBarsDia} + ${topBarsCount}Ø${topBarsDia}${enableSideBars ? ' + ' + sideBarsCount + 'Ø' + sideBarsDia : ''}) [${totalBars} ferri/elem. × ${elementMultiplier} elem. = tot. ${elementMultiplier * totalBars} ferri, L=${lengthM.toFixed(2)}m]`
+            : `${prefix} - Ferri longitudinali (${botBarsCount}Ø${botBarsDia} + ${topBarsCount}Ø${topBarsDia}${enableSideBars ? ' + ' + sideBarsCount + 'Ø' + sideBarsDia : ''}) L=${lengthM.toFixed(2)}m`,
           multiplier: elementMultiplier * totalBars,
           length: lengthM,
           weight: parseFloat(weightedKgPerM.toFixed(3)),
@@ -555,10 +799,12 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       }
     }
 
-    // 4. Rigo Staffe (ESATTAMENTE COME RICHIESTO: Nome seguito da staffe, numero, diametro, sviluppo di una staffa e peso)
+    // 4. Rigo Staffe
     if (effectiveStirrupsCount > 0) {
       rows.push({
-        description: `${prefix} - Staffe Ø${stirrupDia} p=${stirrupPitchCm}cm (N. ${effectiveStirrupsCount} staffe, sviluppo 1 staffa = ${effectiveStirrupDevM.toFixed(2)}m)`,
+        description: elementMultiplier > 1
+          ? `${prefix} ${elemTag} - Staffe Ø${stirrupDia} p=${stirrupPitchCm}cm (${effectiveStirrupsCount} staffe cad. × ${elementMultiplier} elem. = tot. ${elementMultiplier * effectiveStirrupsCount} staffe, sviluppo 1 staffa = ${effectiveStirrupDevM.toFixed(2)}m)`
+          : `${prefix} - Staffe Ø${stirrupDia} p=${stirrupPitchCm}cm (N. ${effectiveStirrupsCount} staffe, sviluppo 1 staffa = ${effectiveStirrupDevM.toFixed(2)}m)`,
         multiplier: elementMultiplier * effectiveStirrupsCount,
         length: effectiveStirrupDevM,
         weight: stirrupUnitWeight,
@@ -569,6 +815,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 
     return rows;
   }, [
+    structureType, isCircular, circularStirrupType, totalSpiralLengthM,
     elementName, elementMultiplier, separateDiameters,
     botBarsCount, botBarsDia, botBarsLength, botBarsUnitWeight,
     topBarsCount, topBarsDia, topBarsLength, topBarsUnitWeight,
@@ -885,50 +1132,76 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       gridHelper.position.y = isColumn ? -L / 2 : -h / 2;
     }
 
-    // 1. BLOCCO CALCESTRUZZO (Trasparente o Solido)
-    // Gradazione grigio cemento armato aumentata del 10% (0x3d4a5c, finitura minerale profonda, opacità 0.36)
-    if (xRayMode !== 'rebarOnly') {
-      // Per il pilastro la geometria sta verticale: larghezza b (X), altezza L (Y), profondità h (Z)
-      // Per la trave: larghezza b (X), altezza h (Y), lunghezza L (Z)
-      const concreteGeo = isColumn 
-        ? new THREE.BoxGeometry(b, L, h) 
-        : new THREE.BoxGeometry(b, h, L);
+    // Se nessuna tipologia è ancora selezionata, mostra la scena pulita
+    if (!structureType) {
+      return;
+    }
 
+    // 1. BLOCCO CALCESTRUZZO (Trasparente o Solido)
+    if (xRayMode !== 'rebarOnly') {
       const concreteMat = new THREE.MeshPhysicalMaterial({
-        color: 0x3d4a5c, // Grigio cemento armato strutturale aumentato del 10% di profondità cromatica
+        color: 0x3d4a5c, // Grigio cemento armato strutturale profondo
         transparent: true,
-        opacity: xRayMode === 'opaque' ? 0.98 : 0.36, // +10% presenza materica in trasparenza
-        roughness: 0.50, // Finitura getto di calcestruzzo naturale
+        opacity: xRayMode === 'opaque' ? 0.98 : 0.36,
+        roughness: 0.50,
         metalness: 0.06,
         clearcoat: 0.20,
         depthWrite: xRayMode === 'opaque'
       });
-      const concreteMesh = new THREE.Mesh(concreteGeo, concreteMat);
-      concreteMesh.castShadow = true;
-      concreteMesh.receiveShadow = true;
-      rootGroup.add(concreteMesh);
 
-      // Spigoli marcati tipo blueprint CAD tecnico
-      const edges = new THREE.EdgesGeometry(concreteGeo);
       const lineMat = new THREE.LineBasicMaterial({
         color: 0xa0aec0,
         transparent: true,
         opacity: 0.70
       });
-      const wireframe = new THREE.LineSegments(edges, lineMat);
-      rootGroup.add(wireframe);
 
-      // Piastra / basamento di fondazione alla base del pilastro verticale
-      if (isColumn) {
-        const footingGeo = new THREE.BoxGeometry(b * 1.5, 0.06, h * 1.5);
+      if (isCircular) {
+        // Calcestruzzo Pilastro Circolare (Cilindro verticale lungo asse Y)
+        const concreteGeo = new THREE.CylinderGeometry(b / 2, b / 2, L, 36);
+        const concreteMesh = new THREE.Mesh(concreteGeo, concreteMat);
+        concreteMesh.castShadow = true;
+        concreteMesh.receiveShadow = true;
+        rootGroup.add(concreteMesh);
+
+        const edges = new THREE.EdgesGeometry(concreteGeo, 25);
+        const wireframe = new THREE.LineSegments(edges, lineMat);
+        rootGroup.add(wireframe);
+
+        // Piastra di base circolare
+        const footingGeo = new THREE.CylinderGeometry(b * 0.75, b * 0.75, 0.06, 36);
         const footingMat = new THREE.MeshStandardMaterial({
-          color: 0x242e3d, // Magrone / fondazione basale
+          color: 0x242e3d,
           roughness: 0.85
         });
         const footingMesh = new THREE.Mesh(footingGeo, footingMat);
         footingMesh.position.set(0, -L / 2 - 0.03, 0);
         footingMesh.receiveShadow = true;
         rootGroup.add(footingMesh);
+      } else {
+        const concreteGeo = isColumn 
+          ? new THREE.BoxGeometry(b, L, h) 
+          : new THREE.BoxGeometry(b, h, L);
+
+        const concreteMesh = new THREE.Mesh(concreteGeo, concreteMat);
+        concreteMesh.castShadow = true;
+        concreteMesh.receiveShadow = true;
+        rootGroup.add(concreteMesh);
+
+        const edges = new THREE.EdgesGeometry(concreteGeo);
+        const wireframe = new THREE.LineSegments(edges, lineMat);
+        rootGroup.add(wireframe);
+
+        if (isColumn) {
+          const footingGeo = new THREE.BoxGeometry(b * 1.5, 0.06, h * 1.5);
+          const footingMat = new THREE.MeshStandardMaterial({
+            color: 0x242e3d,
+            roughness: 0.85
+          });
+          const footingMesh = new THREE.Mesh(footingGeo, footingMat);
+          footingMesh.position.set(0, -L / 2 - 0.03, 0);
+          footingMesh.receiveShadow = true;
+          rootGroup.add(footingMesh);
+        }
       }
     }
 
@@ -940,26 +1213,209 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
     });
 
     const stirrupMat = new THREE.MeshStandardMaterial({
-      color: 0xf97316, // Arancione vivido cantieristico per staffe
+      color: 0xf97316, // Arancione vivido cantieristico per staffe / spirale
       metalness: 0.75,
       roughness: 0.3
     });
 
-    // Dimensioni interne della staffa
+    // Dimensioni esterne/interne della staffa e ferri
     const stirrupDiaM = (stirrupDia / 1000);
     const stirrupRadius = Math.max(0.003, stirrupDiaM / 2);
 
-    if (isColumn) {
+    if (isCircular) {
+      // ==========================================
+      // PILASTRO CIRCOLARE (CON SPIRALE O CERCHIATURE)
+      // ==========================================
+      const radiusCover = b / 2 - c;
+      const stirrupCenterR = Math.max(0.025, radiusCover - stirrupRadius);
+      const barRadius = Math.max(0.004, botBarsDia / 2000);
+      const rebarCenterR = Math.max(0.02, stirrupCenterR - stirrupRadius - barRadius);
+
+      // 1. FERRI LONGITUDINALI RADIALI LUNGO Y (RIGOROSAMENTE ALL'INTERNO DELLA SPIRALE/STAFFA)
+      const numRadialBars = Math.max(3, botBarsCount);
+      const len = Math.max(0.2, botBarsLength);
+      const hookLen = barRadius * 7;
+      const barGeo = new THREE.CylinderGeometry(barRadius, barRadius, len, 16);
+      const hookGeo = new THREE.CylinderGeometry(barRadius, barRadius, hookLen, 12);
+      const elbowGeo = new THREE.SphereGeometry(barRadius, 12, 12);
+
+      for (let i = 0; i < numRadialBars; i++) {
+        const angle = (i / numRadialBars) * Math.PI * 2;
+        const x = rebarCenterR * Math.cos(angle);
+        const z = rebarCenterR * Math.sin(angle);
+
+        const barMesh = new THREE.Mesh(barGeo, rebarMat);
+        barMesh.position.set(x, 0, z);
+        barMesh.castShadow = true;
+        rootGroup.add(barMesh);
+
+        // Gancio di ripresa in testa piegato verso il centro
+        const hookTop = new THREE.Mesh(hookGeo, rebarMat);
+        hookTop.position.set(x - Math.cos(angle) * (hookLen / 2), len / 2, z - Math.sin(angle) * (hookLen / 2));
+        hookTop.rotation.y = -angle;
+        hookTop.rotation.z = Math.PI / 2;
+        rootGroup.add(hookTop);
+
+        const elbowTop = new THREE.Mesh(elbowGeo, rebarMat);
+        elbowTop.position.set(x, len / 2, z);
+        rootGroup.add(elbowTop);
+
+        // Gancio al piede piegato verso il centro
+        const hookBot = new THREE.Mesh(hookGeo, rebarMat);
+        hookBot.position.set(x - Math.cos(angle) * (hookLen / 2), -len / 2, z - Math.sin(angle) * (hookLen / 2));
+        hookBot.rotation.y = -angle;
+        hookBot.rotation.z = Math.PI / 2;
+        rootGroup.add(hookBot);
+
+        const elbowBot = new THREE.Mesh(elbowGeo, rebarMat);
+        elbowBot.position.set(x, -len / 2, z);
+        rootGroup.add(elbowBot);
+      }
+
+      // 2. STAFFA A SPIRALE CONTINUA O ANELLI CIRCOLARI CHIUSI
+      if (circularStirrupType === 'spiral') {
+        // --- VERA ELICA CONTINUA 3D ---
+        const yStart = -L / 2 + 0.05;
+        const yEnd = L / 2 - 0.05;
+        const spiralHeight = yEnd - yStart;
+        const pitchM = Math.max(0.03, stirrupPitchCm / 100);
+        const numActiveTurns = Math.max(3, spiralHeight / pitchM);
+
+        const points: THREE.Vector3[] = [];
+        const ptsPerTurn = 32;
+
+        // A. Spire di chiusura piane al piede (1.5 spire)
+        const bottomTurns = 1.5;
+        const numBottomPts = Math.floor(bottomTurns * ptsPerTurn);
+        for (let j = 0; j <= numBottomPts; j++) {
+          const t = j / ptsPerTurn;
+          const theta = t * Math.PI * 2;
+          points.push(new THREE.Vector3(
+            stirrupCenterR * Math.cos(theta),
+            yStart,
+            stirrupCenterR * Math.sin(theta)
+          ));
+        }
+
+        // B. Elica continua ascendente lungo Y
+        const numSpiralPts = Math.floor(numActiveTurns * ptsPerTurn);
+        const startTheta = bottomTurns * Math.PI * 2;
+        for (let j = 1; j <= numSpiralPts; j++) {
+          const progress = j / numSpiralPts;
+          const curY = yStart + progress * spiralHeight;
+          const theta = startTheta + progress * numActiveTurns * Math.PI * 2;
+          points.push(new THREE.Vector3(
+            stirrupCenterR * Math.cos(theta),
+            curY,
+            stirrupCenterR * Math.sin(theta)
+          ));
+        }
+
+        // C. Spire di chiusura piane in testa (1.5 spire)
+        const topTurns = 1.5;
+        const numTopPts = Math.floor(topTurns * ptsPerTurn);
+        const endSpiralTheta = startTheta + numActiveTurns * Math.PI * 2;
+        for (let j = 1; j <= numTopPts; j++) {
+          const t = j / ptsPerTurn;
+          const theta = endSpiralTheta + t * Math.PI * 2;
+          points.push(new THREE.Vector3(
+            stirrupCenterR * Math.cos(theta),
+            yEnd,
+            stirrupCenterR * Math.sin(theta)
+          ));
+        }
+
+        const spiralCurve = new THREE.CatmullRomCurve3(points);
+        const spiralGeo = new THREE.TubeGeometry(spiralCurve, points.length * 2, stirrupRadius, 10, false);
+        const spiralMesh = new THREE.Mesh(spiralGeo, stirrupMat);
+        spiralMesh.castShadow = true;
+        rootGroup.add(spiralMesh);
+      } else {
+        // --- ANELLI CIRCOLARI CHIUSI CON GANCI SISMICI 135° ---
+        const numStirrups = effectiveStirrupsCount;
+        if (numStirrups > 0) {
+          const pitchY = (stirrupPitchCm / 100);
+          const maxSpanY = Math.max(0, L - 0.12);
+          const desiredSpanY = Math.min(maxSpanY, (numStirrups - 1) * pitchY);
+          const startY = -desiredSpanY / 2;
+
+          const hookLen = Math.max(0.06, 10 * stirrupDiaM);
+          const ringPts: THREE.Vector3[] = [];
+          const offset = stirrupRadius * 0.75;
+          
+          // Gancio iniziale a 135° nel nucleo (Ramo A)
+          ringPts.push(new THREE.Vector3(
+            (stirrupCenterR - hookLen * 0.707) * Math.cos(0.25),
+            -offset,
+            (stirrupCenterR - hookLen * 0.707) * Math.sin(0.25)
+          ));
+          // Ingresso nell'anello circolare
+          ringPts.push(new THREE.Vector3(
+            stirrupCenterR * Math.cos(0.25),
+            -offset * 0.5,
+            stirrupCenterR * Math.sin(0.25)
+          ));
+          // Arco completo 360°
+          for (let a = 0; a <= 32; a++) {
+            const angle = 0.25 + (a / 32) * Math.PI * 2;
+            const yProgress = -offset * 0.5 + (a / 32) * offset;
+            ringPts.push(new THREE.Vector3(
+              stirrupCenterR * Math.cos(angle),
+              yProgress,
+              stirrupCenterR * Math.sin(angle)
+            ));
+          }
+          // Uscita e Gancio finale a 135° (Ramo B nel nucleo)
+          ringPts.push(new THREE.Vector3(
+            (stirrupCenterR - hookLen * 0.707) * Math.cos(0.25 + Math.PI * 2 - 0.25),
+            offset,
+            (stirrupCenterR - hookLen * 0.707) * Math.sin(0.25 + Math.PI * 2 - 0.25)
+          ));
+
+          const ringCurve = new THREE.CatmullRomCurve3(ringPts);
+          const ringGeo = new THREE.TubeGeometry(ringCurve, 80, stirrupRadius, 8, false);
+
+          for (let s = 0; s < numStirrups; s++) {
+            const curY = startY + s * pitchY;
+            if (curY > L / 2 - 0.04) break;
+
+            const ringMesh = new THREE.Mesh(ringGeo, stirrupMat);
+            ringMesh.position.set(0, curY, 0);
+            ringMesh.rotation.y = (s * 0.45); // Alterna l'angolo dei ganci per norma antisismica
+            ringMesh.castShadow = true;
+            rootGroup.add(ringMesh);
+          }
+        }
+      }
+    } else if (isColumn) {
       // ==========================================
       // PILASTRO IN C.A. (ORIENTAMENTO VERTICALE)
       // ==========================================
-      const innerBx = b - 2 * c - stirrupDiaM;
-      const innerHz = h - 2 * c - stirrupDiaM;
+      // 1. STAFFA: Posizionata all'ESTERNO (a filo del copriferro netto c)
+      const stHalfBx = b / 2 - c;
+      const stHalfHz = h / 2 - c;
 
-      const xLeft = -innerBx / 2;
-      const xRight = innerBx / 2;
-      const zBot = -innerHz / 2;
-      const zTop = innerHz / 2;
+      const stXLeft = -(stHalfBx - stirrupRadius);
+      const stXRight = (stHalfBx - stirrupRadius);
+      const stZBot = -(stHalfHz - stirrupRadius);
+      const stZTop = (stHalfHz - stirrupRadius);
+
+      // 2. FERRI LONGITUDINALI: Posizionati RIGOROSAMENTE ALL'INTERNO DELLA STAFFA
+      // Alloggiano negli angoli interni della staffa (copriferro c + diametro staffa + raggio ferro)
+      const topBarRadius = Math.max(0.004, topBarsDia / 2000);
+      const botBarRadius = Math.max(0.004, botBarsDia / 2000);
+      const sideBarRadius = Math.max(0.004, sideBarsDia / 2000);
+
+      const barXLeftTop = -(stHalfBx - stirrupDiaM - topBarRadius);
+      const barXRightTop = (stHalfBx - stirrupDiaM - topBarRadius);
+      const barZTop = (stHalfHz - stirrupDiaM - topBarRadius);
+
+      const barXLeftBot = -(stHalfBx - stirrupDiaM - botBarRadius);
+      const barXRightBot = (stHalfBx - stirrupDiaM - botBarRadius);
+      const barZBot = -(stHalfHz - stirrupDiaM - botBarRadius);
+
+      const barXLeftSide = -(stHalfBx - stirrupDiaM - sideBarRadius);
+      const barXRightSide = (stHalfBx - stirrupDiaM - sideBarRadius);
 
       // Funzione per inserire barra verticale lungo l'asse Y
       const addColumnBar = (x: number, z: number, diaMm: number, barLenM: number) => {
@@ -967,13 +1423,14 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
         const len = Math.max(0.2, barLenM);
         const barGeo = new THREE.CylinderGeometry(radius, radius, len, 16);
         const barMesh = new THREE.Mesh(barGeo, rebarMat);
-        barMesh.position.set(x, 0, z); // Eretto in verticale lungo asse Y!
+        barMesh.position.set(x, 0, z); // Eretto in verticale lungo asse Y all'interno della staffa!
         barMesh.castShadow = true;
         rootGroup.add(barMesh);
 
         // Ganci di ripresa sismica in testa (+Y) e al piede (-Y)
         const hookLen = radius * 7;
         const hookGeo = new THREE.CylinderGeometry(radius, radius, hookLen, 12);
+        const elbowGeo = new THREE.SphereGeometry(radius, 12, 12);
 
         // Gancio in testa (verso l'interno)
         const hookTop = new THREE.Mesh(hookGeo, rebarMat);
@@ -981,69 +1438,168 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
         hookTop.position.set(x + (x > 0 ? -hookLen / 2 : hookLen / 2), len / 2, z);
         rootGroup.add(hookTop);
 
+        const elbowTop = new THREE.Mesh(elbowGeo, rebarMat);
+        elbowTop.position.set(x, len / 2, z);
+        rootGroup.add(elbowTop);
+
         // Gancio al piede (ancoraggio plinto / fondazione)
         const hookBot = new THREE.Mesh(hookGeo, rebarMat);
         hookBot.rotation.z = Math.PI / 2;
         hookBot.position.set(x + (x > 0 ? hookLen / 2 : -hookLen / 2), -len / 2, z);
         rootGroup.add(hookBot);
+
+        const elbowBot = new THREE.Mesh(elbowGeo, rebarMat);
+        elbowBot.position.set(x, -len / 2, z);
+        rootGroup.add(elbowBot);
       };
 
-      // A. Ferri Faccia Posteriore (Z = zTop)
+      // A. Ferri Faccia Posteriore (Z = barZTop, all'interno della staffa)
       if (topBarsCount > 0) {
         if (topBarsCount === 1) {
-          addColumnBar(0, zTop, topBarsDia, topBarsLength);
+          addColumnBar(0, barZTop, topBarsDia, topBarsLength);
         } else {
-          const stepX = (xRight - xLeft) / (topBarsCount - 1);
+          const stepX = (barXRightTop - barXLeftTop) / (topBarsCount - 1);
           for (let i = 0; i < topBarsCount; i++) {
-            addColumnBar(xLeft + i * stepX, zTop, topBarsDia, topBarsLength);
+            addColumnBar(barXLeftTop + i * stepX, barZTop, topBarsDia, topBarsLength);
           }
         }
       }
 
-      // B. Ferri Faccia Anteriore (Z = zBot)
+      // B. Ferri Faccia Anteriore (Z = barZBot, all'interno della staffa)
       if (botBarsCount > 0) {
         if (botBarsCount === 1) {
-          addColumnBar(0, zBot, botBarsDia, botBarsLength);
+          addColumnBar(0, barZBot, botBarsDia, botBarsLength);
         } else {
-          const stepX = (xRight - xLeft) / (botBarsCount - 1);
+          const stepX = (barXRightBot - barXLeftBot) / (botBarsCount - 1);
           for (let i = 0; i < botBarsCount; i++) {
-            addColumnBar(xLeft + i * stepX, zBot, botBarsDia, botBarsLength);
+            addColumnBar(barXLeftBot + i * stepX, barZBot, botBarsDia, botBarsLength);
           }
         }
       }
 
-      // C. Ferri di Parete Pilastro (distribuiti lungo Z sui lati xLeft e xRight)
+      // C. Ferri di Parete Pilastro (distribuiti lungo Z sui lati barXLeftSide e barXRightSide all'interno)
       if (enableSideBars && sideBarsCount > 0) {
         const pairs = Math.floor(sideBarsCount / 2);
         if (pairs > 0) {
-          const stepZ = (zTop - zBot) / (pairs + 1);
+          const stepZ = (barZTop - barZBot) / (pairs + 1);
           for (let p = 1; p <= pairs; p++) {
-            const zPos = zBot + p * stepZ;
-            addColumnBar(xLeft, zPos, sideBarsDia, sideBarsLength);
-            addColumnBar(xRight, zPos, sideBarsDia, sideBarsLength);
+            const zPos = barZBot + p * stepZ;
+            addColumnBar(barXLeftSide, zPos, sideBarsDia, sideBarsLength);
+            addColumnBar(barXRightSide, zPos, sideBarsDia, sideBarsLength);
           }
         }
       }
 
-      // Staffe Orizzontali (anelli chiusi sul piano X-Z distribuiti lungo l'altezza Y)
+      // Staffe Orizzontali (anelli chiusi sul perimetro ESTERNO dei ferri con DOPPIO gancio sismico 135° che avvolgono entrambi il ferro d'angolo)
       const numStirrups = effectiveStirrupsCount;
       if (numStirrups > 0) {
         const path = new THREE.CurvePath<THREE.Vector3>();
-        const p1 = new THREE.Vector3(xLeft, 0, zTop);
-        const p2 = new THREE.Vector3(xRight, 0, zTop);
-        const p3 = new THREE.Vector3(xRight, 0, zBot);
-        const p4 = new THREE.Vector3(xLeft, 0, zBot);
+        
+        // Raggio di curvatura del mandrino di piegatura (NTC / Eurocodice 2: R = 2.5 * diametro staffa)
+        const bendRadius = Math.max(0.016, Math.min(0.035, stirrupDiaM * 2.5, (stXRight - stXLeft) * 0.2, (stZTop - stZBot) * 0.2));
+        const hookLen = Math.max(0.07, 10 * stirrupDiaM);
 
-        path.add(new THREE.LineCurve3(p1, p2));
-        path.add(new THREE.LineCurve3(p2, p3));
-        path.add(new THREE.LineCurve3(p3, p4));
-        path.add(new THREE.LineCurve3(p4, p1));
+        const xMin = stXLeft;
+        const xMax = stXRight;
+        const zMin = stZBot;
+        const zMax = stZTop;
+        const R = bendRadius;
+        const dy = stirrupRadius * 1.05; // Sfalsamento assiale verticale per affiancamento realistico nello spazio
 
-        // Gancio di chiusura sismica a 135° nel piano X-Z
-        const hookPt = new THREE.Vector3(xLeft + 0.04, 0, zTop - 0.04);
-        path.add(new THREE.LineCurve3(p1, hookPt));
+        // Coordinate centro del ferro d'angolo (spigolo superiore-sinistro)
+        const xc = xMin + R;
+        const zc = zMax - R;
 
-        const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
+        // Versore diagonale a 135° (uX, uZ) che punta verso l'interno del nucleo
+        const uX = 0.7071;
+        const uZ = -0.7071;
+
+        // 1. Gancio iniziale 135° (Ramo A, nel nucleo a -dy)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xc + hookLen * uX, -dy, zc + hookLen * uZ),
+          new THREE.Vector3(xc + R * 0.7071 * uX, -dy, zc + R * 0.7071 * uZ)
+        ));
+
+        // 2. Curva 135° del Ramo A che esce dal nucleo verso il lato sinistro del ferro d'angolo
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xc + R * 0.7071 * uX, -dy, zc + R * 0.7071 * uZ),
+          new THREE.Vector3(xMin + R * 0.2, -dy * 0.8, zMax - R * 0.8),
+          new THREE.Vector3(xMin, -dy * 0.6, zMax - R)
+        ));
+
+        // 3. Curva 90° del Ramo A che avvolge lo spigolo dal lato sinistro a quello superiore
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin, -dy * 0.6, zMax - R),
+          new THREE.Vector3(xMin, -dy * 0.4, zMax),
+          new THREE.Vector3(xMin + R, -dy * 0.2, zMax)
+        ));
+
+        // 4. Tratto Superiore (Z = zMax)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMin + R, -dy * 0.2, zMax),
+          new THREE.Vector3(xMax - R, 0, zMax)
+        ));
+
+        // 5. Curva 90° Spigolo Superiore-Destro
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMax - R, 0, zMax),
+          new THREE.Vector3(xMax, 0, zMax),
+          new THREE.Vector3(xMax, 0, zMax - R)
+        ));
+
+        // 6. Tratto Destro (X = xMax)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMax, 0, zMax - R),
+          new THREE.Vector3(xMax, 0, zMin + R)
+        ));
+
+        // 7. Curva 90° Spigolo Inferiore-Destro
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMax, 0, zMin + R),
+          new THREE.Vector3(xMax, 0, zMin),
+          new THREE.Vector3(xMax - R, 0, zMin)
+        ));
+
+        // 8. Tratto Inferiore (Z = zMin)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMax - R, 0, zMin),
+          new THREE.Vector3(xMin + R, 0, zMin)
+        ));
+
+        // 9. Curva 90° Spigolo Inferiore-Sinistro
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin + R, 0, zMin),
+          new THREE.Vector3(xMin, 0, zMin),
+          new THREE.Vector3(xMin, 0, zMin + R)
+        ));
+
+        // 10. Tratto Sinistro (X = xMin) che sale verso lo spigolo superiore-sinistro
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMin, 0, zMin + R),
+          new THREE.Vector3(xMin, dy * 0.2, zMax - R)
+        ));
+
+        // 11. Curva 90° del Ramo B che avvolge il ferro d'angolo dal lato sinistro verso il lato superiore (affiancato a Ramo A a +dy)
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin, dy * 0.2, zMax - R),
+          new THREE.Vector3(xMin, dy * 0.4, zMax),
+          new THREE.Vector3(xMin + R, dy * 0.6, zMax)
+        ));
+
+        // 12. Curva 135° del Ramo B che si ripiega verso l'interno del nucleo affiancata al ferro longitudinale
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin + R, dy * 0.6, zMax),
+          new THREE.Vector3(xMin + R + R * 0.2, dy * 0.8, zMax - R * 0.2),
+          new THREE.Vector3(xc + R * 0.7071 * uX, dy, zc + R * 0.7071 * uZ)
+        ));
+
+        // 13. Gancio finale 135° (Ramo B affiancato al Ramo A nel nucleo, parallelo a 135°)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xc + R * 0.7071 * uX, dy, zc + R * 0.7071 * uZ),
+          new THREE.Vector3(xc + hookLen * uX, dy, zc + hookLen * uZ)
+        ));
+
+        const stirrupGeo = new THREE.TubeGeometry(path, 128, stirrupRadius, 12, false);
 
         // Distribuzione verticale dal basso all'alto lungo Y perfettamente centrata
         const pitchY = (stirrupPitchCm / 100);
@@ -1056,7 +1612,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
           if (curY > L / 2 - 0.04) break;
 
           const stirrupMesh = new THREE.Mesh(stirrupGeo, stirrupMat);
-          stirrupMesh.position.set(0, curY, 0); // Posizionata a quota Y centrata
+          stirrupMesh.position.set(0, curY, 0); // Posizionata all'esterno dei ferri longitudinali
           stirrupMesh.castShadow = true;
           rootGroup.add(stirrupMesh);
         }
@@ -1065,15 +1621,32 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
       // ==========================================
       // TRAVE / CORDOLO / SOLETTA (ORIZZONTALE LUNGO Z)
       // ==========================================
-      const innerBx = b - 2 * c - stirrupDiaM;
-      const innerHy = h - 2 * c - stirrupDiaM;
+      // 1. STAFFA: Posizionata all'ESTERNO (a filo del copriferro netto c)
+      const stHalfBx = b / 2 - c;
+      const stHalfHy = h / 2 - c;
 
-      const xLeft = -innerBx / 2;
-      const xRight = innerBx / 2;
-      const yBot = -innerHy / 2;
-      const yTop = innerHy / 2;
+      const stXLeft = -(stHalfBx - stirrupRadius);
+      const stXRight = (stHalfBx - stirrupRadius);
+      const stYBot = -(stHalfHy - stirrupRadius);
+      const stYTop = (stHalfHy - stirrupRadius);
 
-      // 2. FERRI LONGITUDINALI (Tondini lungo Z)
+      // 2. FERRI LONGITUDINALI: Posizionati RIGOROSAMENTE ALL'INTERNO DELLA STAFFA
+      const topBarRadius = Math.max(0.004, topBarsDia / 2000);
+      const botBarRadius = Math.max(0.004, botBarsDia / 2000);
+      const sideBarRadius = Math.max(0.004, sideBarsDia / 2000);
+
+      const barXLeftTop = -(stHalfBx - stirrupDiaM - topBarRadius);
+      const barXRightTop = (stHalfBx - stirrupDiaM - topBarRadius);
+      const barYTop = (stHalfHy - stirrupDiaM - topBarRadius);
+
+      const barXLeftBot = -(stHalfBx - stirrupDiaM - botBarRadius);
+      const barXRightBot = (stHalfBx - stirrupDiaM - botBarRadius);
+      const barYBot = -(stHalfHy - stirrupDiaM - botBarRadius);
+
+      const barXLeftSide = -(stHalfBx - stirrupDiaM - sideBarRadius);
+      const barXRightSide = (stHalfBx - stirrupDiaM - sideBarRadius);
+
+      // FERRI LONGITUDINALI (Tondini lungo Z all'interno della staffa)
       const addLongitudinalBar = (x: number, y: number, diaMm: number, barLenM: number) => {
         const radius = Math.max(0.004, (diaMm / 2000));
         const len = Math.max(0.2, barLenM);
@@ -1087,73 +1660,174 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
         // Ganci di chiusura 90° alle estremità per realismo strutturale
         const hookLen = radius * 8;
         const hookGeo = new THREE.CylinderGeometry(radius, radius, hookLen, 12);
+        const elbowGeo = new THREE.SphereGeometry(radius, 12, 12);
+
         const hookZ1 = new THREE.Mesh(hookGeo, rebarMat);
         hookZ1.position.set(x, y + (y > 0 ? -hookLen / 2 : hookLen / 2), len / 2);
         rootGroup.add(hookZ1);
 
+        const elbowZ1 = new THREE.Mesh(elbowGeo, rebarMat);
+        elbowZ1.position.set(x, y, len / 2);
+        rootGroup.add(elbowZ1);
+
         const hookZ2 = new THREE.Mesh(hookGeo, rebarMat);
         hookZ2.position.set(x, y + (y > 0 ? -hookLen / 2 : hookLen / 2), -len / 2);
         rootGroup.add(hookZ2);
+
+        const elbowZ2 = new THREE.Mesh(elbowGeo, rebarMat);
+        elbowZ2.position.set(x, y, -len / 2);
+        rootGroup.add(elbowZ2);
       };
 
-      // A. Ferri Superiori
+      // A. Ferri Superiori (all'interno della staffa in alto)
       if (topBarsCount > 0) {
         if (topBarsCount === 1) {
-          addLongitudinalBar(0, yTop, topBarsDia, topBarsLength);
+          addLongitudinalBar(0, barYTop, topBarsDia, topBarsLength);
         } else {
-          const stepX = (xRight - xLeft) / (topBarsCount - 1);
+          const stepX = (barXRightTop - barXLeftTop) / (topBarsCount - 1);
           for (let i = 0; i < topBarsCount; i++) {
-            addLongitudinalBar(xLeft + i * stepX, yTop, topBarsDia, topBarsLength);
+            addLongitudinalBar(barXLeftTop + i * stepX, barYTop, topBarsDia, topBarsLength);
           }
         }
       }
 
-      // B. Ferri Inferiori
+      // B. Ferri Inferiori (all'interno della staffa in basso)
       if (botBarsCount > 0) {
         if (botBarsCount === 1) {
-          addLongitudinalBar(0, yBot, botBarsDia, botBarsLength);
+          addLongitudinalBar(0, barYBot, botBarsDia, botBarsLength);
         } else {
-          const stepX = (xRight - xLeft) / (botBarsCount - 1);
+          const stepX = (barXRightBot - barXLeftBot) / (botBarsCount - 1);
           for (let i = 0; i < botBarsCount; i++) {
-            addLongitudinalBar(xLeft + i * stepX, yBot, botBarsDia, botBarsLength);
+            addLongitudinalBar(barXLeftBot + i * stepX, barYBot, botBarsDia, botBarsLength);
           }
         }
       }
 
-      // C. Ferri di Parete
+      // C. Ferri di Parete (all'interno della staffa sui lati)
       if (enableSideBars && sideBarsCount > 0) {
         const pairs = Math.floor(sideBarsCount / 2);
         if (pairs > 0) {
-          const stepY = (yTop - yBot) / (pairs + 1);
+          const stepY = (barYTop - barYBot) / (pairs + 1);
           for (let p = 1; p <= pairs; p++) {
-            const yPos = yBot + p * stepY;
-            addLongitudinalBar(xLeft, yPos, sideBarsDia, sideBarsLength);
-            addLongitudinalBar(xRight, yPos, sideBarsDia, sideBarsLength);
+            const yPos = barYBot + p * stepY;
+            addLongitudinalBar(barXLeftSide, yPos, sideBarsDia, sideBarsLength);
+            addLongitudinalBar(barXRightSide, yPos, sideBarsDia, sideBarsLength);
           }
         }
       }
 
-      // 3. STAFFE LUNGO LA LUNGHEZZA Z
+      // 3. STAFFE LUNGO LA LUNGHEZZA Z (PERIMETRO ESTERNO CON DOPPIO GANCIO SISMICO 135° CHE AVVOLGE IL FERRO D'ANGOLO)
       const numStirrups = effectiveStirrupsCount;
       if (numStirrups > 0) {
         const path = new THREE.CurvePath<THREE.Vector3>();
-        const p1 = new THREE.Vector3(xLeft, yTop, 0);
-        const p2 = new THREE.Vector3(xRight, yTop, 0);
-        const p3 = new THREE.Vector3(xRight, yBot, 0);
-        const p4 = new THREE.Vector3(xLeft, yBot, 0);
 
-        path.add(new THREE.LineCurve3(p1, p2));
-        path.add(new THREE.LineCurve3(p2, p3));
-        path.add(new THREE.LineCurve3(p3, p4));
-        path.add(new THREE.LineCurve3(p4, p1));
+        // Raggio di curvatura del mandrino di piegatura
+        const bendRadius = Math.max(0.014, Math.min(0.035, stirrupDiaM * 2.5, (stXRight - stXLeft) * 0.2, (stYTop - stYBot) * 0.2));
+        const hookLen = Math.max(0.07, 10 * stirrupDiaM);
 
-        // Aggiungi gancio sismico a 135° in alto
-        const hookPt = new THREE.Vector3(xLeft + 0.04, yTop - 0.04, 0);
-        path.add(new THREE.LineCurve3(p1, hookPt));
+        const xMin = stXLeft;
+        const xMax = stXRight;
+        const yMin = stYBot;
+        const yMax = stYTop;
+        const R = bendRadius;
+        const dz = stirrupRadius * 1.05; // Sfalsamento assiale Z per affiancamento realistico nello spazio
 
-        const stirrupGeo = new THREE.TubeGeometry(path, 32, stirrupRadius, 8, false);
+        // Centro del ferro d'angolo (spigolo superiore-sinistro)
+        const xc = xMin + R;
+        const yc = yMax - R;
 
-        // Posizionamento lungo Z perfettamente centrato
+        // Versore diagonale a 135° (uX, uY) che punta verso l'interno del nucleo
+        const uX = 0.7071;
+        const uY = -0.7071;
+
+        // 1. Gancio iniziale 135° (Ramo A, nel nucleo a -dz)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xc + hookLen * uX, yc + hookLen * uY, -dz),
+          new THREE.Vector3(xc + R * 0.7071 * uX, yc + R * 0.7071 * uY, -dz)
+        ));
+
+        // 2. Curva 135° del Ramo A che esce dal nucleo verso il lato sinistro del ferro d'angolo
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xc + R * 0.7071 * uX, yc + R * 0.7071 * uY, -dz),
+          new THREE.Vector3(xMin + R * 0.2, yMax - R * 0.8, -dz * 0.8),
+          new THREE.Vector3(xMin, yMax - R, -dz * 0.6)
+        ));
+
+        // 3. Curva 90° del Ramo A che avvolge lo spigolo dal lato sinistro a quello superiore
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin, yMax - R, -dz * 0.6),
+          new THREE.Vector3(xMin, yMax, -dz * 0.4),
+          new THREE.Vector3(xMin + R, yMax, -dz * 0.2)
+        ));
+
+        // 4. Tratto Superiore (Y = yMax)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMin + R, yMax, -dz * 0.2),
+          new THREE.Vector3(xMax - R, yMax, 0)
+        ));
+
+        // 5. Curva 90° Spigolo Superiore-Destro (Arco continuo)
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMax - R, yMax, 0),
+          new THREE.Vector3(xMax, yMax, 0),
+          new THREE.Vector3(xMax, yMax - R, 0)
+        ));
+
+        // 6. Tratto Destro (X = xMax)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMax, yMax - R, 0),
+          new THREE.Vector3(xMax, yMin + R, 0)
+        ));
+
+        // 7. Curva 90° Spigolo Inferiore-Destro
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMax, yMin + R, 0),
+          new THREE.Vector3(xMax, yMin, 0),
+          new THREE.Vector3(xMax - R, yMin, 0)
+        ));
+
+        // 8. Tratto Inferiore (Y = yMin)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMax - R, yMin, 0),
+          new THREE.Vector3(xMin + R, yMin, 0)
+        ));
+
+        // 9. Curva 90° Spigolo Inferiore-Sinistro
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin + R, yMin, 0),
+          new THREE.Vector3(xMin, yMin, 0),
+          new THREE.Vector3(xMin, yMin + R, 0)
+        ));
+
+        // 10. Tratto Sinistro (X = xMin) che sale verso lo spigolo superiore-sinistro
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xMin, yMin + R, 0),
+          new THREE.Vector3(xMin, yMax - R, dz * 0.2)
+        ));
+
+        // 11. Curva 90° del Ramo B che avvolge il ferro d'angolo dal lato sinistro verso il lato superiore (affiancato a Ramo A a +dz)
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin, yMax - R, dz * 0.2),
+          new THREE.Vector3(xMin, yMax, dz * 0.4),
+          new THREE.Vector3(xMin + R, yMax, dz * 0.6)
+        ));
+
+        // 12. Curva 135° del Ramo B che si ripiega verso l'interno del nucleo affiancata al ferro longitudinale
+        path.add(new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(xMin + R, yMax, dz * 0.6),
+          new THREE.Vector3(xMin + R + R * 0.2, yMax - R * 0.2, dz * 0.8),
+          new THREE.Vector3(xc + R * 0.7071 * uX, yc + R * 0.7071 * uY, dz)
+        ));
+
+        // 13. Gancio finale 135° (Ramo B affiancato al Ramo A nel nucleo, parallelo a 135°)
+        path.add(new THREE.LineCurve3(
+          new THREE.Vector3(xc + R * 0.7071 * uX, yc + R * 0.7071 * uY, dz),
+          new THREE.Vector3(xc + hookLen * uX, yc + hookLen * uY, dz)
+        ));
+
+        const stirrupGeo = new THREE.TubeGeometry(path, 128, stirrupRadius, 12, false);
+
+        // Posizionamento lungo Z perfettamente centrato all'esterno dei ferri
         const pitchZ = (stirrupPitchCm / 100);
         const maxSpanZ = Math.max(0, L - 0.10);
         const desiredSpanZ = Math.min(maxSpanZ, (numStirrups - 1) * pitchZ);
@@ -1301,30 +1975,71 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
             <div className="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing overflow-hidden min-h-[300px]">
               <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
               
-              {/* Badge Quote 3D sovrimpresse - posizionate in modo bilanciato per non sbilanciare la vista */}
-              <div className="absolute bottom-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between pointer-events-none gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
-                    <span className="text-orange-400 font-bold">SEZIONE:</span> {baseCm}×{heightCm} cm
+              {/* Stato di Benvenuto quando nessuna tipologia è ancora selezionata */}
+              {!structureType && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm text-center select-none pointer-events-auto">
+                  <div className="bg-gradient-to-br from-orange-500/20 to-amber-600/10 p-5 rounded-3xl border border-orange-500/30 shadow-2xl mb-4 text-orange-400 max-w-md">
+                    <Grid3X3 className="w-12 h-12 mx-auto mb-3 animate-pulse text-orange-400" />
+                    <h3 className="text-base font-black uppercase tracking-wider text-white mb-1">
+                      Modellatore 3D Armature
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Scegli una tipologia costruttiva per visualizzare la modellazione parametrica 3D in tempo reale, la gabbia d'armatura e calcolare la distinta dei ferri.
+                    </p>
                   </div>
-                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
-                    <span className="text-cyan-400 font-bold">{isColumn ? 'ALTEZZA H:' : 'LUNGH:'}</span> {lengthM.toFixed(2)} m
+                  
+                  {/* Pulsanti Rapidi di Selezione Tipologia */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-w-lg w-full">
+                    {(Object.keys(PRESETS) as StructureCategory[]).map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => handleSelectPreset(cat)}
+                        className="p-3 rounded-2xl bg-slate-900/90 hover:bg-orange-500/20 border border-slate-700/80 hover:border-orange-500 text-left transition-all group shadow-lg"
+                      >
+                        <div className="text-xs font-black text-white group-hover:text-orange-400 transition-colors">
+                          {PRESETS[cat].label}
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                          {cat === 'circular_column' ? 'Spirale o cerchiature' : cat === 'beam' ? 'Travi e architravi' : 'Gabbia parametrica'}
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
-                    <span className="text-emerald-400 font-bold">STAFFE:</span> {effectiveStirrupsCount} staffe @ {stirrupPitchCm}cm
+              )}
+
+              {/* Badge Quote 3D sovrimpresse */}
+              {structureType && (
+                <div className="absolute bottom-3 left-3 right-3 z-10 flex flex-wrap items-center justify-between pointer-events-none gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                      <span className="text-orange-400 font-bold">{isCircular ? 'DIAMETRO Ø:' : 'SEZIONE:'}</span> {isCircular ? `${baseCm} cm` : `${baseCm}×${heightCm} cm`}
+                    </div>
+                    <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                      <span className="text-cyan-400 font-bold">{isColumn ? 'ALTEZZA H:' : 'LUNGH:'}</span> {lengthM.toFixed(2)} m
+                    </div>
                   </div>
-                  <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
-                    <span className="text-amber-400 font-bold">ASSETTO:</span> {isColumn ? '↕ Verticale (Pilastro)' : '↔ Orizzontale (Trave)'}
+                  <div className="flex items-center gap-2">
+                    <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                      <span className="text-emerald-400 font-bold">{isCircular && circularStirrupType === 'spiral' ? 'SPIRALE:' : 'STAFFE:'}</span>{' '}
+                      {isCircular && circularStirrupType === 'spiral'
+                        ? `Elica Ø${stirrupDia} p=${stirrupPitchCm}cm (${effectiveStirrupsCount} spire)`
+                        : `${effectiveStirrupsCount} staffe @ ${stirrupPitchCm}cm`}
+                    </div>
+                    <div className="bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800 text-[11px] font-mono text-slate-300 shadow-lg">
+                      <span className="text-amber-400 font-bold">ASSETTO:</span> {isCircular ? '🔄 Pilastro Circolare' : isColumn ? '↕ Verticale (Pilastro)' : '↔ Orizzontale (Trave)'}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Suggerimento interazione mouse */}
-              <div className="absolute top-14 right-3 z-10 text-[10px] text-slate-500 font-medium hidden sm:block pointer-events-none bg-slate-900/70 px-2 py-1 rounded-md border border-slate-800/60">
-                Ruota: Trascina • Zoom: Rotellina
-              </div>
+              {structureType && (
+                <div className="absolute top-14 right-3 z-10 text-[10px] text-slate-500 font-medium hidden sm:block pointer-events-none bg-slate-900/70 px-2 py-1 rounded-md border border-slate-800/60">
+                  Ruota: Trascina • Zoom: Rotellina
+                </div>
+              )}
             </div>
 
             {/* PANNELLO METRICHE & INCIDENZA SOTTO IL 3D */}
@@ -1335,17 +2050,21 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   {(singleTotalLongBarsWeight * elementMultiplier).toFixed(2)} <span className="text-xs font-normal text-slate-400">kg</span>
                 </div>
                 <div className="text-[10px] text-slate-500 mt-0.5">
-                  {topBarsCount + botBarsCount + (enableSideBars ? sideBarsCount : 0)} barre totali
+                  {isCircular ? `${botBarsCount} barre radiali` : `${topBarsCount + botBarsCount + (enableSideBars ? sideBarsCount : 0)} barre totali`}
                 </div>
               </div>
 
               <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
-                <div className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">Staffe Totali</div>
+                <div className="text-[10px] font-bold text-orange-400 uppercase tracking-wider">
+                  {isCircular && circularStirrupType === 'spiral' ? 'Spirale Continua' : 'Staffe Totali'}
+                </div>
                 <div className="text-lg font-mono font-black text-white mt-0.5 tabular-nums">
                   {(singleStirrupsWeight * elementMultiplier).toFixed(2)} <span className="text-xs font-normal text-slate-400">kg</span>
                 </div>
                 <div className="text-[10px] text-slate-500 mt-0.5">
-                  {effectiveStirrupsCount * elementMultiplier} staffe Ø{stirrupDia}
+                  {isCircular && circularStirrupType === 'spiral'
+                    ? `L=${totalSpiralLengthM.toFixed(2)}m Ø${stirrupDia}`
+                    : `${effectiveStirrupsCount * elementMultiplier} staffe Ø${stirrupDia}`}
                 </div>
               </div>
 
@@ -1414,10 +2133,11 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   {(Object.keys(PRESETS) as StructureCategory[]).map(cat => (
                     <button
                       key={cat}
+                      type="button"
                       onClick={() => handleSelectPreset(cat)}
                       className={`p-2 rounded-xl text-left border text-xs font-bold transition-all ${
                         structureType === cat
-                          ? 'bg-orange-500/20 border-orange-500 text-orange-300 ring-1 ring-orange-500/50'
+                          ? 'bg-orange-500/20 border-orange-500 text-orange-300 ring-1 ring-orange-500/50 shadow-md shadow-orange-500/10'
                           : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:bg-slate-800 hover:text-white'
                       }`}
                     >
@@ -1438,7 +2158,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                       type="text"
                       value={elementName}
                       onChange={(e) => setElementName(e.target.value)}
-                      placeholder="Es: Trave T1, Pilastro P1..."
+                      placeholder={isCircular ? 'Pilastro Circolare PC1' : 'Es: Trave T1, Pilastro P1...'}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
                     />
                   </div>
@@ -1459,63 +2179,105 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-700/50">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Base (cm)</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={baseCmInput}
-                      onChange={(e) => handleBaseChange(e.target.value)}
-                      onBlur={handleBaseBlur}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
-                    />
+                {isCircular ? (
+                  /* Form Dimensioni Pilastro Circolare */
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-700/50">
+                    <div>
+                      <label className="text-[10px] font-bold text-orange-400 uppercase block mb-1">Diametro D (cm)</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={baseCmInput}
+                        onChange={(e) => handleBaseChange(e.target.value)}
+                        onBlur={handleBaseBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-orange-300 outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                        Altezza H (m)
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={lengthMInput}
+                        onChange={(e) => handleLengthChange(e.target.value)}
+                        onBlur={handleLengthBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Copriferro (cm)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={coverCmInput}
+                        onChange={(e) => handleCoverChange(e.target.value)}
+                        onBlur={handleCoverBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
-                      {isColumn ? 'Profondità (cm)' : 'Altezza (cm)'}
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={heightCmInput}
-                      onChange={(e) => handleHeightChange(e.target.value)}
-                      onBlur={handleHeightBlur}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
-                    />
+                ) : (
+                  /* Form Dimensioni Elementi Rettangolari */
+                  <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-700/50">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Base (cm)</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={baseCmInput}
+                        onChange={(e) => handleBaseChange(e.target.value)}
+                        onBlur={handleBaseBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                        {isColumn ? 'Profondità (cm)' : 'Altezza (cm)'}
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={heightCmInput}
+                        onChange={(e) => handleHeightChange(e.target.value)}
+                        onBlur={handleHeightBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
+                        {isColumn ? 'H Pilastro (m)' : 'Lunghezza (m)'}
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={lengthMInput}
+                        onChange={(e) => handleLengthChange(e.target.value)}
+                        onBlur={handleLengthBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Copriferro (cm)</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={coverCmInput}
+                        onChange={(e) => handleCoverChange(e.target.value)}
+                        onBlur={handleCoverBlur}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">
-                      {isColumn ? 'H Pilastro (m)' : 'Lunghezza (m)'}
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={lengthMInput}
-                      onChange={(e) => handleLengthChange(e.target.value)}
-                      onBlur={handleLengthBlur}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Copriferro (cm)</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={coverCmInput}
-                      onChange={(e) => handleCoverChange(e.target.value)}
-                      onBlur={handleCoverBlur}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-center text-white outline-none focus:border-orange-500"
-                    />
-                  </div>
-                </div>
+                )}
               </div>
 
-              {/* 3. FERRI LONGITUDINALI (TONDINI) */}
+              {/* 3. FERRI LONGITUDINALI */}
               <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-700/60 space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase text-cyan-400 tracking-wider">
-                    2. Ferri Longitudinali (Tondini)
+                    {isCircular ? '2. Ferri Longitudinali Radiali (Corona)' : '2. Ferri Longitudinali (Tondini)'}
                   </span>
                   <button
                     onClick={handleApplyAnchorageLengths}
@@ -1526,120 +2288,127 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   </button>
                 </div>
 
-                {/* Ferri Inferiori */}
-                <div className="grid grid-cols-12 gap-2 items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-700/60">
-                  <div className="col-span-4 text-xs font-bold text-slate-300">
-                    Ferri Inferiori
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">N.</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={botBarsCount}
-                      onChange={(e) => setBotBarsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white"
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Diametro</span>
-                    <select
-                      value={botBarsDia}
-                      onChange={(e) => setBotBarsDia(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-1 py-1 text-xs font-mono font-bold text-cyan-300"
-                    >
-                      {REBAR_WEIGHTS.map(w => (
-                        <option key={w.diameter} value={w.diameter}>Ø{w.diameter}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="col-span-3">
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Lung. (m)</span>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={botBarsLength}
-                      onChange={(e) => setBotBarsLength(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white"
-                    />
-                  </div>
-                </div>
+                {isCircular ? (
+                  /* Barre radiali a corona per pilastro circolare */
+                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-300">Barre Radiali a Corona</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Disposte radialmente all'interno della staffa</span>
+                    </div>
 
-                {/* Ferri Superiori */}
-                <div className="grid grid-cols-12 gap-2 items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-700/60">
-                  <div className="col-span-4 text-xs font-bold text-slate-300">
-                    Ferri Superiori
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">N.</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={topBarsCount}
-                      onChange={(e) => setTopBarsCount(Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white"
-                    />
-                  </div>
-                  <div className="col-span-3">
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Diametro</span>
-                    <select
-                      value={topBarsDia}
-                      onChange={(e) => setTopBarsDia(parseInt(e.target.value, 10))}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-1 py-1 text-xs font-mono font-bold text-cyan-300"
-                    >
-                      {REBAR_WEIGHTS.map(w => (
-                        <option key={w.diameter} value={w.diameter}>Ø{w.diameter}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="col-span-3">
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Lung. (m)</span>
-                    <input
-                      type="number"
-                      step="0.05"
-                      value={topBarsLength}
-                      onChange={(e) => setTopBarsLength(parseFloat(e.target.value) || 0)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white"
-                    />
-                  </div>
-                </div>
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <div className="col-span-4">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">N. Barre Radiali</span>
+                        <div className="flex items-center bg-slate-800 border border-slate-600 rounded overflow-hidden focus-within:border-cyan-400">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = Math.max(1, botBarsCount - 1);
+                              setBotBarsCount(next);
+                              setBotBarsCountInput(next.toString());
+                            }}
+                            className="px-1.5 py-1 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors font-bold text-xs"
+                            title="Riduci di 1 ferro"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={botBarsCountInput}
+                            onChange={(e) => handleBotBarsCountChange(e.target.value)}
+                            onBlur={handleBotBarsCountBlur}
+                            placeholder="8"
+                            className="w-full bg-transparent px-1 py-1 text-xs font-mono font-bold text-center text-white outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = botBarsCount + 1;
+                              setBotBarsCount(next);
+                              setBotBarsCountInput(next.toString());
+                            }}
+                            className="px-1.5 py-1 text-slate-400 hover:text-white hover:bg-slate-700 transition-colors font-bold text-xs"
+                            title="Aumenta di 1 ferro"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <div className="col-span-4">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Diametro Ø</span>
+                        <select
+                          value={botBarsDia}
+                          onChange={(e) => setBotBarsDia(parseInt(e.target.value, 10))}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono font-bold text-cyan-300"
+                        >
+                          {REBAR_WEIGHTS.map(w => (
+                            <option key={w.diameter} value={w.diameter}>Ø{w.diameter}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-span-4">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Lung. Barra (m)</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={botBarsLengthInput}
+                          onChange={(e) => handleBotBarsLengthChange(e.target.value)}
+                          onBlur={handleBotBarsLengthBlur}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
+                        />
+                      </div>
+                    </div>
 
-                {/* Ferri di Parete (Opzionale) */}
-                <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-700/40">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={enableSideBars}
-                        onChange={(e) => setEnableSideBars(e.target.checked)}
-                        className="rounded accent-orange-500"
-                      />
-                      <span>Ferri di Parete / Spina (Laterali)</span>
-                    </label>
-                    <span className="text-[10px] text-slate-500 font-mono">consigliati per h &gt; 45 cm</span>
+                    {/* Bottoni veloci per numero barre radiali standard - senza simbolo Ø per evitare confusione con lo zero */}
+                    <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-800">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase shrink-0">N. Rapido:</span>
+                      <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+                        {[4, 6, 8, 10, 12, 14, 16].map(nBars => (
+                          <button
+                            key={nBars}
+                            type="button"
+                            onClick={() => {
+                              setBotBarsCount(nBars);
+                              setBotBarsCountInput(nBars.toString());
+                            }}
+                            className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold transition-all ${
+                              botBarsCount === nBars
+                                ? 'bg-cyan-500 text-slate-950 shadow-sm ring-1 ring-cyan-400'
+                                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
+                            }`}
+                            title={`${nBars} ferri radiali`}
+                          >
+                            {nBars}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-
-                  {enableSideBars && (
-                    <div className="grid grid-cols-12 gap-2 items-center mt-2">
-                      <div className="col-span-4 text-[11px] text-slate-400">
-                        Barre laterali
+                ) : (
+                  /* Form Standard per Travi e Pilastri Rettangolari */
+                  <>
+                    {/* Ferri Inferiori */}
+                    <div className="grid grid-cols-12 gap-2 items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-700/60">
+                      <div className="col-span-4 text-xs font-bold text-slate-300">
+                        Ferri Inferiori
                       </div>
                       <div className="col-span-2">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">N.</span>
                         <input
-                          type="number"
-                          min="2"
-                          step="2"
-                          value={sideBarsCount}
-                          onChange={(e) => setSideBarsCount(Math.max(2, parseInt(e.target.value) || 2))}
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white"
+                          type="text"
+                          inputMode="numeric"
+                          value={botBarsCountInput}
+                          onChange={(e) => handleBotBarsCountChange(e.target.value)}
+                          onBlur={handleBotBarsCountBlur}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
                         />
                       </div>
                       <div className="col-span-3">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Diametro</span>
                         <select
-                          value={sideBarsDia}
-                          onChange={(e) => setSideBarsDia(parseInt(e.target.value, 10))}
+                          value={botBarsDia}
+                          onChange={(e) => setBotBarsDia(parseInt(e.target.value, 10))}
                           className="w-full bg-slate-800 border border-slate-600 rounded px-1 py-1 text-xs font-mono font-bold text-cyan-300"
                         >
                           {REBAR_WEIGHTS.map(w => (
@@ -1648,35 +2417,163 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                         </select>
                       </div>
                       <div className="col-span-3">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Lung. (m)</span>
                         <input
-                          type="number"
-                          step="0.05"
-                          value={sideBarsLength}
-                          onChange={(e) => setSideBarsLength(parseFloat(e.target.value) || 0)}
-                          className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white"
+                          type="text"
+                          inputMode="decimal"
+                          value={botBarsLengthInput}
+                          onChange={(e) => handleBotBarsLengthChange(e.target.value)}
+                          onBlur={handleBotBarsLengthBlur}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
                         />
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    {/* Ferri Superiori */}
+                    <div className="grid grid-cols-12 gap-2 items-center bg-slate-900/80 p-2.5 rounded-xl border border-slate-700/60">
+                      <div className="col-span-4 text-xs font-bold text-slate-300">
+                        Ferri Superiori
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">N.</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={topBarsCountInput}
+                          onChange={(e) => handleTopBarsCountChange(e.target.value)}
+                          onBlur={handleTopBarsCountBlur}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Diametro</span>
+                        <select
+                          value={topBarsDia}
+                          onChange={(e) => setTopBarsDia(parseInt(e.target.value, 10))}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-1 py-1 text-xs font-mono font-bold text-cyan-300"
+                        >
+                          {REBAR_WEIGHTS.map(w => (
+                            <option key={w.diameter} value={w.diameter}>Ø{w.diameter}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-span-3">
+                        <span className="text-[9px] uppercase font-bold text-slate-500 block mb-0.5">Lung. (m)</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={topBarsLengthInput}
+                          onChange={(e) => handleTopBarsLengthChange(e.target.value)}
+                          onBlur={handleTopBarsLengthBlur}
+                          className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Ferri di Parete (Opzionale) */}
+                    <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-700/40">
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="flex items-center gap-2 text-xs font-bold text-slate-300 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={enableSideBars}
+                            onChange={(e) => setEnableSideBars(e.target.checked)}
+                            className="rounded accent-orange-500"
+                          />
+                          <span>Ferri di Parete / Spina (Laterali)</span>
+                        </label>
+                        <span className="text-[10px] text-slate-500 font-mono">consigliati per h &gt; 45 cm</span>
+                      </div>
+
+                      {enableSideBars && (
+                        <div className="grid grid-cols-12 gap-2 items-center mt-2">
+                          <div className="col-span-4 text-[11px] text-slate-400">
+                            Barre laterali
+                          </div>
+                          <div className="col-span-2">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={sideBarsCountInput}
+                              onChange={(e) => handleSideBarsCountChange(e.target.value)}
+                              onBlur={handleSideBarsCountBlur}
+                              className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <select
+                              value={sideBarsDia}
+                              onChange={(e) => setSideBarsDia(parseInt(e.target.value, 10))}
+                              className="w-full bg-slate-800 border border-slate-600 rounded px-1 py-1 text-xs font-mono font-bold text-cyan-300"
+                            >
+                              {REBAR_WEIGHTS.map(w => (
+                                <option key={w.diameter} value={w.diameter}>Ø{w.diameter}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-span-3">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={sideBarsLengthInput}
+                              onChange={(e) => handleSideBarsLengthChange(e.target.value)}
+                              onBlur={handleSideBarsLengthBlur}
+                              className="w-full bg-slate-800 border border-slate-600 rounded px-1.5 py-1 text-xs font-mono font-bold text-center text-white outline-none focus:border-cyan-400"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* 4. STAFFE (STIRRUPS) */}
+              {/* 4. STAFFE (STIRRUPS / SPIRALE) */}
               <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-700/60 space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-black uppercase text-orange-400 tracking-wider">
-                    3. Staffe Sagomate & Passo
+                    {isCircular ? '3. Armatura Trasversale (Spirale / Cerchiature)' : '3. Staffe Sagomate & Passo'}
                   </span>
                   <span className="text-[10px] font-mono text-slate-400">
                     Ø{stirrupDia} • {stirrupUnitWeight.toFixed(3)} kg/m
                   </span>
                 </div>
 
+                {/* Selettore Spirale vs Cerchiature per pilastro circolare */}
+                {isCircular && (
+                  <div className="grid grid-cols-2 gap-2 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setCircularStirrupType('spiral')}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                        circularStirrupType === 'spiral'
+                          ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Spirale Continua (Elica 3D)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCircularStirrupType('rings')}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                        circularStirrupType === 'rings'
+                          ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                      }`}
+                    >
+                      <CircleDot className="w-3.5 h-3.5" />
+                      <span>Anelli Circolari Chiusi</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Preset Rapidi Passo Staffe */}
                 <div className="flex items-center justify-between gap-1.5 bg-slate-900/60 p-2 rounded-xl border border-slate-700/50">
                   <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0">Preset Passo:</span>
                   <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
-                    {[10, 12.5, 15, 20, 25, 30].map(pVal => (
+                    {[5, 7.5, 10, 12.5, 15, 20, 25].map(pVal => (
                       <button
                         key={pVal}
                         type="button"
@@ -1718,7 +2615,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 flex items-center justify-between">
-                      <span>Passo (cm)</span>
+                      <span>{isCircular && circularStirrupType === 'spiral' ? 'Passo Elica (cm)' : 'Passo (cm)'}</span>
                       <span className="text-[9px] text-orange-400 font-normal">interasse</span>
                     </label>
                     <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden focus-within:border-orange-500 transition-colors">
@@ -1752,15 +2649,15 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
 
                   <div>
                     <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1 flex items-center justify-between">
-                      <span>N. Staffe</span>
-                      <span className="text-[9px] text-cyan-400 font-normal">totale barre</span>
+                      <span>{isCircular && circularStirrupType === 'spiral' ? 'N. Spire' : 'N. Staffe'}</span>
+                      <span className="text-[9px] text-cyan-400 font-normal">{isCircular && circularStirrupType === 'spiral' ? 'giri totali' : 'totale barre'}</span>
                     </label>
                     <div className="flex items-center bg-slate-900 border border-slate-700 rounded-xl overflow-hidden focus-within:border-orange-500 transition-colors">
                       <button
                         type="button"
                         onClick={() => handleStepCount(-1)}
                         className="px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors font-bold text-xs"
-                        title="Rimuovi 1 staffa"
+                        title="Riduci conteggio"
                       >
                         -
                       </button>
@@ -1777,7 +2674,7 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                         type="button"
                         onClick={() => handleStepCount(1)}
                         className="px-2 py-2 text-slate-400 hover:text-white hover:bg-slate-800 transition-colors font-bold text-xs"
-                        title="Aggiungi 1 staffa"
+                        title="Aumenta conteggio"
                       >
                         +
                       </button>
@@ -1785,21 +2682,29 @@ export const RebarCalculatorModal: React.FC<RebarCalculatorModalProps> = ({
                   </div>
                 </div>
 
-                {/* Sviluppo 1 staffa */}
+                {/* Sviluppo 1 staffa / Sviluppo Spirale Continua */}
                 <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-700/60 flex items-center justify-between">
                   <div>
                     <div className="text-xs font-bold text-slate-200">
-                      Sviluppo di 1 Staffa (con ganci sismici 135°)
+                      {isCircular && circularStirrupType === 'spiral'
+                        ? 'Sviluppo Totale Spirale Continua (Elica + Chiusure)'
+                        : isCircular
+                        ? 'Sviluppo 1 Staffa Cerchiata (con sovrapposizione)'
+                        : 'Sviluppo di 1 Staffa (con ganci sismici 135°)'}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
-                      2×({baseCm}-2×{coverCm}) + 2×({heightCm}-2×{coverCm}) + 2×(10Ø) = {autoStirrupDevelopmentM.toFixed(2)} m
+                      {isCircular && circularStirrupType === 'spiral'
+                        ? `L = ~${effectiveStirrupsCount} spire × ${autoStirrupDevelopmentM.toFixed(3)}m/spira + ancoraggi = ${totalSpiralLengthM.toFixed(2)} m`
+                        : isCircular
+                        ? `π × (${baseCm} - 2×${coverCm}) + 2×(10Ø) = ${autoStirrupDevelopmentM.toFixed(2)} m`
+                        : `2×(${baseCm}-2×${coverCm}) + 2×(${heightCm}-2×${coverCm}) + 2×(10Ø) = ${autoStirrupDevelopmentM.toFixed(2)} m`}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
                       step="0.01"
-                      value={effectiveStirrupDevM}
+                      value={isCircular && circularStirrupType === 'spiral' ? totalSpiralLengthM : effectiveStirrupDevM}
                       onChange={(e) => setManualStirrupDev(parseFloat(e.target.value) || 0)}
                       className="w-20 bg-slate-800 border border-slate-600 rounded-lg px-2 py-1 text-xs font-mono font-bold text-center text-orange-400"
                     />

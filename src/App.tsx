@@ -418,7 +418,7 @@ const FastNumberInput: React.FC<FastNumberInputProps> = ({ initialValue, onCommi
   );
 };
 
-// Icona Pilastrino 3D con 4 ferri verticali e 3 staffe sagomate
+// Icona Pilastrino 3D con 4 ferri verticali interni e 3 staffe sagomate esterne
 export const RebarCagePillarIcon: React.FC<{ className?: string }> = ({ className = "w-3.5 h-3.5" }) => (
   <svg 
     viewBox="0 0 24 24" 
@@ -427,19 +427,19 @@ export const RebarCagePillarIcon: React.FC<{ className?: string }> = ({ classNam
     strokeLinejoin="round" 
     className={className}
   >
-    {/* 4 Ferri Longitudinali Angolari Verticali */}
-    <line x1="6.5" y1="2" x2="6.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-500" />
-    <line x1="17.5" y1="2" x2="17.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-500" />
-    <line x1="12" y1="4.5" x2="12" y2="23.5" stroke="currentColor" strokeWidth="1.8" className="text-cyan-600" />
-    <line x1="12" y1="0.5" x2="12" y2="19.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="1.5 1.5" opacity="0.6" className="text-cyan-400" />
+    {/* 4 Ferri Longitudinali Verticali (Posizionati all'interno della gabbia) */}
+    <line x1="7.5" y1="2" x2="7.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-500" />
+    <line x1="16.5" y1="2" x2="16.5" y2="22" stroke="currentColor" strokeWidth="1.6" className="text-cyan-500" />
+    <line x1="12" y1="5.5" x2="12" y2="23.5" stroke="currentColor" strokeWidth="1.8" className="text-cyan-600" />
+    <line x1="12" y1="1" x2="12" y2="19.5" stroke="currentColor" strokeWidth="1.2" strokeDasharray="1.5 1.5" opacity="0.6" className="text-cyan-400" />
 
-    {/* 3 Staffe Orizzontali Sagomate 3D in Prospettiva Assonometrica */}
+    {/* 3 Staffe Orizzontali Sagomate 3D (Posizionate all'esterno che abbracciano i ferri) */}
     {/* Staffa 1 - Alta */}
-    <polygon points="6.5,6 12,3.5 17.5,6 12,8.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-500" />
+    <polygon points="5,6 12,2.5 19,6 12,9.5" stroke="currentColor" strokeWidth="1.6" fill="none" className="text-orange-500" />
     {/* Staffa 2 - Media */}
-    <polygon points="6.5,12 12,9.5 17.5,12 12,14.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-500" />
+    <polygon points="5,12 12,8.5 19,12 12,15.5" stroke="currentColor" strokeWidth="1.6" fill="none" className="text-orange-500" />
     {/* Staffa 3 - Bassa */}
-    <polygon points="6.5,18 12,15.5 17.5,18 12,20.5" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-orange-500" />
+    <polygon points="5,18 12,14.5 19,18 12,21.5" stroke="currentColor" strokeWidth="1.6" fill="none" className="text-orange-500" />
   </svg>
 );
 
