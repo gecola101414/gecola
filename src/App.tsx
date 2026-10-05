@@ -218,6 +218,16 @@ const resolveArticleQuantity = (
   }, 0);
 };
 
+const isBlankMeasurement = (m: Measurement) => {
+  const hasNoDesc = !m.description || m.description.trim() === '';
+  const hasNoDims = (m.length === undefined || m.length === 0) &&
+                    (m.width === undefined || m.width === 0) &&
+                    (m.height === undefined || m.height === 0);
+  const hasNoLinked = !m.linkedArticleId;
+  const isPositive = m.type === 'positive';
+  return hasNoDesc && hasNoDims && hasNoLinked && isPositive;
+};
+
 const recalculateAllArticles = (articles: Article[]): Article[] => {
   const articleMap = new Map(articles.map(a => [a.id, a]));
   return articles.map(art => {
@@ -346,6 +356,82 @@ const FastInput: React.FC<FastInputProps> = ({ initialValue, onCommit, ...props 
       onChange={(e) => {
         isDirtyRef.current = true;
         setVal(e.target.value);
+      }}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+    />
+  );
+};
+
+interface FastTextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  initialValue: string;
+  onCommit: (value: string) => void;
+}
+
+const FastTextarea: React.FC<FastTextareaProps> = ({ initialValue, onCommit, ...props }) => {
+  const [val, setVal] = useState(initialValue);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isDirtyRef = useRef(false);
+
+  const adjustHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.max(22, textareaRef.current.scrollHeight)}px`;
+    }
+  };
+
+  useEffect(() => {
+    setVal(initialValue);
+    isDirtyRef.current = false;
+    setTimeout(adjustHeight, 0);
+  }, [initialValue]);
+
+  useEffect(() => {
+    adjustHeight();
+  }, [val]);
+
+  useEffect(() => {
+    if (props.autoFocus && textareaRef.current) {
+      const timer = setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.select();
+        adjustHeight();
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [props.autoFocus]);
+
+  const handleBlur = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    if (props.onBlur) props.onBlur(e);
+    if (isDirtyRef.current && val !== initialValue) {
+      isDirtyRef.current = false;
+      onCommit(val);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (isDirtyRef.current && val !== initialValue) {
+        isDirtyRef.current = false;
+        onCommit(val);
+      }
+      if (props.onKeyDown) props.onKeyDown(e);
+      return;
+    }
+    if (props.onKeyDown) props.onKeyDown(e);
+  };
+
+  return (
+    <textarea
+      ref={textareaRef}
+      rows={1}
+      {...props}
+      value={val}
+      onChange={(e) => {
+        isDirtyRef.current = true;
+        setVal(e.target.value);
+        adjustHeight();
       }}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
@@ -566,10 +652,16 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
           }
       }
 
-      if (e.key === 'Enter' && isLastRow && currentField === 'height') {
-          e.preventDefault();
-          onAddMeasurement(article.id);
-          playUISound('newline');
+      if (e.key === 'Enter') {
+          if (currentField === 'description') {
+              e.preventDefault();
+              const target = document.querySelector(`[data-m-id="${mId}"][data-field="multiplier"]`) as HTMLElement;
+              if (target) { target.focus(); playUISound('move'); }
+          } else if (isLastRow && currentField === 'height') {
+              e.preventDefault();
+              onAddMeasurement(article.id);
+              playUISound('newline');
+          }
       }
    };
 
@@ -965,12 +1057,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                             </div>
                         )}
                     </td>
-                    <td className={`pl-3 pr-1 py-1 border-r border-slate-200 relative flex items-center gap-2 ${isDeduction ? 'text-rose-900 font-bold' : ''}`}>
+                    <td className={`pl-3 pr-1 py-1 border-r border-slate-200 relative align-top ${isDeduction ? 'text-rose-900 font-bold' : ''}`}>
+                        <div className="flex items-start gap-2 relative w-full min-h-[22px]">
                         {isSubtotal ? <div className="italic text-amber-900 text-right pr-2 w-full font-bold">Sommano parziale</div> : (
                             <>
-                                <div className={`absolute left-0 top-1/2 w-4 h-[1px] ${isDeduction ? 'bg-rose-300' : 'bg-slate-300'}`}></div>
+                                <div className={`absolute left-0 top-3 w-4 h-[1px] ${isDeduction ? 'bg-rose-300' : 'bg-slate-300'}`}></div>
                                 {m.linkedArticleId && linkedArt ? (
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-2 py-0.5">
                                     <button onClick={() => onScrollToArticle(linkedArt.id, article.id)} className={`flex items-center space-x-1 px-1 py-0.5 rounded group/link transition-colors text-left ${isSafetyCategory ? 'hover:bg-orange-50' : 'hover:bg-blue-50'}`}>
                                         <span className={`font-bold hover:underline cursor-pointer ${isDeduction ? 'text-rose-800' : (isSafetyCategory ? 'text-orange-600' : 'text-blue-600')}`} style={{ fontSize: `12.5px` }}>
                                             {isDeduction ? 'A dedurre: ' : ''}Vedi voce n. {getLinkedArticleNumber(linkedArt)}
@@ -982,9 +1075,13 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                     </button>
                                     </div>
                                 ) : (
-                                    isPrintMode ? <div className={`truncate ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`}>{m.description}</div> : (
-                                        <div className="flex-1 flex items-center gap-2 relative">
-                                            <FastInput 
+                                    isPrintMode ? (
+                                        <div className={`whitespace-pre-wrap break-words text-justify leading-snug py-0.5 w-full ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`}>
+                                            {m.description}
+                                        </div>
+                                    ) : (
+                                        <div className="flex-1 flex items-start gap-2 relative w-full">
+                                            <FastTextarea 
                                             initialValue={m.description} 
                                             onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'description', val)}
                                             data-m-id={m.id}
@@ -993,8 +1090,8 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                             onFocus={() => { onColumnFocus('desc'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'description'); }} 
                                             onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} 
                                             onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'description', isLastMeasRow)}
-                                            className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-slate-300 disabled:cursor-not-allowed ${isRowVoiceActive && voiceActiveField === 'description' ? 'ring-2 ring-purple-500 bg-purple-100/70 rounded px-1 animate-pulse font-bold' : ''} ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`} 
-                                            style={{ fontSize: `13.5px` }} 
+                                            className={`w-full bg-transparent border-none p-0 focus:ring-0 placeholder-slate-300 disabled:cursor-not-allowed resize-none overflow-hidden whitespace-pre-wrap break-words text-justify leading-snug ${isRowVoiceActive && voiceActiveField === 'description' ? 'ring-2 ring-purple-500 bg-purple-100/70 rounded px-1 animate-pulse font-bold' : ''} ${isDeduction ? 'text-rose-900 font-bold' : 'text-slate-800'}`} 
+                                            style={{ fontSize: `13.5px`, minHeight: '22px' }} 
                                             placeholder={"Descrizione misura..."} 
                                             disabled={areControlsDisabled}
                                             />
@@ -1002,7 +1099,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                     )
                                 )}
                                 {guard && guard.isVisible && (
-                                    <div className="group/warning relative flex-shrink-0 ml-auto">
+                                    <div className="group/warning relative flex-shrink-0 ml-auto self-start mt-0.5">
                                         <HelpCircle className={`w-3.5 h-3.5 ${isError ? 'text-red-600' : 'text-amber-500'} animate-pulse cursor-help`} />
                                         <div className="absolute bottom-full mb-2 right-0 w-72 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl opacity-0 group-hover/warning:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
                                             <span className={`font-black uppercase block mb-1 tracking-widest ${isError ? 'text-red-400' : 'text-amber-400'}`}>
@@ -1014,6 +1111,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                                 )}
                             </>
                         )}
+                        </div>
                     </td>
                     <td className={`border-r border-slate-200 p-0 transition-colors ${isRowVoiceActive && voiceActiveField === 'multiplier' ? 'ring-2 ring-purple-500 bg-purple-100/70 animate-pulse' : (isDeduction ? 'bg-rose-50/60' : 'bg-slate-50/40')}`}>
                         {!isPrintMode && !isSubtotal ? <FastNumberInput data-m-id={m.id} data-field="multiplier" disabled={areControlsDisabled} onFocus={() => { onColumnFocus('mult'); handleFocusRow(m.id); onVoiceCellFocus?.(m.id, 'multiplier'); }} onBlur={() => { onColumnFocus(null); setFocusedRowId(null); }} onKeyDown={(e) => handleMeasKeyDown(e, m.id, 'multiplier', isLastMeasRow)} className={`w-full text-center bg-transparent border-none text-xs focus:bg-white placeholder-slate-300 disabled:cursor-not-allowed h-full font-mono tabular-nums ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: `13.5px` }} initialValue={m.multiplier} onCommit={(val) => onUpdateMeasurement(article.id, m.id, 'multiplier', val)} /> : (m.multiplier && <div className={`text-center font-mono tabular-nums whitespace-nowrap overflow-hidden ${isDeduction ? 'text-rose-900 font-black' : 'text-slate-800'}`} style={{ fontSize: getDynamicNumberFontSize(m.multiplier, 13.5, 4, 8.5) }} title={String(m.multiplier)}>{m.multiplier}</div>)}
@@ -1991,9 +2089,13 @@ const App: React.FC = () => {
       const finalValue = field === 'description' && typeof value === 'string' ? cleanDescription(value) : value;
 
       // Aggiorna immediatamente l'input visibile nel DOM se presente
-      const domEl = document.querySelector(`[data-m-id="${mId}"][data-field="${field}"]`) as HTMLInputElement;
+      const domEl = document.querySelector(`[data-m-id="${mId}"][data-field="${field}"]`) as HTMLInputElement | HTMLTextAreaElement | null;
       if (domEl) {
         domEl.value = finalValue === undefined ? '' : String(finalValue);
+        if (domEl instanceof HTMLTextAreaElement) {
+          domEl.style.height = 'auto';
+          domEl.style.height = `${Math.max(22, domEl.scrollHeight)}px`;
+        }
       }
 
       // Aggiorna immediatamente articlesRef.current in modo che qualsiasi callback vocale veda i dati aggiornati
@@ -2446,13 +2548,25 @@ const App: React.FC = () => {
 
     const updated = articles.map(art => { 
       if (art.id !== effectiveTargetId) return art; 
-      return { ...art, measurements: [...art.measurements, ...newMeasures] }; 
+      const existingNonBlank = art.measurements.filter(m => !isBlankMeasurement(m));
+      return { ...art, measurements: [...existingNonBlank, ...newMeasures] }; 
     }); 
-    updateState(updated); 
+    updateState(recalculateAllArticles(updated)); 
     playUISound('confirm');
     setIsRebarModalOpen(false); 
   };
-  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { if (paintingTargetArticleId) { const updated = articles.map(art => { if (art.id !== paintingTargetArticleId) return art; const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); return { ...art, measurements: [...art.measurements, ...newMeasures] }; }); updateState(updated); setIsPaintingModalOpen(false); } };
+  const handleAddPaintingMeasurements = (paintRows: Array<{ description: string; multiplier: number; length?: number; width?: number; height?: number; type: 'positive' }>) => { 
+    if (paintingTargetArticleId) { 
+      const updated = articles.map(art => { 
+        if (art.id !== paintingTargetArticleId) return art; 
+        const newMeasures = paintRows.map(row => ({ ...row, id: Math.random().toString(36).substr(2, 9) })); 
+        const existingNonBlank = art.measurements.filter(m => !isBlankMeasurement(m));
+        return { ...art, measurements: [...existingNonBlank, ...newMeasures] }; 
+      }); 
+      updateState(recalculateAllArticles(updated)); 
+      setIsPaintingModalOpen(false); 
+    } 
+  };
   const handleDropContent = (rawText: string) => { if (!canAddArticle()) return; const targetCatCode = activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode); const currentCat = categories.find(c => c.code === targetCatCode); if (currentCat && currentCat.isLocked) { alert("Capitolo bloccato."); return; } if (!rawText) return; setIsProcessingDrop(true); setTimeout(() => { try { const parsed = parseDroppedContent(rawText); if (parsed) { const newArtId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArtId, categoryCode: targetCatCode, code: parsed.code || 'NP.001', priceListSource: parsed.priceListSource, description: parsed.description || 'Voce importata', unit: parsed.unit || 'cad', unitPrice: parsed.unitPrice || 0, laborRate: parsed.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, ...[newArticle]]); setLastAddedMeasurementId(newMeasId); handleScrollToArticle(newArtId, undefined, targetCatCode); } } catch (e) { console.error("Drop Parser Error", e); } finally { setIsProcessingDrop(false); } }, 100); };
   const handleBulkGenerateLocal = async (description: string) => { if (!canAddArticle()) return; setIsGenerating(true); try { const generatedItems = await generateBulkItems(description, projectInfo.region, projectInfo.year, categories); if (generatedItems && generatedItems.length > 0) { const newArticles: Article[] = generatedItems.map(item => { const qty = item.quantity || 1; return { id: Math.random().toString(36).substr(2, 9), categoryCode: item.categoryCode || (categories[0]?.code || 'WBS.01'), code: item.code || 'NP.001', priceListSource: item.priceListSource || 'Generato da IA', description: item.description || 'Voce generata', unit: item.unit || 'cad', unitPrice: item.unitPrice || 0, laborRate: item.laborRate || 0, soaCategory: activeSoaCategory, measurements: [{ id: Math.random().toString(36).substr(2, 9), description: 'Voce generata da assistente', type: 'positive', length: qty, multiplier: 1 }], quantity: qty, displayMode: wbsDisplayMode, groundingUrls: (item as any).groundingUrls }; }); updateState([...articles, ...newArticles]); if (newArticles.length > 0) handleScrollToArticle(newArticles[0].id, undefined, newArticles[0].categoryCode); setIsBulkModalOpen(false); } } catch (e) { console.error("Bulk Generation Error:", e); alert("Si è verificato un errore durante la generazione delle voci."); } finally { setIsGenerating(false); } };
   const handleWorkspaceDrop = (e: React.DragEvent) => { 
