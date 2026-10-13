@@ -9,7 +9,7 @@ import {
   Grid3X3, MousePointerClick, Layers, ExternalLink, FileSpreadsheet, ShieldAlert, HardHat,
   Zap, CornerRightDown, ListFilter, EyeOff, ChevronRight, Folder, FolderPlus, Tag, AlertTriangle, Link2Off,
   ShieldCheck, RefreshCw, FilePlus2, Magnet, MoreVertical, LayoutList, List, Database, Info, ChevronUp,
-  Calendar, Minus, Mic, MousePointer2, Power, PowerOff, Briefcase
+  Calendar, Minus, Mic, MousePointer2, Power, PowerOff, Briefcase, Package, Hammer, Truck
 } from 'lucide-react';
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
@@ -26,6 +26,7 @@ import ArticleEditModal from './components/ArticleEditModal';
 import CategoryEditModal from './components/CategoryEditModal';
 import SaveProjectModal from './components/SaveProjectModal';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
+import { PriceAnalysisWorkspace } from './components/PriceAnalysisWorkspace';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
 import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOptionsModal';
 import HelpManualModal from './components/HelpManualModal';
@@ -1553,6 +1554,51 @@ const App: React.FC = () => {
   const [isDraggingArticle, setIsDraggingArticle] = useState(false);
   const [isAnalysisEditorOpen, setIsAnalysisEditorOpen] = useState(false);
   const [editingAnalysis, setEditingAnalysis] = useState<PriceAnalysis | null>(null);
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(null);
+  const [selectedAnalysisGroupFilter, setSelectedAnalysisGroupFilter] = useState<'all' | 'material' | 'labor' | 'equipment'>('material');
+
+  const currentActiveAnalysis = useMemo(() => {
+    if (analyses.length === 0) return null;
+    if (selectedAnalysisId) {
+      const found = analyses.find(a => a.id === selectedAnalysisId);
+      if (found) return found;
+    }
+    return analyses[0];
+  }, [analyses, selectedAnalysisId]);
+
+  const handleCreateNewAnalysis = () => {
+    const nextNum = (analyses.length + 1).toString().padStart(2, '0');
+    const newId = 'ap_' + Date.now();
+    const newAnalysis: PriceAnalysis = {
+      id: newId,
+      code: `AP.${nextNum}`,
+      description: 'Nuovo Prezzo Unitario Analitico',
+      unit: 'm³',
+      analysisQuantity: 1,
+      generalExpensesRate: 15,
+      profitRate: 10,
+      markupMode: 'exclude_from_markup',
+      components: [],
+      totalMaterials: 0,
+      totalLabor: 0,
+      totalEquipment: 0,
+      costoTecnico: 0,
+      valoreSpese: 0,
+      valoreUtile: 0,
+      totalBatchValue: 0,
+      totalUnitPrice: 0,
+      isLocked: false
+    };
+    const updatedAnalyses = [...analyses, newAnalysis];
+    updateState(articles, categories, updatedAnalyses);
+    setSelectedAnalysisId(newId);
+    playUISound('newline');
+  };
+
+  const handleUpdateActiveAnalysis = (updatedAnalysis: PriceAnalysis) => {
+    const updatedAnalyses = analyses.map(a => a.id === updatedAnalysis.id ? updatedAnalysis : a);
+    updateState(articles, categories, updatedAnalyses);
+  };
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'clone', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom', isSuper?: boolean, proposedColors?: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1699,6 +1745,7 @@ const App: React.FC = () => {
 
   const totalForView = viewMode === 'COMPUTO' ? totals.totalWorks :
                        viewMode === 'SICUREZZA' ? totals.totalSafetyProgettuale :
+                       viewMode === 'ANALISI' ? (currentActiveAnalysis?.totalUnitPrice || 0) :
                        totals.grandTotal;
 
   const generateNextWbsCode = (currentCats: Category[]) => {
@@ -1781,6 +1828,21 @@ const App: React.FC = () => {
       }
   };
 
+  const handleDuplicateAnalysis = (analysis: PriceAnalysis) => {
+      const newId = Math.random().toString(36).substr(2, 9);
+      const cloned: PriceAnalysis = {
+          ...JSON.parse(JSON.stringify(analysis)),
+          id: newId,
+          code: `AP.${(analyses.length + 1).toString().padStart(2, '0')}`,
+          description: `${analysis.description} (Variante)`,
+          isLocked: false
+      };
+      const newAnalyses = [...analyses, cloned];
+      const { newAnalyses: renumberedAn, newArticles } = renumberAnalyses(newAnalyses, articles);
+      updateState(newArticles, categories, renumberedAn);
+      playUISound('confirm');
+  };
+
   const handleImportAnalysisToArticle = (analysis: PriceAnalysis, targetWbsOverride?: string) => {
       if (!canAddArticle()) return;
       const targetCode = targetWbsOverride || activeCategoryForAi || (selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode);
@@ -1809,7 +1871,11 @@ const App: React.FC = () => {
 
   const handleViewLinkedAnalysis = (analysisId: string) => {
       const analysis = analyses.find(a => a.id === analysisId);
-      if (analysis) { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); } else { alert("Analisi non trovata."); }
+      if (analysis) { 
+        setSelectedAnalysisId(analysis.id);
+        setViewMode('ANALISI');
+        playUISound('toggle');
+      } else { alert("Analisi non trovata."); }
   };
 
   const handleConvertArticleToAnalysis = (article: Article) => {
@@ -2747,73 +2813,308 @@ const App: React.FC = () => {
                     <button onClick={() => setViewMode('SUMMARY')} className={`py-2 text-[8.5px] font-bold uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'SUMMARY' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}><Layers className="w-3.5 h-3.5" /> Riepil.</button>
                     <button onClick={() => setViewMode('CRONOPROGRAMMA')} className={`py-2 text-[8.5px] font-bold uppercase rounded-lg transition-all flex flex-col items-center justify-center gap-1 ${viewMode === 'CRONOPROGRAMMA' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}><Calendar className="w-3.5 h-3.5" /> Crono</button>
                 </div>
-                <div className="p-1.5 bg-slate-200/40 border-b border-slate-200 grid grid-cols-4 gap-1.5 shrink-0">
-                    <button onClick={handleToggleAllCategories} title="ACCENDI/SPEGNI" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-500 hover:text-amber-500 flex flex-col items-center justify-center gap-1 shadow-xs"><Lightbulb className="w-3.5 h-3.5" /><span className="text-[6.5px] font-bold uppercase text-slate-500">Luci</span></button>
-                    <button onClick={handleAddWbs} title="NUOVA WBS" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-500 hover:text-blue-600 flex flex-col items-center justify-center gap-1 shadow-xs"><PlusCircle className="w-3.5 h-3.5" /><span className="text-[6.5px] font-bold uppercase text-slate-500">WBS</span></button>
-                    <button onClick={handleAddSuperCategory} title="SUPER CATEGORIA" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-500 hover:text-orange-600 flex flex-col items-center justify-center gap-1 shadow-xs"><FolderPlus className="w-3.5 h-3.5" /><span className="text-[6.5px] font-bold uppercase text-slate-500">Super</span></button>
-                    <button onClick={handleToggleSurveyorGuard} title="SENTINELLA ATTIVA" className={`py-1.5 rounded-lg border transition-all flex flex-col items-center justify-center gap-1 ${isSurveyorGuardActive ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-inner' : 'bg-white border-slate-200 text-slate-400 hover:text-emerald-600 shadow-xs'}`}><ShieldCheck className="w-3.5 h-3.5" /><span className={`text-[6.5px] font-bold uppercase ${isSurveyorGuardActive ? 'text-emerald-700 font-extrabold' : 'text-slate-500'}`}>Sentry</span></button>
-                </div>
-                <div ref={sidebarRef} className={`flex-1 overflow-y-auto scrollbar-hide overflow-x-visible ${activeWbsContext === 'safety' ? 'bg-orange-50/20' : 'bg-transparent'}`} onDrop={(e) => handleWbsDrop(e, null)}>
-                    <ul className="p-3 space-y-2 pb-5">
-                        {topLevelCategories.map((cat) => {
-                        const isInsideDropTarget = wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside';
-                        const childCategories = filteredCategories.filter(c => c.parentId === cat.code);
-                        const isChildSelected = childCategories.some(c => c.code === selectedCategoryCode);
-                        const isCollapsed = collapsedSuperCodes.has(cat.code);
-                        if (cat.isSuperCategory) {
+                {viewMode === 'ANALISI' ? (
+                  <div className="flex-1 flex flex-col overflow-y-auto scrollbar-hide p-3 space-y-4">
+                    {/* AZIONI VELOCI ANALISI PREZZI */}
+                    <div className="grid grid-cols-3 gap-1.5 shrink-0">
+                      <button 
+                        onClick={handleCreateNewAnalysis}
+                        className="py-2 px-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-black uppercase text-[8px] flex items-center justify-center gap-1 shadow-sm transition-all active:scale-95"
+                        title="Crea una nuova Analisi di Prezzo"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Nuova</span>
+                      </button>
+                      <button 
+                        onClick={() => currentActiveAnalysis && handleDuplicateAnalysis(currentActiveAnalysis)}
+                        disabled={!currentActiveAnalysis}
+                        className="py-2 px-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-40 font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-2xs transition-all active:scale-95"
+                        title="Duplica l'analisi attiva per creare una variante"
+                      >
+                        <Copy className="w-3 h-3 text-indigo-600" />
+                        <span>Duplica</span>
+                      </button>
+                      <button 
+                        onClick={() => generateAnalisiPrezziPdf(projectInfo, currentActiveAnalysis ? [currentActiveAnalysis] : analyses)}
+                        disabled={analyses.length === 0}
+                        className="py-2 px-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-40 font-bold uppercase text-[8px] flex items-center justify-center gap-1 shadow-2xs transition-all active:scale-95"
+                        title="Stampa Scheda PDF Analisi"
+                      >
+                        <FileText className="w-3 h-3 text-purple-600" />
+                        <span>Stampa</span>
+                      </button>
+                    </div>
+
+                    {/* ELENCO DELLE ANALISI DEL PROGETTO */}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex justify-between items-center px-1">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-purple-900 flex items-center gap-1">
+                          <TestTubes className="w-3 h-3" />
+                          Tariffe Analitiche ({analyses.length})
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto scrollbar-hide pr-1">
+                        {analyses.length === 0 ? (
+                          <div className="p-3 bg-white rounded-xl border border-dashed border-purple-300 text-center text-slate-400">
+                            <span className="text-[10px] font-bold block text-slate-600">Nessuna analisi creata</span>
+                            <button 
+                              onClick={handleCreateNewAnalysis} 
+                              className="text-[9px] text-purple-700 font-black mt-1 hover:underline"
+                            >
+                              + Crea prima tariffa
+                            </button>
+                          </div>
+                        ) : (
+                          analyses.map(an => {
+                            const isSelected = currentActiveAnalysis?.id === an.id;
                             return (
-                                <li key={cat.id} className={`relative group/super transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${lastMovedItemId === cat.code ? 'highlight-move' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
-                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -top-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
-                                    {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside' && (<div className="absolute inset-0 border-2 border-orange-500 rounded-2xl bg-orange-500/10 pointer-events-none z-50 animate-pulse"><div className="absolute top-8 left-6 right-6 h-1 bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full"></div></div>)}
-                                    <div className="flex flex-row items-end group" draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDragEnd={() => setDraggedCategoryCode(null)}>
-                                        <div onClick={() => toggleSuperCollapse(cat.code)} className={`px-4 py-1.5 rounded-t-xl border-t border-x text-[8px] font-black uppercase tracking-[0.2em] transition-all flex flex-row items-center gap-2 cursor-pointer select-none shadow-sm text-white max-w-[80%] overflow-hidden`} style={{ backgroundColor: isInsideDropTarget ? '#F97316' : (cat.color || '#CBD5E1'), borderColor: isInsideDropTarget ? '#EA580C' : (cat.color || '#94A3B8'), borderLeftWidth: isChildSelected ? '4px' : '1px', borderLeftColor: 'white' }}><GripVertical className="w-3 h-3 opacity-30" /><ChevronDown className={`w-3 h-3 transition-transform duration-300 ${isCollapsed ? '-rotate-90' : ''}`} /><span className="truncate">{cat.name}</span></div>
-                                        <div className="flex mb-0.5 ml-1 gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white/80 border border-slate-300 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white shadow-sm transition-all transform active:scale-90"><Settings className="w-3.5 h-3.5" /></button></div>
-                                    </div>
-                                    <div className={`rounded-b-2xl rounded-tr-2xl border transition-all duration-500 relative ${isInsideDropTarget ? 'border-orange-500 bg-orange-50 shadow-2xl scale-[1.01]' : 'bg-white shadow-sm'} ${isCollapsed ? 'p-0 h-[8px] overflow-hidden' : 'p-2 min-h-[40px]'}`} style={{ borderColor: !isInsideDropTarget ? (cat.color || '#CBD5E1') : undefined }}>
-                                        {!isCollapsed && (
-                                            <div className="animate-in fade-in duration-500">
-                                                <div className="flex flex-col gap-1.5">
-                                                  {childCategories.map(child => {
-                                                    const isSelectedChild = selectedCategoryCode === child.code;
-                                                    const isTargeted = wbsDropTarget?.code === child.code;
-                                                    return (
-                                                    <div key={child.id} draggable onDragStart={(e) => handleWbsDragStart(e, child.code)} onDragEnd={() => setDraggedCategoryCode(null)} onDragOver={(e) => handleWbsDragOver(e, child.code)} onDrop={(e) => handleWbsDrop(e, child.code)} className={`rounded-xl border-l-4 transition-all duration-300 cursor-pointer flex flex-col group/child relative overflow-visible ${isSelectedChild ? (activeWbsContext === 'safety' ? 'bg-orange-50 shadow-lg translate-x-1 border-orange-500 p-3' : 'bg-blue-50 shadow-lg translate-x-1 border-blue-500 p-3') : 'bg-white border-slate-100 hover:border-slate-300 px-3 py-1.5'} ${lastMovedItemId === child.code ? 'highlight-move' : ''} ${(isDraggingArticle || isDraggingAnalysis) && isTargeted ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`}>
-                                                      {isTargeted && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -top-1.5 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_12px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)]'}`}></div>)}
-                                                      <div className="flex justify-between items-center" onClick={() => setSelectedCategoryCode(prev => prev === child.code ? '' : child.code)}>
-                                                          <div className="flex flex-col max-w-[65%]"><div className="flex items-center gap-2"><span className={`text-[8px] font-black font-mono ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-700' : 'text-blue-700') : 'text-slate-400'}`}>{child.code}</span>{child.soaCategory && <span className={`text-[7px] font-black bg-slate-100 px-1 rounded ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-800 bg-orange-200/50' : 'text-blue-800 bg-blue-200/50') : 'text-slate-50'}`}>{child.soaCategory}</span>}</div><span className={`font-black uppercase leading-none truncate ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-900 text-[10px]' : 'text-blue-900 text-[10px]') : 'text-slate-600 text-[10px]'}`}>{child.name}</span></div>
-                                                          <div className="flex flex-col items-end gap-1 flex-shrink-0"><span className={`font-mono font-black text-[10px] ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-700' : 'text-blue-700') : 'text-slate-400'}`}>{formatCurrency(categoryTotals[child.code] || 0)}</span><div className="flex items-center gap-1 opacity-0 group-hover/child:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(child); }} className={`p-1 transition-colors ${activeWbsContext === 'safety' ? 'text-orange-600 hover:text-blue-600' : 'text-blue-600 hover:text-orange-600'}`}><Settings className="w-3.3 h-3.3" /></button>{child.isLocked && <Lock className="w-3 h-3 text-red-500" />}</div></div>
-                                                      </div>
-                                                      {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -bottom-1.5 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_12px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)]'}`}></div>)}
-                                                    </div>
-                                                  )})}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </li>
-                            );
-                        }
-                        const isSelected = selectedCategoryCode === cat.code;
-                        const isTargeted = wbsDropTarget?.code === cat.code;
-                        return (
-                         <li key={cat.id} className={`relative transition-all group/wbsrow-container ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${lastMovedItemId === cat.code ? 'highlight-move' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
-                            {isTargeted && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -top-1 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_15px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,1)]'}`}></div>)}
-                            <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDragEnd={() => setDraggedCategoryCode(null)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(prev => prev === cat.code ? '' : cat.code)}>
-                                <div className={`w-full text-left rounded-2xl border transition-all duration-300 flex flex-col relative overflow-visible shadow-sm ${isSelected ? (activeWbsContext === 'safety' ? 'bg-orange-50 border-l-[8px] border-orange-500 shadow-xl scale-[1.02] py-3.5' : 'bg-blue-50 border-l-[8px] border-blue-500 shadow-xl scale-[1.02] py-3.5') : 'bg-slate-50 border-slate-200 hover:bg-white py-1.5'} ${(isDraggingArticle || isDraggingAnalysis) && isTargeted ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`} style={{ borderLeftColor: isSelected ? undefined : (cat.color || 'transparent') }}>
-                                    <div className="px-3.5 h-full flex flex-col justify-between">
-                                        <div className="flex flex-row justify-between items-start">
-                                            <div className="flex-1 overflow-hidden"><div className="flex items-center gap-2 mb-0.5"><span className={`text-[8px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm text-white`} style={{ backgroundColor: isSelected ? (activeWbsContext === 'safety' ? '#EA580C' : '#2563EB') : (cat.color || (activeWbsContext === 'safety' ? '#F97316' : '#3B82F6')) }}>{cat.code}</span>{cat.soaCategory && <span className={`text-[7px] font-black uppercase px-1 rounded border ${isSelected ? (activeWbsContext === 'safety' ? 'border-orange-200 bg-orange-100 text-orange-800' : 'border-blue-200 bg-blue-100 text-blue-800') : 'border-slate-200 bg-white text-slate-400'}`}>{cat.soaCategory}</span>}{cat.isLocked && <Lock className="w-2.5 h-2.5 text-red-500" />}</div><span className={`font-black block whitespace-normal uppercase leading-tight transition-all ${isSelected ? (activeWbsContext === 'safety' ? 'text-orange-900 text-[11px]' : 'text-blue-900 text-[11px]') : 'text-slate-600 text-[9px] truncate'}`}>{cat.name}</span></div>
-                                            <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2"><span className={`font-mono font-black text-[12px] ${isSelected ? (activeWbsContext === 'safety' ? 'text-orange-700' : 'text-blue-700') : 'text-slate-500'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span><div className="flex gap-1 opacity-0 group-hover/wbsrow-container:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className={`p-1.5 bg-white rounded-lg border transition-all ${activeWbsContext === 'safety' ? 'border-orange-200 text-orange-600 hover:bg-orange-500 hover:text-white' : 'border-blue-200 text-blue-600 hover:bg-blue-500 hover:text-white'}`}><Settings className="w-3.3 h-3.3" /></button></div></div>
-                                        </div>
-                                    </div>
+                              <div
+                                key={an.id}
+                                onClick={() => setSelectedAnalysisId(an.id)}
+                                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between group ${
+                                  isSelected 
+                                    ? 'bg-purple-50 border-purple-500 shadow-md ring-2 ring-purple-200 translate-x-0.5' 
+                                    : 'bg-white border-slate-200 hover:border-purple-300 shadow-2xs'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 overflow-hidden flex-1 mr-2">
+                                  <span className={`font-mono font-black text-[10px] px-1.5 py-0.5 rounded shadow-2xs ${
+                                    isSelected ? 'bg-purple-700 text-white' : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {an.code}
+                                  </span>
+                                  <div className="flex flex-col overflow-hidden">
+                                    <span className="text-[10px] font-bold text-slate-800 truncate leading-tight">
+                                      {an.description || 'Senza descrizione'}
+                                    </span>
+                                    <span className="text-[8px] text-slate-400">
+                                      Lotto: {an.analysisQuantity || 1} {an.unit}
+                                    </span>
+                                  </div>
                                 </div>
+
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  <span className="font-mono font-black text-[10px] text-purple-900">
+                                    {formatCurrency(an.totalUnitPrice)}
+                                  </span>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteAnalysis(an.id); }}
+                                    className="p-1 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-600 transition-all rounded hover:bg-red-50"
+                                    title="Elimina analisi"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* SEZIONE 3 CATEGORIE (MATERIALI, MANODOPERA, NOLI) */}
+                    {/* "con accanto le tre categorie manodopera materiale e noli....tutto qua" */}
+                    {currentActiveAnalysis && (
+                      <div className="flex flex-col gap-2 pt-2 border-t border-slate-200">
+                        <div className="flex justify-between items-center px-1">
+                          <span className="text-[9px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                            <Layers className="w-3 h-3 text-purple-600" />
+                            3 Gruppi di Lavorazione
+                          </span>
+                          {selectedAnalysisGroupFilter !== 'all' && (
+                            <button
+                              onClick={() => setSelectedAnalysisGroupFilter('all')}
+                              className="text-[8px] font-black uppercase text-purple-700 hover:underline"
+                            >
+                              Tutti
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {/* CATEGORIA 1: MATERIALI */}
+                          <div 
+                            onClick={() => setSelectedAnalysisGroupFilter(prev => prev === 'material' ? 'all' : 'material')}
+                            className={`p-2.5 rounded-xl border-l-4 transition-all cursor-pointer flex items-center justify-between ${
+                              selectedAnalysisGroupFilter === 'material'
+                                ? 'bg-orange-50 border-orange-500 shadow-sm translate-x-1'
+                                : 'bg-white border-orange-400 hover:border-orange-500 shadow-2xs'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-black text-[9px] bg-orange-100 text-orange-800 px-1 rounded">1.00</span>
+                              <Package className="w-3.5 h-3.5 text-orange-600" />
+                              <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">Materiali</span>
                             </div>
-                            {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -bottom-1 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_15px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,1)]'}`}></div>)}
-                        </li>
-                        )})}
-                        <li onDragOver={(e) => handleWbsDragOver(e, 'WBS_BOTTOM_TARGET')} onDrop={(e) => handleWbsDrop(e, null)} className={`h-24 transition-all flex flex-col justify-start pt-2 ${wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' ? (activeWbsContext === 'safety' ? 'bg-orange-600/5' : 'bg-blue-600/5') : ''}`}>{wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' && (<div className={`h-1.5 shadow-[0_0_12px_rgba(59,130,246,0.8)] rounded-full animate-pulse mx-4 ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-orange-600/80' : 'bg-blue-600 shadow-blue-600/80'}`} />)}</li>
-                    </ul>
-                </div>
+                            <span className="font-mono font-black text-[11px] text-orange-950">
+                              {formatCurrency(currentActiveAnalysis.totalMaterials || 0)}
+                            </span>
+                          </div>
+
+                          {/* CATEGORIA 2: MANODOPERA */}
+                          <div 
+                            onClick={() => setSelectedAnalysisGroupFilter(prev => prev === 'labor' ? 'all' : 'labor')}
+                            className={`p-2.5 rounded-xl border-l-4 transition-all cursor-pointer flex items-center justify-between ${
+                              selectedAnalysisGroupFilter === 'labor'
+                                ? 'bg-blue-50 border-blue-500 shadow-sm translate-x-1'
+                                : 'bg-white border-blue-400 hover:border-blue-500 shadow-2xs'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-black text-[9px] bg-blue-100 text-blue-800 px-1 rounded">2.00</span>
+                              <Hammer className="w-3.5 h-3.5 text-blue-600" />
+                              <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">Manodopera</span>
+                            </div>
+                            <span className="font-mono font-black text-[11px] text-blue-950">
+                              {formatCurrency(currentActiveAnalysis.totalLabor || 0)}
+                            </span>
+                          </div>
+
+                          {/* CATEGORIA 3: NOLI */}
+                          <div 
+                            onClick={() => setSelectedAnalysisGroupFilter(prev => prev === 'equipment' ? 'all' : 'equipment')}
+                            className={`p-2.5 rounded-xl border-l-4 transition-all cursor-pointer flex items-center justify-between ${
+                              selectedAnalysisGroupFilter === 'equipment'
+                                ? 'bg-emerald-50 border-emerald-500 shadow-sm translate-x-1'
+                                : 'bg-white border-emerald-400 hover:border-emerald-500 shadow-2xs'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-black text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded">3.00</span>
+                              <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                              <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">Noli e Trasp.</span>
+                            </div>
+                            <span className="font-mono font-black text-[11px] text-emerald-950">
+                              {formatCurrency(currentActiveAnalysis.totalEquipment || 0)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* QUADRO ECONOMICO / TABELLA RIEPILOGATIVA ACCANTO */}
+                    {/* "poi accanto la tabella riepilogativa mano opera materiali e noli e poi spese generali e utile impresa quelli standard" */}
+                    {currentActiveAnalysis && (
+                      <div className="bg-white rounded-2xl border border-purple-200 p-3 shadow-xs space-y-2 mt-auto">
+                        <span className="text-[9px] font-black uppercase text-purple-900 tracking-wider flex items-center gap-1 border-b border-purple-100 pb-1.5">
+                          <Calculator className="w-3 h-3 text-purple-600" />
+                          Riepilogo Quadro Economico
+                        </span>
+
+                        <div className="space-y-1 font-mono text-[10px]">
+                          <div className="flex justify-between text-slate-600">
+                            <span className="text-slate-500">Materiali:</span>
+                            <span className="font-bold text-slate-800">{formatCurrency(currentActiveAnalysis.totalMaterials || 0)}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600">
+                            <span className="text-slate-500">Manodopera:</span>
+                            <span className="font-bold text-slate-800">{formatCurrency(currentActiveAnalysis.totalLabor || 0)}</span>
+                          </div>
+                          <div className="flex justify-between text-slate-600">
+                            <span className="text-slate-500">Noli & Attrezzature:</span>
+                            <span className="font-bold text-slate-800">{formatCurrency(currentActiveAnalysis.totalEquipment || 0)}</span>
+                          </div>
+                          
+                          <div className="border-t border-slate-100 pt-1 flex justify-between font-bold text-slate-800">
+                            <span>Costo Tecnico:</span>
+                            <span>{formatCurrency(currentActiveAnalysis.costoTecnico || 0)}</span>
+                          </div>
+
+                          <div className="flex justify-between text-purple-800">
+                            <span>Spese Generali ({currentActiveAnalysis.generalExpensesRate ?? 15}%):</span>
+                            <span className="font-bold">+{formatCurrency(currentActiveAnalysis.valoreSpese || 0)}</span>
+                          </div>
+
+                          <div className="flex justify-between text-purple-800">
+                            <span>Utile Impresa ({currentActiveAnalysis.profitRate ?? 10}%):</span>
+                            <span className="font-bold">+{formatCurrency(currentActiveAnalysis.valoreUtile || 0)}</span>
+                          </div>
+
+                          <div className="border-t-2 border-purple-200 pt-1.5 mt-1 flex justify-between items-baseline">
+                            <span className="font-sans font-black text-[10px] uppercase text-purple-950">Prezzo Unitario:</span>
+                            <span className="font-black text-sm text-purple-900">
+                              {formatCurrency(currentActiveAnalysis.totalUnitPrice || 0)}
+                            </span>
+                          </div>
+                          <div className="text-[8px] text-right text-purple-600 font-bold uppercase">
+                            per {currentActiveAnalysis.unit || 'cad'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="p-1.5 bg-slate-200/40 border-b border-slate-200 grid grid-cols-4 gap-1.5 shrink-0">
+                      <button onClick={handleToggleAllCategories} title="ACCENDI/SPEGNI" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-500 hover:text-amber-500 flex flex-col items-center justify-center gap-1 shadow-xs"><Lightbulb className="w-3.5 h-3.5" /><span className="text-[6.5px] font-bold uppercase text-slate-500">Luci</span></button>
+                      <button onClick={handleAddWbs} title="NUOVA WBS" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-500 hover:text-blue-600 flex flex-col items-center justify-center gap-1 shadow-xs"><PlusCircle className="w-3.5 h-3.5" /><span className="text-[6.5px] font-bold uppercase text-slate-500">WBS</span></button>
+                      <button onClick={handleAddSuperCategory} title="SUPER CATEGORIA" className="py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-all text-slate-500 hover:text-orange-600 flex flex-col items-center justify-center gap-1 shadow-xs"><FolderPlus className="w-3.5 h-3.5" /><span className="text-[6.5px] font-bold uppercase text-slate-500">Super</span></button>
+                      <button onClick={handleToggleSurveyorGuard} title="SENTINELLA ATTIVA" className={`py-1.5 rounded-lg border transition-all flex flex-col items-center justify-center gap-1 ${isSurveyorGuardActive ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-inner' : 'bg-white border-slate-200 text-slate-400 hover:text-emerald-600 shadow-xs'}`}><ShieldCheck className="w-3.5 h-3.5" /><span className={`text-[6.5px] font-bold uppercase ${isSurveyorGuardActive ? 'text-emerald-700 font-extrabold' : 'text-slate-500'}`}>Sentry</span></button>
+                    </div>
+                    <div ref={sidebarRef} className={`flex-1 overflow-y-auto scrollbar-hide overflow-x-visible ${activeWbsContext === 'safety' ? 'bg-orange-50/20' : 'bg-transparent'}`} onDrop={(e) => handleWbsDrop(e, null)}>
+                      <ul className="p-3 space-y-2 pb-5">
+                          {topLevelCategories.map((cat) => {
+                          const isInsideDropTarget = wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside';
+                          const childCategories = filteredCategories.filter(c => c.parentId === cat.code);
+                          const isChildSelected = childCategories.some(c => c.code === selectedCategoryCode);
+                          const isCollapsed = collapsedSuperCodes.has(cat.code);
+                          if (cat.isSuperCategory) {
+                              return (
+                                  <li key={cat.id} className={`relative group/super transition-all ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${lastMovedItemId === cat.code ? 'highlight-move' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
+                                      {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className="absolute -top-1 left-0 right-0 h-1.5 bg-blue-600 z-[60] shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full animate-pulse"></div>)}
+                                      {wbsDropTarget?.code === cat.code && wbsDropTarget?.position === 'inside' && (<div className="absolute inset-0 border-2 border-orange-500 rounded-2xl bg-orange-500/10 pointer-events-none z-50 animate-pulse"><div className="absolute top-8 left-6 right-6 h-1 bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)] rounded-full"></div></div>)}
+                                      <div className="flex flex-row items-end group" draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDragEnd={() => setDraggedCategoryCode(null)}>
+                                          <div onClick={() => toggleSuperCollapse(cat.code)} className={`px-4 py-1.5 rounded-t-xl border-t border-x text-[8px] font-black uppercase tracking-[0.2em] transition-all flex flex-row items-center gap-2 cursor-pointer select-none shadow-sm text-white max-w-[80%] overflow-hidden`} style={{ backgroundColor: isInsideDropTarget ? '#F97316' : (cat.color || '#CBD5E1'), borderColor: isInsideDropTarget ? '#EA580C' : (cat.color || '#94A3B8'), borderLeftWidth: isChildSelected ? '4px' : '1px', borderLeftColor: 'white' }}><GripVertical className="w-3 h-3 opacity-30" /><ChevronDown className={`w-3 h-3 transition-transform duration-300 ${isCollapsed ? '-rotate-90' : ''}`} /><span className="truncate">{cat.name}</span></div>
+                                          <div className="flex mb-0.5 ml-1 gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className="p-1.5 bg-white/80 border border-slate-300 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-white shadow-sm transition-all transform active:scale-90"><Settings className="w-3.5 h-3.5" /></button></div>
+                                      </div>
+                                      <div className={`rounded-b-2xl rounded-tr-2xl border transition-all duration-500 relative ${isInsideDropTarget ? 'border-orange-500 bg-orange-50 shadow-2xl scale-[1.01]' : 'bg-white shadow-sm'} ${isCollapsed ? 'p-0 h-[8px] overflow-hidden' : 'p-2 min-h-[40px]'}`} style={{ borderColor: !isInsideDropTarget ? (cat.color || '#CBD5E1') : undefined }}>
+                                          {!isCollapsed && (
+                                              <div className="animate-in fade-in duration-500">
+                                                  <div className="flex flex-col gap-1.5">
+                                                    {childCategories.map(child => {
+                                                      const isSelectedChild = selectedCategoryCode === child.code;
+                                                      const isTargeted = wbsDropTarget?.code === child.code;
+                                                      return (
+                                                      <div key={child.id} draggable onDragStart={(e) => handleWbsDragStart(e, child.code)} onDragEnd={() => setDraggedCategoryCode(null)} onDragOver={(e) => handleWbsDragOver(e, child.code)} onDrop={(e) => handleWbsDrop(e, child.code)} className={`rounded-xl border-l-4 transition-all duration-300 cursor-pointer flex flex-col group/child relative overflow-visible ${isSelectedChild ? (activeWbsContext === 'safety' ? 'bg-orange-50 shadow-lg translate-x-1 border-orange-500 p-3' : 'bg-blue-50 shadow-lg translate-x-1 border-blue-500 p-3') : 'bg-white border-slate-100 hover:border-slate-300 px-3 py-1.5'} ${lastMovedItemId === child.code ? 'highlight-move' : ''} ${(isDraggingArticle || isDraggingAnalysis) && isTargeted ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`}>
+                                                        {isTargeted && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -top-1.5 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_12px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)]'}`}></div>)}
+                                                        <div className="flex justify-between items-center" onClick={() => setSelectedCategoryCode(prev => prev === child.code ? '' : child.code)}>
+                                                            <div className="flex flex-col max-w-[65%]"><div className="flex items-center gap-2"><span className={`text-[8px] font-black font-mono ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-700' : 'text-blue-700') : 'text-slate-400'}`}>{child.code}</span>{child.soaCategory && <span className={`text-[7px] font-black bg-slate-100 px-1 rounded ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-800 bg-orange-200/50' : 'text-blue-800 bg-blue-200/50') : 'text-slate-50'}`}>{child.soaCategory}</span>}</div><span className={`font-black uppercase leading-none truncate ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-900 text-[10px]' : 'text-blue-900 text-[10px]') : 'text-slate-600 text-[9px] truncate'}`}>{child.name}</span></div>
+                                                            <div className="flex flex-col items-end gap-1 flex-shrink-0"><span className={`font-mono font-black text-[10px] ${isSelectedChild ? (activeWbsContext === 'safety' ? 'text-orange-700' : 'text-blue-700') : 'text-slate-400'}`}>{formatCurrency(categoryTotals[child.code] || 0)}</span><div className="flex items-center gap-1 opacity-0 group-hover/child:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(child); }} className={`p-1 transition-colors ${activeWbsContext === 'safety' ? 'text-orange-600 hover:text-blue-600' : 'text-blue-600 hover:text-orange-600'}`}><Settings className="w-3.3 h-3.3" /></button>{child.isLocked && <Lock className="w-3 h-3 text-red-500" />}</div></div>
+                                                        </div>
+                                                        {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -bottom-1.5 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_12px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_12px_rgba(37,99,235,1)]'}`}></div>)}
+                                                      </div>
+                                                    )})}
+                                                  </div>
+                                              </div>
+                                          )}
+                                      </div>
+                                  </li>
+                              );
+                          }
+                          const isSelected = selectedCategoryCode === cat.code;
+                          const isTargeted = wbsDropTarget?.code === cat.code;
+                          return (
+                           <li key={cat.id} className={`relative transition-all group/wbsrow-container ${!cat.isEnabled ? 'opacity-40 grayscale' : ''} ${lastMovedItemId === cat.code ? 'highlight-move' : ''}`} onDragOver={(e) => handleWbsDragOver(e, cat.code)} onDrop={(e) => handleWbsDrop(e, cat.code)}>
+                              {isTargeted && wbsDropTarget?.position === 'top' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -top-1 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_15px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,1)]'}`}></div>)}
+                              <div draggable onDragStart={(e) => handleWbsDragStart(e, cat.code)} onDragEnd={() => setDraggedCategoryCode(null)} className="cursor-pointer group/wbsrow" onClick={() => setSelectedCategoryCode(prev => prev === cat.code ? '' : cat.code)}>
+                                  <div className={`w-full text-left rounded-2xl border transition-all duration-300 flex flex-col relative overflow-visible shadow-sm ${isSelected ? (activeWbsContext === 'safety' ? 'bg-orange-50 border-l-[8px] border-orange-500 shadow-xl scale-[1.02] py-3.5' : 'bg-blue-50 border-l-[8px] border-blue-500 shadow-xl scale-[1.02] py-3.5') : 'bg-slate-50 border-slate-200 hover:bg-white py-1.5'} ${(isDraggingArticle || isDraggingAnalysis) && isTargeted ? 'ring-4 ring-green-500 border-green-600 z-50 shadow-[0_0_20px_rgba(34,197,94,0.4)]' : ''}`} style={{ borderLeftColor: isSelected ? undefined : (cat.color || 'transparent') }}>
+                                      <div className="px-3.5 h-full flex flex-col justify-between">
+                                          <div className="flex flex-row justify-between items-start">
+                                              <div className="flex-1 overflow-hidden"><div className="flex items-center gap-2 mb-0.5"><span className={`text-[8px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm text-white`} style={{ backgroundColor: isSelected ? (activeWbsContext === 'safety' ? '#EA580C' : '#2563EB') : (cat.color || (activeWbsContext === 'safety' ? '#F97316' : '#3B82F6')) }}>{cat.code}</span>{cat.soaCategory && <span className={`text-[7px] font-black uppercase px-1 rounded border ${isSelected ? (activeWbsContext === 'safety' ? 'border-orange-200 bg-orange-100 text-orange-800' : 'border-blue-200 bg-blue-100 text-blue-800') : 'border-slate-200 bg-white text-slate-400'}`}>{cat.soaCategory}</span>}{cat.isLocked && <Lock className="w-2.5 h-2.5 text-red-500" />}</div><span className={`font-black block whitespace-normal uppercase leading-tight transition-all ${isSelected ? (activeWbsContext === 'safety' ? 'text-orange-900 text-[11px]' : 'text-blue-900 text-[11px]') : 'text-slate-600 text-[9px] truncate'}`}>{cat.name}</span></div>
+                                              <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2"><span className={`font-mono font-black text-[12px] ${isSelected ? (activeWbsContext === 'safety' ? 'text-orange-700' : 'text-blue-700') : 'text-slate-500'}`}>{formatCurrency(categoryTotals[cat.code] || 0)}</span><div className="flex gap-1 opacity-0 group-hover/wbsrow-container:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); handleEditCategory(cat); }} className={`p-1.5 bg-white rounded-lg border transition-all ${activeWbsContext === 'safety' ? 'border-orange-200 text-orange-600 hover:bg-orange-500 hover:text-white' : 'border-blue-200 text-blue-600 hover:bg-blue-500 hover:text-white'}`}><Settings className="w-3.3 h-3.3" /></button></div></div>
+                                          </div>
+                                      </div>
+                                  </div>
+                              </div>
+                              {isTargeted && wbsDropTarget?.position === 'bottom' && !isDraggingArticle && !isDraggingAnalysis && (<div className={`absolute -bottom-1 left-0 right-0 h-1.5 z-[60] rounded-full animate-pulse ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-[0_0_15px_rgba(234,88,12,1)]' : 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,1)]'}`}></div>)}
+                          </li>
+                          )})}
+                          <li onDragOver={(e) => handleWbsDragOver(e, 'WBS_BOTTOM_TARGET')} onDrop={(e) => handleWbsDrop(e, null)} className={`h-24 transition-all flex flex-col justify-start pt-2 ${wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' ? (activeWbsContext === 'safety' ? 'bg-orange-600/5' : 'bg-blue-600/5') : ''}`}>{wbsDropTarget?.code === 'WBS_BOTTOM_TARGET' && (<div className={`h-1.5 shadow-[0_0_12px_rgba(59,130,246,0.8)] rounded-full animate-pulse mx-4 ${activeWbsContext === 'safety' ? 'bg-orange-600 shadow-orange-600/80' : 'bg-blue-600 shadow-blue-600/80'}`} />)}</li>
+                      </ul>
+                    </div>
+                  </>
+                )}
                 </div>
             )}
             <div className={`flex-1 flex flex-col h-full overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''} ${draggedCategoryCode ? 'pointer-events-none select-none opacity-50' : ''}`}>
@@ -2830,58 +3131,86 @@ const App: React.FC = () => {
                    <div className="flex-1 overflow-y-auto p-12 bg-white"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} analyses={analyses} /></div>
                ) : viewMode === 'CRONOPROGRAMMA' ? (
                    <div className="flex-1 overflow-hidden"><ScheduleView categories={categories} articles={articles} projectInfo={projectInfo} offsets={scheduleOffsets} teamSizes={teamSizes} onOffsetChange={(id, val) => setScheduleOffsets(prev => ({ ...prev, [id]: val }))} onTeamSizeChange={(id, val) => setTeamSizes(prev => ({ ...prev, [id]: val }))} onReorderCategories={(newCats) => { const result = renumberCategories(newCats, articles); updateState(result.newArticles, result.newCategories); }} /></div>
-               ) : (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA' || viewMode === 'ANALISI') && activeCategory ? (
-                   <>
-                   {viewMode !== 'ANALISI' && !isFocusMode && (
-                       <div className={`flex items-center justify-between p-5 bg-slate-50 rounded-t-3xl border-2 border-b-0 shadow-lg z-[60] ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
-                            <div className="flex items-center gap-5">
-                                  <div className="flex flex-col items-center gap-2"><div className={`px-4 py-2.5 rounded-2xl font-black text-2xl shadow-inner text-white w-[145px] text-center transition-all duration-500 transform hover:scale-105`} style={{ backgroundColor: viewMode === 'SICUREZZA' ? '#EA580C' : (activeCategory.color || '#3B82F6') }}>{activeCategory.code}</div>{activeCategory.soaCategory && (<div className={`border px-3 py-1 rounded-full flex items-center gap-1.5 font-black text-[10px] uppercase shadow-xs ${viewMode === 'SICUREZZA' ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-purple-100 border-purple-200 text-purple-700'}`}><Award className="w-3 h-3" />Categoria SOA: {activeCategory.soaCategory}</div>)}<div className="flex items-center gap-2"><button onClick={() => handleEditCategory(activeCategory)} title="Impostazioni Capitolo" className={`p-1.5 rounded-lg bg-white border shadow-sm transition-all transform active:scale-95 group relative ${viewMode === 'SICUREZZA' ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-blue-200 text-blue-700 hover:bg-blue-50'}`}><Settings className="w-3.5 h-3.5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Impostazioni</span></button><button onClick={() => setIsFocusMode(true)} title="Focus Mode" className="p-1.5 rounded-lg bg-slate-800 text-white hover:bg-blue-600 shadow-sm transition-all transform active:scale-95 group relative"><Maximize2 className="w-3.5 h-3.5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Full Screen</span></button><button onClick={handleCycleDisplayMode} className={`p-1.5 rounded-lg border transition-all shadow-sm group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : wbsDisplayMode === 2 ? 'bg-blue-800 text-white border-blue-900 animate-pulse' : ''}`}><RefreshCw className={`w-3.5 h-3.5 transition-transform duration-700 ${wbsDisplayMode > 0 ? 'rotate-180' : ''}`} /><div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest p-4 rounded-2xl shadow-2xl opacity-0 group-hover/cycle:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black flex flex-col gap-2 text-center"><div className={`transition-opacity ${wbsDisplayMode === 0 ? 'text-blue-400' : 'opacity-30'}`}>0 - Tutto Aperto</div><div className={`transition-opacity ${wbsDisplayMode === 1 ? 'text-indigo-400' : 'opacity-30'}`}>1 - Revisione</div><div className={`transition-opacity ${wbsDisplayMode === 2 ? 'text-orange-400' : 'opacity-30'}`}>2 - Patto d'Acciaio</div></div></button></div></div>
-                                  <div className="flex flex-col ml-6 justify-center"><div className="flex items-center gap-3"><h2 className={`text-2xl font-black uppercase max-w-[550px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`}>{activeCategory.name}</h2></div><div className="mt-3 flex items-center gap-4"><span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div></div>
-                            </div>
-                            <div className="flex items-center">
-                              {/* HELP IN LINEA PREZZARI - AGGIORNATO */}
-                               <div className="group/listini relative">
-                                <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className={`bg-white border-2 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl transform transition-all active:scale-95 group/btn ${viewMode === 'SICUREZZA' ? 'border-orange-600 text-orange-600 hover:bg-orange-600 hover:text-white' : 'border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white'}`}>
-                                  <Database className="w-5 h-5 animate-pulse" />
-                                  Sorgente Prezzi Ufficiali
-                                  <ExternalLink className="w-4 h-4 opacity-50" />
-                                </a>
-                                
-                                <div className="absolute top-full mt-4 right-0 w-80 bg-slate-950 text-white p-6 rounded-[2.5rem] shadow-2xl opacity-0 group-hover/listini:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
-                                    <h4 className={`font-black uppercase text-[10px] tracking-widest mb-4 flex items-center gap-2 ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`}><Info className="w-4 h-4" /> Supporto Drag & Drop</h4>
-                                    
-                                    <div className="relative h-24 bg-white/5 rounded-2xl mb-4 flex items-center justify-center overflow-hidden border border-white/5">
-                                        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 0)', backgroundSize: '10px 10px' }}></div>
-                                        {/* Animation visualizer */}
-                                        <div className={`w-16 h-10 border-2 border-dashed rounded-lg flex items-center justify-center relative drop-zone-anim ${viewMode === 'SICUREZZA' ? 'border-orange-500/30' : 'border-blue-500/30'}`}>
-                                            <div className="absolute -left-12 top-2 drag-icon-anim">
-                                                <MousePointer2 className="w-6 h-6 text-white drop-shadow-lg" />
-                                                <div className={`w-8 h-4 rounded border border-white/20 -mt-1 ml-2 ${viewMode === 'SICUREZZA' ? 'bg-orange-600/80' : 'bg-blue-600/80'}`}></div>
-                                            </div>
-                                            <CornerRightDown className={`w-4 h-4 opacity-40 ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`} />
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <p className="text-[10px] leading-relaxed">
-                                            <span className={`font-black ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`}>PROCEDURA DI AGGANCIO:</span><br/>
-                                            1. Apri il listino su <b>gecola.it</b><br/>
-                                            2. Trascina la voce desiderata tenendo premuto il <span className="text-white font-bold">tasto sinistro</span> del mouse.<br/>
-                                            3. Portala qui sopra e rilascia <span className={`font-bold ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`}>SOLO quando vedi la luce di aggancio attivo</span>.
-                                        </p>
-                                        <div className={`p-3 rounded-xl border ${viewMode === 'SICUREZZA' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-blue-500/10 border-blue-500/20'}`}>
-                                            <p className={`text-[9px] font-bold ${viewMode === 'SICUREZZA' ? 'text-orange-300' : 'text-blue-300'}`}>GeCoLa Cloud popolerà istantaneamente codice, descrizione, UM e prezzo.</p>
-                                        </div>
-                                    </div>
-                                </div>
-                              </div>
-                            </div>
-                       </div>
-                   )}
-                   {viewMode === 'ANALISI' ? (
-                    <div className="p-10 bg-[#f4f6f8] min-h-full flex-1 overflow-y-auto"><div className="flex justify-between items-end mb-8 border-b-2 border-purple-200 pb-6"><div className="flex items-center gap-6"><div className="bg-purple-600 p-4 rounded-xl shadow-lg ring-4 ring-purple-100"><Database className="w-8 h-8 text-white" /></div><div><h2 className="text-3xl font-black text-slate-800 tracking-tight uppercase italic">Gestionale Analisi Prezzi</h2></div></div><button onClick={() => { setEditingAnalysis(null); setIsAnalysisEditorOpen(true); }} className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl flex items-center gap-3 transition-all transform active:scale-90"><Plus className="w-5 h-5" /> Nuova Analisi</button></div><div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden ring-1 ring-slate-300/50"><table className="w-full text-left border-collapse table-fixed"><thead className="bg-slate-100 border-b-2 border-purple-100 text-slate-500 text-[10px] font-black uppercase tracking-widest"><tr><th className="p-4 w-12 text-center border-r border-slate-200">#</th><th className="p-4 w-14 text-center border-r border-slate-200">D&D</th><th className="p-4 w-28 border-r border-slate-200">Codice</th><th className="p-4 border-r border-slate-200">Oggetto dell'Analisi</th><th className="p-4 w-24 text-center border-r border-slate-200">U.M.</th><th className="p-4 w-36 text-right border-r border-slate-200">Unitario €</th><th className="p-4 w-52 text-center bg-slate-50">Gestionale</th></tr></thead><tbody className="divide-y divide-slate-100">{analyses.map((analysis, index) => { const isCurrentlyDragging = draggedAnalysisId === analysis.id; const isDragOver = analysisDragOverId === analysis.id; return (<tr key={analysis.id} draggable onDragStart={(e) => handleAnalysisRowDragStart(e, analysis.id)} onDragOver={(e) => handleAnalysisRowDragOver(e, analysis.id)} onDragLeave={() => setAnalysisDragOverId(null)} onDrop={(e) => handleAnalysisRowDrop(e, analysis.id)} onDragEnd={() => { setDraggedAnalysisId(null); setIsDraggingAnalysis(false); }} className={`group transition-all ${isCurrentlyDragging ? 'opacity-30' : 'hover:bg-slate-50/80'} ${isDragOver ? (analysisDropPosition === 'top' ? 'border-t-4 border-t-purple-600' : 'border-b-4 border-b-purple-600') : ''} ${lastMovedItemId === analysis.id ? 'highlight-move' : ''}`}><td className="p-4 text-center font-mono text-[10px] text-slate-400 bg-slate-50/50 border-r border-slate-100">{index + 1}</td><td className="p-4 text-center border-r border-slate-100"><GripVertical className="w-5 h-5 mx-auto text-slate-300 group-hover:text-purple-600 cursor-grab active:cursor-grabbing" /></td><td className="p-4 border-r border-slate-100"><span className="bg-purple-50 text-purple-700 border border-purple-200 font-black font-mono text-xs px-3 py-1 rounded-lg shadow-sm">{analysis.code}</span></td><td className="p-4 border-r border-slate-100"><p className="font-bold text-slate-700 text-xs leading-relaxed line-clamp-2 uppercase tracking-tighter">{analysis.description}</p></td><td className="p-4 text-center border-r border-slate-100"><span className="text-[10px] font-black text-slate-500 uppercase px-2 py-1 bg-slate-100 rounded border border-slate-200">{analysis.unit}</span></td><td className="p-4 text-right border-r border-slate-100"><span className="text-lg font-black text-purple-800 font-mono tracking-tighter leading-none">{formatCurrency(analysis.totalUnitPrice)}</span></td><td className="p-4 text-center bg-slate-50/30"><div className="flex items-center justify-center gap-1.5 px-2"><button onClick={() => handleImportAnalysisToArticle(analysis)} className="bg-emerald-600 text-white p-2 rounded-lg shadow-lg hover:bg-emerald-700 transition-all flex items-center gap-2 px-3 transform active:scale-90" title="Importa in Computo"><ArrowRight className="w-3.5 h-3.5" /><span className="text-[9px] font-black uppercase">Importa</span></button><button onClick={() => { setEditingAnalysis(analysis); setIsAnalysisEditorOpen(true); }} className="bg-white border border-slate-200 text-slate-600 hover:text-purple-600 hover:border-purple-300 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Modifica"><PenLine className="w-4 h-4" /></button><button onClick={() => { const newAnalyses = analyses.map(an => an.id === analysis.id ? { ...an, isLocked: !an.isLocked } : an); updateState(articles, categories, newAnalyses); }} className={`p-2 rounded-lg border transition-all transform active:scale-90 ${analysis.isLocked ? 'text-red-600 bg-red-50 border-red-200' : 'text-slate-400 bg-white border-slate-200 hover:text-blue-600'}`}>{analysis.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}</button><button onClick={() => handleDeleteAnalysis(analysis.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 p-2 rounded-lg shadow-sm transition-all transform active:scale-90" title="Elimina"><Trash2 className="w-4 h-4" /></button></div></td></tr>); })}</tbody></table></div></div>
+               ) : viewMode === 'ANALISI' ? (
+                   currentActiveAnalysis ? (
+                     <PriceAnalysisWorkspace
+                       analysis={currentActiveAnalysis}
+                       onUpdateAnalysis={handleUpdateActiveAnalysis}
+                       projectInfo={projectInfo}
+                       onImportToComputo={handleImportAnalysisToArticle}
+                       onDuplicateAnalysis={handleDuplicateAnalysis}
+                       selectedGroupFilter={selectedAnalysisGroupFilter}
+                       onSelectGroupFilter={setSelectedAnalysisGroupFilter}
+                     />
                    ) : (
+                     <div className="flex-1 flex flex-col items-center justify-center p-12 bg-slate-50 text-center">
+                       <div className="p-8 bg-white border-2 border-purple-200 rounded-3xl max-w-lg shadow-xl text-center space-y-4">
+                         <div className="w-16 h-16 bg-purple-100 text-purple-700 rounded-2xl mx-auto flex items-center justify-center shadow-inner">
+                           <TestTubes className="w-8 h-8" />
+                         </div>
+                         <div>
+                           <h3 className="text-xl font-black uppercase text-slate-900 tracking-tight">Nessuna Tariffa Analitica Presente</h3>
+                           <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                             Crea una nuova tariffa analitica strutturata in 3 gruppi (Materiali, Manodopera e Noli) con righi di misura identici al computo metrico, scorporo automatico di spese generali e utile, e inserimento rapido da prezzari regionali con drag & drop.
+                           </p>
+                         </div>
+                         <button
+                           onClick={handleCreateNewAnalysis}
+                           className="bg-purple-700 hover:bg-purple-800 text-white font-black uppercase text-xs px-6 py-3 rounded-2xl shadow-lg shadow-purple-300 flex items-center justify-center gap-2 mx-auto transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                         >
+                           <Plus className="w-4 h-4" />
+                           <span>Crea Nuova Analisi Prezzo</span>
+                         </button>
+                       </div>
+                     </div>
+                   )
+               ) : (viewMode === 'COMPUTO' || viewMode === 'SICUREZZA') && activeCategory ? (
                    <>
+                   {!isFocusMode && (
+                        <div className={`flex items-center justify-between p-5 bg-slate-50 rounded-t-3xl border-2 border-b-0 shadow-lg z-[60] ${viewMode === 'SICUREZZA' ? 'border-orange-600' : 'border-blue-700'}`}>
+                             <div className="flex items-center gap-5">
+                                   <div className="flex flex-col items-center gap-2"><div className={`px-4 py-2.5 rounded-2xl font-black text-2xl shadow-inner text-white w-[145px] text-center transition-all duration-500 transform hover:scale-105`} style={{ backgroundColor: viewMode === 'SICUREZZA' ? '#EA580C' : (activeCategory.color || '#3B82F6') }}>{activeCategory.code}</div>{activeCategory.soaCategory && (<div className={`border px-3 py-1 rounded-full flex items-center gap-1.5 font-black text-[10px] uppercase shadow-xs ${viewMode === 'SICUREZZA' ? 'bg-orange-100 border-orange-200 text-orange-700' : 'bg-purple-100 border-purple-200 text-purple-700'}`}><Award className="w-3 h-3" />Categoria SOA: {activeCategory.soaCategory}</div>)}<div className="flex items-center gap-2"><button onClick={() => handleEditCategory(activeCategory)} title="Impostazioni Capitolo" className={`p-1.5 rounded-lg bg-white border shadow-sm transition-all transform active:scale-95 group relative ${viewMode === 'SICUREZZA' ? 'border-orange-200 text-orange-600 hover:bg-orange-50' : 'border-blue-200 text-blue-700 hover:bg-blue-50'}`}><Settings className="w-3.5 h-3.5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Impostazioni</span></button><button onClick={() => setIsFocusMode(true)} title="Focus Mode" className="p-1.5 rounded-lg bg-slate-800 text-white hover:bg-blue-600 shadow-sm transition-all transform active:scale-95 group relative"><Maximize2 className="w-3.5 h-3.5" /><span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[7px] font-black uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap z-[9999]">Full Screen</span></button><button onClick={handleCycleDisplayMode} className={`p-1.5 rounded-lg border transition-all shadow-sm group/cycle relative transform active:scale-95 ${wbsDisplayMode === 0 ? 'bg-white text-slate-400 border-slate-200 hover:border-blue-400' : wbsDisplayMode === 1 ? 'bg-indigo-600 text-white border-indigo-700' : wbsDisplayMode === 2 ? 'bg-blue-800 text-white border-blue-900 animate-pulse' : ''}`}><RefreshCw className={`w-3.5 h-3.5 transition-transform duration-700 ${wbsDisplayMode > 0 ? 'rotate-180' : ''}`} /><div className="absolute top-full mt-4 left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest p-4 rounded-2xl shadow-2xl opacity-0 group-hover/cycle:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black flex flex-col gap-2 text-center"><div className={`transition-opacity ${wbsDisplayMode === 0 ? 'text-blue-400' : 'opacity-30'}`}>0 - Tutto Aperto</div><div className={`transition-opacity ${wbsDisplayMode === 1 ? 'text-indigo-400' : 'opacity-30'}`}>1 - Revisione</div><div className={`transition-opacity ${wbsDisplayMode === 2 ? 'text-orange-400' : 'opacity-30'}`}>2 - Patto d'Acciaio</div></div></button></div></div>
+                                   <div className="flex flex-col ml-6 justify-center"><div className="flex items-center gap-3"><h2 className={`text-2xl font-black uppercase max-w-[550px] whitespace-normal leading-tight tracking-tight ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`}>{activeCategory.name}</h2></div><div className="mt-3 flex items-center gap-4"><span className={`text-3xl font-mono font-black ${viewMode === 'SICUREZZA' ? 'text-orange-600' : 'text-blue-600'}`}>{formatCurrency(categoryTotals[activeCategory.code] || 0)}</span></div></div>
+                             </div>
+                             <div className="flex items-center">
+                               {/* HELP IN LINEA PREZZARI - AGGIORNATO */}
+                                <div className="group/listini relative">
+                                 <a href="https://www.gecola.it/home/listini" target="_blank" rel="noopener noreferrer" className={`bg-white border-2 px-8 py-4 rounded-2xl font-black text-xs uppercase flex items-center gap-3 shadow-xl transform transition-all active:scale-95 group/btn ${viewMode === 'SICUREZZA' ? 'border-orange-600 text-orange-600 hover:bg-orange-600 hover:text-white' : 'border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white'}`}>
+                                   <Database className="w-5 h-5 animate-pulse" />
+                                   Sorgente Prezzi Ufficiali
+                                   <ExternalLink className="w-4 h-4 opacity-50" />
+                                 </a>
+                                 
+                                 <div className="absolute top-full mt-4 right-0 w-80 bg-slate-950 text-white p-6 rounded-[2.5rem] shadow-2xl opacity-0 group-hover/listini:opacity-100 pointer-events-none transition-all z-[9999] border border-white/10 ring-1 ring-black">
+                                     <h4 className={`font-black uppercase text-[10px] tracking-widest mb-4 flex items-center gap-2 ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`}><Info className="w-4 h-4" /> Supporto Drag & Drop</h4>
+                                     
+                                     <div className="relative h-24 bg-white/5 rounded-2xl mb-4 flex items-center justify-center overflow-hidden border border-white/5">
+                                         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 0)', backgroundSize: '10px 10px' }}></div>
+                                         <div className={`w-16 h-10 border-2 border-dashed rounded-lg flex items-center justify-center relative drop-zone-anim ${viewMode === 'SICUREZZA' ? 'border-orange-500/30' : 'border-blue-500/30'}`}>
+                                             <div className="absolute -left-12 top-2 drag-icon-anim">
+                                                 <MousePointer2 className="w-6 h-6 text-white drop-shadow-lg" />
+                                                 <div className={`w-8 h-4 rounded border border-white/20 -mt-1 ml-2 ${viewMode === 'SICUREZZA' ? 'bg-orange-600/80' : 'bg-blue-600/80'}`}></div>
+                                             </div>
+                                             <CornerRightDown className={`w-4 h-4 opacity-40 ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`} />
+                                         </div>
+                                     </div>
+
+                                     <div className="space-y-4">
+                                         <p className="text-[10px] leading-relaxed">
+                                             <span className={`font-black ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`}>PROCEDURA DI AGGANCIO:</span><br/>
+                                             1. Apri il listino su <b>gecola.it</b><br/>
+                                             2. Trascina la voce desiderata tenendo premuto il <span className="text-white font-bold">tasto sinistro</span> del mouse.<br/>
+                                             3. Portala qui sopra e rilascia <span className={`font-bold ${viewMode === 'SICUREZZA' ? 'text-orange-400' : 'text-blue-400'}`}>SOLO quando vedi la luce di aggancio attivo</span>.
+                                         </p>
+                                         <div className={`p-3 rounded-xl border ${viewMode === 'SICUREZZA' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-blue-500/10 border-blue-500/20'}`}>
+                                             <p className={`text-[9px] font-bold ${viewMode === 'SICUREZZA' ? 'text-orange-300' : 'text-blue-300'}`}>GeCoLa Cloud popolerà istantaneamente codice, descrizione, UM e prezzo.</p>
+                                         </div>
+                                     </div>
+                                 </div>
+                               </div>
+                             </div>
+                        </div>
+                   )}
                    {/* BARRA INTESTAZIONI FISSA E IMMOBILE - NON SI SPOSTA E NON SPARISCE MAI */}
                    <div 
                      className={`px-6 bg-slate-100 border-x border-slate-200/90 z-30 select-none shadow-xs flex-shrink-0 computo-header-container ${viewMode === 'SICUREZZA' ? 'border-orange-200/80' : 'border-blue-200/80'}`}
@@ -2940,8 +3269,6 @@ const App: React.FC = () => {
                       </div>
                    </div>
                    </>
-                   )}
-                   </>
                ) : (<div className="p-20 text-center text-gray-400 uppercase font-black opacity-20 text-3xl">Seleziona una sezione</div>)}
             </div>
           </div>
@@ -2950,7 +3277,7 @@ const App: React.FC = () => {
           {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
           <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '' }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
           <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
-          <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} />
+          <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} projectInfo={projectInfo} />
           {wbsOptionsContext && <WbsImportOptionsModal isOpen={!!wbsOptionsContext} onClose={() => setWbsOptionsContext(null)} onChoice={handleWbsActionChoice} initialName={wbsOptionsContext?.initialName || ''} isImport={wbsOptionsContext?.type === 'import'} />}
           <ImportAnalysisModal isOpen={isImportAnalysisModalOpen} onClose={() => setIsImportAnalysisModalOpen(false)} analyses={analyses} onImport={handleImportAnalysisToArticle} onCreateNew={() => { setIsImportAnalysisModalOpen(false); handleAddEmptyArticle(activeCategoryForAi || selectedCategoryCode); }} />
           <BulkGeneratorModal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} onGenerate={handleBulkGenerateLocal} isLoading={isGenerating} region={projectInfo.region} year={projectInfo.year} />

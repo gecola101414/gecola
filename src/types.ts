@@ -43,15 +43,29 @@ export interface Article {
   displayMode?: number; 
   soaCategory?: string; 
   groundingUrls?: any[];
+  includesMarkup?: boolean; // Spuntatura: true se già comprensivo di Spese Generali e Utile d'Impresa
+}
+
+export interface AnalysisMeasurement {
+  id: string;
+  description: string;
+  multiplier?: number;
+  length?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface AnalysisComponent {
   id: string;
   type: 'material' | 'labor' | 'equipment' | 'general';
+  code?: string;
   description: string;
   unit: string;
   unitPrice: number;
   quantity: number;
+  includesMarkup?: boolean;
+  measurements?: AnalysisMeasurement[];
+  sourcePriceList?: string;
 }
 
 export interface PriceAnalysis {
@@ -60,9 +74,11 @@ export interface PriceAnalysis {
   description: string;
   unit: string;
   analysisQuantity: number;
-  components: AnalysisComponent[];
+  articles?: Article[];
+  components?: AnalysisComponent[];
   generalExpensesRate: number;
   profitRate: number;
+  markupMode?: 'exclude_from_markup' | 'unbundle_and_reapply';
   isLocked?: boolean;
   totalMaterials: number;
   totalLabor: number;
@@ -72,6 +88,8 @@ export interface PriceAnalysis {
   valoreUtile: number;
   totalBatchValue: number;
   totalUnitPrice: number;
+  totalNetItems?: number;
+  totalInclusiveItems?: number;
 }
 
 export interface ProjectInfo {

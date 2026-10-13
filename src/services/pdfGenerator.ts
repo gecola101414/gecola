@@ -1,5 +1,5 @@
 
-import { Article, Category, ProjectInfo, Measurement, PriceAnalysis } from '../types';
+import { Article, Category, ProjectInfo, Measurement, PriceAnalysis, AnalysisComponent, AnalysisMeasurement } from '../types';
 import { REBAR_WEIGHTS } from '../constants';
 
 // --- HELPER: Number to Text (Italian Simple Implementation) ---
@@ -76,10 +76,29 @@ const getWbsNumber = (code: string) => {
     return code;
 };
 
+const sanitizeTextForPdf = (text: string | undefined | null): string => {
+    if (!text) return '';
+    return text
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2013\u2014]/g, '-')
+        .replace(/\u2026/g, '...')
+        .replace(/\u2265/g, '>=')
+        .replace(/\u2264/g, '<=')
+        .replace(/\u2260/g, '!=')
+        .replace(/\u2248/g, '~')
+        .replace(/\u00B1/g, '+/-')
+        .replace(/[\u03BB\u019B]/g, 'lambda')
+        .replace(/\u039B/g, 'Lambda')
+        .replace(/\u03BC/g, '\u00B5')
+        .replace(/\u00F7/g, '/')
+        .replace(/\u20AC/g, '€');
+};
+
 const cleanText = (text: string | undefined | null): string => {
     if (!text) return '';
-    // Rimuove spazi multipli, tab e ritorni a capo per una pulizia totale
-    let cleaned = text.replace(/\s+/g, ' ').trim();
+    // Sanitizza caratteri speciali non compatibili con le metriche dei font PDF standard
+    let cleaned = sanitizeTextForPdf(text).replace(/\s+/g, ' ').trim();
     
     // Aggiunge un punto finale se mancante (evitando se finisce già con punteggiatura standard)
     if (cleaned.length > 0 && !/[.!?:]$/.test(cleaned)) {
@@ -154,8 +173,8 @@ const formatTariffCode = (
  * Motore di Giustificazione Tipografica Professionale per jsPDF:
  * Distribuisce equamente lo spazio residuo tra le parole della riga
  * fino a raggiungere l'esatta larghezza della colonna, senza sbordare,
- * senza creare parole isolate ("in", "base") e preservando l'allineamento
- * naturale a sinistra per l'ultima riga del paragrafo.
+ * garantendo che l'ultima parola rimanga rigorosamente entro il margine destro
+ * e preservando l'allineamento naturale a sinistra per l'ultima riga del paragrafo.
  */
 const drawJustifiedLine = (
     doc: any,
@@ -169,27 +188,43 @@ const drawJustifiedLine = (
     if (!trimmed) return;
     const words = trimmed.split(/\s+/);
     
+    // Se è l'ultima riga del paragrafo o c'è una sola parola, allinea a sinistra normalmente
     if (isLastLine || words.length <= 1) {
         doc.text(trimmed, x, y);
         return;
     }
     
-    const naturalWidth = doc.getTextWidth(trimmed);
-    const spaceToFill = contentWidth - naturalWidth;
-    const numGaps = words.length - 1;
-    const extraPerGap = numGaps > 0 ? spaceToFill / numGaps : 0;
+    // Calcola la larghezza esatta di ogni parola con il font e la dimensione correnti di jsPDF
+    let totalWordsWidth = 0;
+    const wordWidths = words.map(w => {
+        const wWidth = doc.getTextWidth(w);
+        totalWordsWidth += wWidth;
+        return wWidth;
+    });
     
-    // Giustificazione totale su tutte le righe intermedie per riempire uniformemente la colonna
-    if (spaceToFill > 0) {
-        let currentX = x;
-        const standardSpaceWidth = doc.getTextWidth(' ') + extraPerGap;
-        for (let i = 0; i < words.length; i++) {
-            const word = words[i];
-            doc.text(word, currentX, y);
-            currentX += doc.getTextWidth(word) + standardSpaceWidth;
-        }
-    } else {
+    const numGaps = words.length - 1;
+    const availableGapSpace = contentWidth - totalWordsWidth;
+    const standardSpaceWidth = doc.getTextWidth(' ');
+    const calculatedGap = numGaps > 0 ? availableGapSpace / numGaps : standardSpaceWidth;
+    
+    // Se lo spazio per i gap è insufficiente o se il gap risulterebbe innaturale/eccessivo (> 2.8 volte lo spazio normale o < 0.4),
+    // disegna il testo con spaziatura standard senza forzare la giustificazione per evitare sbordature
+    if (availableGapSpace <= 0 || calculatedGap > standardSpaceWidth * 2.8 || calculatedGap < standardSpaceWidth * 0.4) {
         doc.text(trimmed, x, y);
+        return;
+    }
+    
+    // Distribuzione millimetrica: prima parola a x, ultima parola allineata a filo a destra su (x + contentWidth)
+    let curX = x;
+    for (let i = 0; i < words.length; i++) {
+        if (i === words.length - 1) {
+            // Garanzia matematica anti-sbordatura: l'ultima parola termina esattamente su x + contentWidth
+            const lastWordX = x + contentWidth - wordWidths[i];
+            doc.text(words[i], Math.max(curX, lastWordX), y);
+        } else {
+            doc.text(words[i], curX, y);
+            curX += wordWidths[i] + calculatedGap;
+        }
     }
 };
 
@@ -197,11 +232,11 @@ const drawJustifiedLine = (
  * Inserisce un "soft break" (spazio suggerito) in parole tecniche estremamente lunghe
  * che altrimenti romperebbero i bordi della colonna (es. codici tariffa infiniti o percorsi file).
  */
-const softBreakLongWords = (text: string, maxLength: number = 30): string => {
+const softBreakLongWords = (text: string, maxLength: number = 26): string => {
     if (!text) return '';
     return text.split(' ').map(word => {
         if (word.length <= maxLength) return word;
-        return word.replace(/([/|:=])(?=[^ ])/g, '$1 ')
+        return word.replace(/([/|:=_,.-])(?=[^ ])/g, '$1 ')
                    .replace(new RegExp(`(.{${maxLength}})`, 'g'), '$1 ');
     }).join(' ');
 };
@@ -487,6 +522,9 @@ const appendWbsToPdfBody = (tableBody: any[], cat: Category, articles: Article[]
         const gNum = globalCounter.current++;
 
         let finalDescription = cleanText(art.description);
+        if (art.linkedAnalysisId && !finalDescription.includes('Analisi Prezzi')) {
+            finalDescription += ' (Nuovo Prezzo determinato con Analisi Prezzi allegata)';
+        }
         if (projectInfo.descriptionLength === 'short') {
             doc.setFontSize(8.5);
             const splitLines = doc.splitTextToSize(finalDescription, 55); 
@@ -1330,6 +1368,56 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
           9: { cellWidth: 16, halign: 'right' }
       },
       headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      willDrawCell: (data: any) => {
+          if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isArtDesc) {
+              data.cell._linesToDraw = [...data.cell.text];
+              data.cell.text = [];
+          }
+      },
+      didDrawCell: (data: any) => {
+          if (data.column.index === 2 && data.section === 'body' && data.cell._linesToDraw) {
+              const cell = data.cell;
+              const padLeft = cell.padding('left');
+              const padRight = cell.padding('right');
+              const contentWidth = cell.width - padLeft - padRight;
+              const pos = cell.getTextPos();
+              const fontSize = cell.styles.fontSize || 8.5;
+              const factor = doc.getLineHeightFactor ? doc.getLineHeightFactor() : 1.15;
+              const lineHeight = (fontSize / doc.internal.scaleFactor) * factor;
+              
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(fontSize);
+              doc.setTextColor(20, 20, 20);
+              
+              let curY = pos.y;
+              data.cell._linesToDraw.forEach((l: string, idx: number) => {
+                  const isLast = idx === data.cell._linesToDraw.length - 1;
+                  drawJustifiedLine(doc, l, pos.x, curY, contentWidth, isLast);
+                  curY += lineHeight;
+              });
+          }
+          if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+              const textStr = data.cell.raw.content;
+              const lines = textStr.split('\n');
+              if (lines.length >= 2) {
+                  const x = data.cell.x + data.cell.width / 2;
+                  let y = data.cell.y + 4.5;
+                  doc.setFont("helvetica", 'bold');
+                  doc.setFontSize(10.5);
+                  doc.text(lines[0], x, y, { align: 'center' });
+                  y += 4.5;
+                  doc.setFont("helvetica", 'normal');
+                  doc.setFontSize(7.5);
+                  doc.text(lines[1], x, y, { align: 'center' });
+                  return false;
+              }
+          }
+      },
+      didParseCell: (data: any) => {
+          if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
+              data.cell.text = [];
+          }
+      },
       didDrawPage: (data: any) => {
           const currentTableStartY = data.pageNumber === 1 ? 44 : 38;
           const defaultTableEndY = pageHeight - 25;
@@ -1886,6 +1974,231 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
     } catch (e) { alert("Errore Manodopera."); }
 };
 
+/**
+ * Ricalcola e normalizza tutti i totali matematici di un\'analisi prezzi
+ * garantendo coerenza assoluta tra costi elementari, ricarichi e prezzo finale.
+ */
+const ensureAnalysisTotals = (an: PriceAnalysis): PriceAnalysis => {
+    const components = an.components || [];
+    const sgRate = (an.generalExpensesRate !== undefined ? an.generalExpensesRate : 15) / 100;
+    const uRate = (an.profitRate !== undefined ? an.profitRate : 10) / 100;
+    const compoundMultiplier = (1 + sgRate) * (1 + uRate);
+    const analysisQuantity = (an.analysisQuantity && an.analysisQuantity > 0) ? an.analysisQuantity : 1;
+
+    let totalMaterials = 0;
+    let totalLabor = 0;
+    let totalEquipment = 0;
+    let totalNetItems = 0;
+    let totalInclusiveItems = 0;
+
+    let totalTechnicalCost = 0;
+    let totalOverhead = 0;
+    let totalProfit = 0;
+
+    components.forEach(comp => {
+        let qty = comp.quantity || 0;
+        if (comp.measurements && comp.measurements.length > 0) {
+            const computedQty = comp.measurements.reduce((sum, m) => {
+                const hasDims = m.length !== undefined || m.width !== undefined || m.height !== undefined;
+                const mult = m.multiplier !== undefined ? m.multiplier : (hasDims ? 1 : 0);
+                const l = m.length !== undefined ? m.length : 1;
+                const w = m.width !== undefined ? m.width : 1;
+                const h = m.height !== undefined ? m.height : 1;
+                const rowVal = hasDims ? (mult * l * w * h) : mult;
+                return sum + rowVal;
+            }, 0);
+            if (computedQty > 0 || comp.measurements.some(m => (m.description || '').trim() !== '')) {
+                qty = computedQty;
+            }
+        }
+
+        const amount = qty * (comp.unitPrice || 0);
+        if (comp.type === 'material') totalMaterials += amount;
+        else if (comp.type === 'labor') totalLabor += amount;
+        else if (comp.type === 'equipment') totalEquipment += amount;
+
+        if (comp.includesMarkup) {
+            totalInclusiveItems += amount;
+            const netBase = compoundMultiplier > 0 ? (amount / compoundMultiplier) : amount;
+            const sgPart = netBase * sgRate;
+            const uPart = (netBase + sgPart) * uRate;
+            totalTechnicalCost += netBase;
+            totalOverhead += sgPart;
+            totalProfit += uPart;
+        } else {
+            totalNetItems += amount;
+            const netBase = amount;
+            const sgPart = netBase * sgRate;
+            const uPart = (netBase + sgPart) * uRate;
+            totalTechnicalCost += netBase;
+            totalOverhead += sgPart;
+            totalProfit += uPart;
+        }
+    });
+
+    const totalBatchValue = totalTechnicalCost + totalOverhead + totalProfit;
+    const totalUnitPrice = analysisQuantity > 0 ? (totalBatchValue / analysisQuantity) : totalBatchValue;
+
+    return {
+        ...an,
+        analysisQuantity,
+        totalMaterials,
+        totalLabor,
+        totalEquipment,
+        costoTecnico: totalTechnicalCost,
+        totalNetItems,
+        totalInclusiveItems,
+        valoreSpese: totalOverhead,
+        valoreUtile: totalProfit,
+        totalBatchValue,
+        totalUnitPrice,
+    };
+};
+
+/**
+ * Formatta con precisione le quantità analitiche (fino a 4 decimali se presenti frazioni millesimali)
+ */
+const formatQuantityAnalysis = (val: number | undefined | null): string => {
+    if (val === undefined || val === null) return '0,00';
+    const decStr = val.toString().split('.')[1] || '';
+    const minDecs = 2;
+    const maxDecs = decStr.length > 2 ? Math.min(4, Math.max(2, decStr.length)) : 2;
+    return new Intl.NumberFormat('it-IT', { 
+        minimumFractionDigits: minDecs, 
+        maximumFractionDigits: maxDecs, 
+        useGrouping: true 
+    }).format(val);
+};
+
+/**
+ * Renderizza un intero paragrafo con giustificazione millimetrica riga per riga per riempire la colonna
+ */
+const drawJustifiedParagraph = (
+    doc: any,
+    text: string,
+    x: number,
+    startY: number,
+    maxWidth: number,
+    fontSize: number = 8.5,
+    fontStyle: string = 'normal',
+    textColor: [number, number, number] = [20, 20, 20],
+    lineHeightFactor: number = 1.25
+): number => {
+    if (!text) return startY;
+    doc.setFont("helvetica", fontStyle);
+    doc.setFontSize(fontSize);
+    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+    const factor = doc.getLineHeightFactor ? doc.getLineHeightFactor() : lineHeightFactor;
+    const lineHeight = (fontSize / doc.internal.scaleFactor) * factor;
+
+    const paragraphs = text.split('\n');
+    let curY = startY;
+
+    paragraphs.forEach(p => {
+        const cleaned = softBreakLongWords(cleanText(p));
+        if (!cleaned.trim()) {
+            curY += lineHeight * 0.4;
+            return;
+        }
+        const lines = doc.splitTextToSize(cleaned, maxWidth);
+        lines.forEach((l: string, idx: number) => {
+            const isLast = idx === lines.length - 1;
+            drawJustifiedLine(doc, l, x, curY, maxWidth, isLast);
+            curY += lineHeight;
+        });
+        curY += lineHeight * 0.2;
+    });
+
+    return curY;
+};
+
+/**
+ * Traccia il blocco delle firme contrattuali tri-partite (Appaltatore, D.L./Progettista, Committente/R.U.P.)
+ * con data e sigillo di conformità crittografica.
+ */
+const drawContractualAnalysisSignature = (
+    doc: any,
+    projectInfo: ProjectInfo,
+    yPos: number,
+    integrityHash?: string
+) => {
+    const pageHeight = doc.internal.pageSize.height;
+    const pageWidth = doc.internal.pageSize.width;
+    let finalY = yPos + 6;
+    
+    // Spazio necessario per firme e sigillo (almeno 48mm)
+    if (finalY > pageHeight - 52) { 
+        doc.addPage(); 
+        finalY = 22; 
+    }
+    
+    // Data e Luogo
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(60, 70, 85);
+    doc.text(`${projectInfo.location || 'Luogo'}, addì ${projectInfo.date || new Date().toLocaleDateString('it-IT')}`, 10, finalY);
+    
+    finalY += 7;
+    
+    // 3 Colonne di Firma: Impresa, Progettista/D.L., Committente/R.U.P.
+    const colWidth = (pageWidth - 20) / 3; // ~63mm ciascuna
+    const col1X = 10;
+    const col2X = 10 + colWidth;
+    const col3X = 10 + colWidth * 2;
+    
+    // Titoli
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    doc.text("L'APPALTATORE / L'IMPRESA", col1X + colWidth / 2, finalY, { align: 'center' });
+    doc.text("IL PROGETTISTA / D.L.", col2X + colWidth / 2, finalY, { align: 'center' });
+    doc.text("IL COMMITTENTE / IL R.U.P.", col3X + colWidth / 2, finalY, { align: 'center' });
+    
+    // Linee firma
+    doc.setDrawColor(180, 190, 205);
+    doc.setLineWidth(0.2);
+    doc.line(col1X + 6, finalY + 12, col1X + colWidth - 6, finalY + 12);
+    doc.line(col2X + 6, finalY + 12, col2X + colWidth - 6, finalY + 12);
+    doc.line(col3X + 6, finalY + 12, col3X + colWidth - 6, finalY + 12);
+    
+    // Nomi e ruoli sotto la riga
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.8);
+    doc.setTextColor(100, 116, 139);
+    doc.text("(Timbro e Firma per accettazione)", col1X + colWidth / 2, finalY + 16, { align: 'center' });
+    doc.text(projectInfo.designer ? `${projectInfo.designer}` : '(Timbro e Firma)', col2X + colWidth / 2, finalY + 16, { align: 'center' });
+    doc.text(projectInfo.client ? `${projectInfo.client}` : '(Timbro e Firma per approvazione)', col3X + colWidth / 2, finalY + 16, { align: 'center' });
+    
+    // Sigillo di Integrità Digitale SHA-256
+    if (integrityHash) {
+        const boxY = finalY + 21;
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(10, boxY, pageWidth - 20, 11, 1.2, 1.2, 'FD');
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(6.5);
+        doc.setTextColor(30, 58, 138);
+        doc.text("ATTESTAZIONE DI CONFORMITÀ E INTEGRITÀ CONTRATTUALE (D.Lgs. 36/2023 - D.Lgs. 82/2005 CAD)", 13, boxY + 4);
+        
+        doc.setFont("courier", "bold");
+        doc.setFontSize(6.2);
+        doc.setTextColor(15, 23, 42);
+        const formattedHash = integrityHash.toUpperCase().match(/.{1,4}/g)?.join(' ') || integrityHash;
+        doc.text(`IMPRONTA DIGITALE SHA-256: ${formattedHash}`, 13, boxY + 8);
+    }
+};
+
+/**
+ * Genera la stampa ufficiale della Scheda Analisi Prezzi (Documento Contrattuale di Appalto)
+ * Rispetta rigorosamente i requisiti dell'Art. 32 All. I.7 D.Lgs. 36/2023:
+ * - Riporta esattamente ogni voce caricata con le sue quantità e misurazioni di dettaglio
+ * - Descrizioni sempre giustificate per riempire perfettamente la larghezza di colonna
+ * - Quadro economico analitico che spiega matematicamente la formazione del prezzo unitario
+ * - Prezzo unitario evidenziato e scritto per esteso in lettere
+ * - Parametri di incidenza manodopera obbligatori per legge
+ */
 export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyses: PriceAnalysis[]) => {
     try {
         const { jsPDF, autoTable } = await getLibs();
@@ -1893,172 +2206,488 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
         const pageHeight = doc.internal.pageSize.height;
         const pageWidth = doc.internal.pageSize.width;
 
-        if (analyses.length === 0) {
-            alert("Nessuna analisi da stampare.");
+        if (!analyses || analyses.length === 0) {
+            alert("Nessuna analisi dei prezzi presente nel progetto da stampare.");
             return;
         }
 
-        const rawAnalyses = analyses.map(a => `${a.code}:${a.totalUnitPrice}`).join(';');
-        const integrityHash = await computeSha256(`ANALISI PREZZI||${projectInfo.title}||${rawAnalyses}`);
+        // Calcola e normalizza tutte le analisi
+        const normalizedAnalyses = analyses.map(ensureAnalysisTotals);
+        const rawAnalyses = normalizedAnalyses.map(a => `${a.code}:${a.totalUnitPrice}:${a.totalMaterials}:${a.totalLabor}:${a.totalEquipment}`).join(';');
+        const integrityHash = await computeSha256(`ANALISI PREZZI UFFICIALE||${projectInfo.title}||${rawAnalyses}`);
 
-        // 1. PAGINE DELLE SINGOLE ANALISI
-        analyses.forEach((an, idx) => {
+        // Intestazione per le pagine di continuazione
+        const drawContinuationHeader = (pageNo: number, anCode: string) => {
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(112, 38, 143);
+            doc.text(`ANALISI DEI PREZZI UNITARI - Tariffa ${anCode}`, 10, 11);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(6.8);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`Opera: ${projectInfo.title}`, 200, 11, { align: 'right' });
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.2);
+            doc.line(10, 13, 200, 13);
+        };
+
+        // 1. SCHEDE DELLE SINGOLE ANALISI (DOCUMENTO CONTRATTUALE)
+        normalizedAnalyses.forEach((an, idx) => {
             if (idx > 0) doc.addPage();
-            
-            const drawAnalysisHeader = (pageNo: number) => {
-                drawHeaderSimple(doc, projectInfo, "ANALISI DEI PREZZI UNITARI", pageNo);
+
+            // HEADER ISTITUZIONALE DI PRIMA PAGINA DELL'ANALISI
+            doc.setFillColor(248, 250, 252);
+            doc.rect(10, 8, 190, 19, 'F');
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.2);
+            doc.rect(10, 8, 190, 19, 'S');
+
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10.5);
+            doc.setTextColor(30, 41, 59);
+            doc.text("DOCUMENTO CONTRATTUALE - ANALISI DEI PREZZI UNITARI", 105, 14.5, { align: 'center' });
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.setTextColor(100, 116, 139);
+            doc.text("SCHEDA ANALITICA DI DETERMINAZIONE DEL NUOVO PREZZO (D.Lgs. 36/2023 - All. I.7 Art. 32)", 105, 19.5, { align: 'center' });
+
+            // DATI DI PROGETTO
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(30, 41, 59);
+            doc.text(`OGGETTO: ${projectInfo.title || 'Lavori edili di contratto'}`, 10, 32);
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7.2);
+            doc.setTextColor(71, 85, 105);
+            doc.text(`Committente: ${projectInfo.client || 'Committente'}`, 10, 36.5);
+            doc.text(`Progettista / D.L.: ${projectInfo.designer || 'Progettista'}`, 10, 40.5);
+
+            doc.text(`Prezzario di Riferimento: ${projectInfo.region || 'Regionale'} ${projectInfo.year || ''}`, 200, 36.5, { align: 'right' });
+            doc.text(`Luogo e Data: ${projectInfo.location || ''} - ${projectInfo.date || ''}`, 200, 40.5, { align: 'right' });
+
+            doc.setDrawColor(112, 38, 143);
+            doc.setLineWidth(0.4);
+            doc.line(10, 43, 200, 43);
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.15);
+            doc.line(10, 43.8, 200, 43.8);
+
+            let currentY = 48;
+
+            // BOX IDENTIFICATIVO DELLA VOCE DI NUOVO PREZZO
+            doc.setFillColor(248, 250, 252);
+            doc.setDrawColor(180, 190, 205);
+            doc.setLineWidth(0.2);
+            doc.roundedRect(10, currentY, 190, 13, 1.5, 1.5, 'FD');
+
+            // Codice Tariffa
+            doc.setFontSize(13);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(112, 38, 143);
+            doc.text(`TARIFFA / VOCE N.P.: ${an.code || 'N.P.'}`, 14, currentY + 8.5);
+
+            // Dati Lotto
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(71, 85, 105);
+            doc.text("U.M. DI CONTRATTO:", 112, currentY + 5.2);
+            doc.setFontSize(9);
+            doc.setTextColor(30, 41, 59);
+            doc.text(`${an.unit}`, 150, currentY + 5.2);
+
+            doc.setFontSize(7.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(71, 85, 105);
+            doc.text("QUANTITÀ LOTTO ANALIZZATO:", 112, currentY + 10.2);
+            doc.setFontSize(9);
+            doc.setTextColor(112, 38, 143);
+            doc.text(`${formatQuantityAnalysis(an.analysisQuantity)} ${an.unit}`, 196, currentY + 10.2, { align: 'right' });
+
+            currentY += 17;
+
+            // DESIGNAZIONE DELLA VOCE (GIUSTIFICATA PERFETTA SU TUTTA LA COLONNA)
+            doc.setFontSize(7.8);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(30, 41, 59);
+            doc.text("DESIGNAZIONE DELLA LAVORAZIONE (Articolo di Capitolato e Contratto):", 10, currentY);
+            currentY += 4.2;
+
+            currentY = drawJustifiedParagraph(
+                doc,
+                an.description || 'Descrizione non specificata.',
+                10,
+                currentY,
+                190,
+                8,
+                'normal',
+                [30, 41, 59]
+            );
+
+            currentY += 3.5;
+
+            // PREPARAZIONE TABELLA COMPONENTI DEI 3 GRUPPI (MATERIALI, MANODOPERA, NOLI)
+            const matComps = (an.components || []).filter(c => c.type === 'material');
+            const labComps = (an.components || []).filter(c => c.type === 'labor');
+            const eqComps = (an.components || []).filter(c => c.type === 'equipment');
+
+            const tableBody: any[] = [];
+
+            const addGroupToTable = (
+                groupLabel: string, 
+                comps: typeof matComps, 
+                groupType: 'material' | 'labor' | 'equipment'
+            ) => {
+                const fillColor = groupType === 'material' ? [254, 243, 199] : groupType === 'labor' ? [224, 242, 254] : [220, 252, 231];
+                const textColor = groupType === 'material' ? [146, 64, 14] : groupType === 'labor' ? [7, 89, 133] : [22, 101, 52];
+
+                let groupSum = 0;
+                comps.forEach(c => {
+                    const q = c.quantity || 0;
+                    groupSum += q * (c.unitPrice || 0);
+                });
+
+                const groupPerc = an.costoTecnico > 0 ? ((groupSum / an.costoTecnico) * 100).toFixed(1) : '0.0';
+
+                // RIGA DI TESTATA DEL GRUPPO
+                tableBody.push([
+                    { 
+                        content: `${groupLabel}   (Incidenza: ${groupPerc}% sul C.T.D.)`, 
+                        colSpan: 6, 
+                        styles: { fillColor, textColor, fontStyle: 'bold', fontSize: 7.8, cellPadding: { top: 2.2, bottom: 2.2, left: 3 } } 
+                    },
+                    { 
+                        content: `€ ${formatCurrency(groupSum)}`, 
+                        styles: { fillColor, textColor, fontStyle: 'bold', halign: 'right', fontSize: 7.8, cellPadding: { top: 2.2, bottom: 2.2, right: 3 } } 
+                    }
+                ]);
+
+                if (comps.length === 0) {
+                    tableBody.push([
+                        { 
+                            content: 'Nessuna risorsa caricata per questa categoria di costo (Importo parziale: € 0,00).', 
+                            colSpan: 7, 
+                            styles: { fontStyle: 'italic', textColor: [148, 163, 184], halign: 'center', cellPadding: 2, fontSize: 7.2 } 
+                        }
+                    ]);
+                    return;
+                }
+
+                comps.forEach((c, cIdx) => {
+                    const amount = (c.quantity || 0) * (c.unitPrice || 0);
+                    const sourceText = c.sourcePriceList ? `[Fonte: ${c.sourcePriceList}]` : '[Fonte: Listino Riferimento]';
+                    const markupBadge = c.includesMarkup ? '• Già compl. S.G. e Utile' : '• Prezzo Netto fornitore';
+
+                    // Raccoglie la descrizione e le note per la cella
+                    let cellDescLines: string[] = [];
+                    cellDescLines.push(cleanText(c.description));
+                    cellDescLines.push(`${sourceText} ${markupBadge}`);
+
+                    // Se sono presenti misurazioni analitiche di dettaglio, le esponiamo dettagliatamente!
+                    if (c.measurements && c.measurements.length > 0) {
+                        c.measurements.forEach((m, mIdx) => {
+                            const hasDims = m.length !== undefined || m.width !== undefined || m.height !== undefined;
+                            const mult = m.multiplier !== undefined ? m.multiplier : (hasDims ? 1 : 0);
+                            const l = m.length === undefined ? 1 : m.length;
+                            const w = m.width === undefined ? 1 : m.width;
+                            const h = m.height === undefined ? 1 : m.height;
+                            const rVal = hasDims ? (mult * l * w * h) : mult;
+
+                            const dimParts: string[] = [];
+                            if (m.multiplier !== undefined && m.multiplier !== 1) dimParts.push(`Par.ug: ${m.multiplier}`);
+                            if (m.length) dimParts.push(`Lung: ${formatNumber(m.length)}`);
+                            if (m.width) dimParts.push(`Larg: ${formatNumber(m.width)}`);
+                            if (m.height) dimParts.push(`H/P: ${formatNumber(m.height)}`);
+                            const dimStr = dimParts.length > 0 ? ` (${dimParts.join(' • ')})` : '';
+
+                            cellDescLines.push(`  └ Misura ${mIdx + 1}: ${m.description || 'Quota di sviluppo'}${dimStr} => ${formatQuantityAnalysis(rVal)} ${c.unit}`);
+                        });
+                    }
+
+                    tableBody.push([
+                        { content: `${cIdx + 1}`, styles: { halign: 'center', textColor: [100, 116, 139], fontSize: 7.2 } },
+                        { content: c.code || '-', styles: { fontStyle: 'bold', textColor: [30, 41, 59], halign: 'center', fontSize: 7.2 } },
+                        { 
+                            content: cellDescLines.join('\n'), 
+                            styles: { isJustifiedDesc: true, fontStyle: 'normal', fontSize: 7.5, cellPadding: { left: 2.5, right: 2.5, top: 2, bottom: 2 } } 
+                        },
+                        { content: c.unit, styles: { halign: 'center', fontSize: 7.2 } },
+                        { content: formatQuantityAnalysis(c.quantity), styles: { halign: 'right', fontStyle: 'bold', textColor: [15, 23, 42], fontSize: 7.5 } },
+                        { content: formatCurrency(c.unitPrice), styles: { halign: 'right', fontSize: 7.5 } },
+                        { content: formatCurrency(amount), styles: { halign: 'right', fontStyle: 'bold', textColor: [30, 41, 59], fontSize: 7.5 } }
+                    ]);
+                });
             };
 
-            drawAnalysisHeader(1);
-            
-            // PATTO DI FERRO 1: CODICE IN EVIDENZA
-            doc.setFontSize(24);
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(142, 68, 173); // Purple color
-            doc.text(softBreakLongWords(an.code, 15), 12, 55);
+            addGroupToTable("GRUPPO A) MATERIALI E FORNITURE A PIÈ D'OPERA", matComps, 'material');
+            addGroupToTable("GRUPPO B) MANODOPERA (OPERAI E MAESTRANZE)", labComps, 'labor');
+            addGroupToTable("GRUPPO C) NOLI, TRASPORTI E MEZZI D'OPERA", eqComps, 'equipment');
 
-            // PATTO DI FERRO 2: DESCRIZIONE CON ETICHETTA E TESTO GIUSTIFICATO
-            let currentY = 65;
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(0, 0, 0);
-            doc.text("DESCRIZIONE:", 12, currentY);
-            
-            currentY += 5;
-            doc.setFont("helvetica", "normal");
-            const cleanedDesc = softBreakLongWords(cleanText(an.description));
-            const splitDesc = doc.splitTextToSize(cleanedDesc, 185);
-            doc.text(splitDesc, 12, currentY, { align: 'justify', maxWidth: 185 });
-            
-            currentY += (splitDesc.length * 5) + 10;
-
-            // PATTO DI FERRO 3: QUANTITÀ ANALIZZATA IN EVIDENZA
-            doc.setDrawColor(200);
-            doc.setFillColor(245, 245, 255);
-            doc.roundedRect(12, currentY - 6, 185, 12, 2, 2, 'F');
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(9);
-            doc.text(`QUANTITÀ DI RIFERIMENTO PER L'ANALISI:`, 15, currentY + 1.5);
-            doc.setFontSize(11);
-            doc.text(`${an.analysisQuantity} ${an.unit}`, 190, currentY + 1.5, { align: 'right' });
-
-            currentY += 15;
-
-            // TABELLA COMPONENTI
-            const body = an.components.map(c => [
-                c.type.toUpperCase().substring(0,3), 
-                c.description, 
-                c.unit, 
-                formatCurrency(c.unitPrice), 
-                formatNumber(c.quantity), 
-                formatCurrency(c.unitPrice * c.quantity)
-            ]);
-
-            autoTable(doc, { 
-                startY: currentY, 
-                head: [['TIPO', 'ELEMENTO DI COSTO', 'U.M.', 'PREZZO €', 'Q.TÀ', 'IMPORTO €']], 
-                body: body, 
-                theme: 'striped', 
-                styles: { fontSize: 8, cellPadding: 2.5 }, 
-                headStyles: { fillColor: [142, 68, 173], textColor: [255, 255, 255] },
+            autoTable(doc, {
+                startY: currentY,
+                head: [['N.', 'CODICE', 'ELEMENTO DI COSTO / RISORSA E SVILUPPO ANALITICO DELLE MISURE', 'U.M.', 'QUANTITÀ', 'PREZZO UNIT. €', 'IMPORTO €']],
+                body: tableBody,
+                theme: 'grid',
+                styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak', lineWidth: 0.15, lineColor: [203, 213, 225] },
+                headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7.2 },
                 columnStyles: {
-                    0: { cellWidth: 15 },
-                    1: { cellWidth: 'auto' },
-                    2: { cellWidth: 15, halign: 'center' },
-                    3: { cellWidth: 25, halign: 'right' },
-                    4: { cellWidth: 20, halign: 'center' },
-                    5: { cellWidth: 25, halign: 'right' }
+                    0: { cellWidth: 8, halign: 'center' },
+                    1: { cellWidth: 22, halign: 'center' },
+                    2: { cellWidth: 78 },
+                    3: { cellWidth: 12, halign: 'center' },
+                    4: { cellWidth: 20, halign: 'right' },
+                    5: { cellWidth: 24, halign: 'right' },
+                    6: { cellWidth: 26, halign: 'right' }
                 },
-                didDrawPage: (data) => {
+                willDrawCell: (data: any) => {
+                    // Prepara giustificazione per le descrizioni componenti
+                    if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isJustifiedDesc) {
+                        data.cell._linesToDraw = [...data.cell.text];
+                        data.cell.text = []; // Svuota per evitare sovrascritture di autotable
+                    }
+                },
+                didDrawCell: (data: any) => {
+                    if (data.column.index === 2 && data.section === 'body' && data.cell._linesToDraw) {
+                        const cell = data.cell;
+                        const padLeft = cell.padding('left');
+                        const padRight = cell.padding('right');
+                        const contentWidth = cell.width - padLeft - padRight;
+                        const pos = cell.getTextPos();
+                        const fontSize = cell.styles.fontSize || 7.5;
+                        const factor = doc.getLineHeightFactor ? doc.getLineHeightFactor() : 1.15;
+                        const lineHeight = (fontSize / doc.internal.scaleFactor) * factor;
+
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(fontSize);
+                        doc.setTextColor(30, 41, 59);
+
+                        let curY = pos.y;
+                        data.cell._linesToDraw.forEach((l: string, lIdx: number) => {
+                            const isLast = lIdx === data.cell._linesToDraw.length - 1;
+                            const trimmed = l.trim();
+                            // Se è una riga di misura o nota, disegna standard senza forzare giustificazione
+                            if (trimmed.startsWith('└') || trimmed.startsWith('•') || trimmed.startsWith('[') || trimmed.startsWith('-')) {
+                                doc.setFontSize(fontSize - 0.5);
+                                doc.setTextColor(90, 105, 125);
+                                doc.text(l, pos.x, curY);
+                                doc.setFontSize(fontSize);
+                                doc.setTextColor(30, 41, 59);
+                            } else {
+                                drawJustifiedLine(doc, l, pos.x, curY, contentWidth, isLast);
+                            }
+                            curY += lineHeight;
+                        });
+                    }
+                },
+                didDrawPage: (data: any) => {
                     if (data.pageNumber > 1) {
-                        drawAnalysisHeader(data.pageNumber);
+                        drawContinuationHeader(data.pageNumber, an.code);
                     }
                 }
             });
 
-            currentY = (doc as any).lastAutoTable.finalY + 10;
+            currentY = (doc as any).lastAutoTable.finalY + 6;
 
-            // RIEPILOGO COSTI TECNICI
-            if (currentY > pageHeight - 60) {
+            // RIEPILOGO QUADRO ECONOMICO DI DETERMINAZIONE DEL PREZZO
+            const qeHeight = 66;
+            const signHeight = 44;
+            if (currentY > pageHeight - (qeHeight + signHeight + 8)) {
                 doc.addPage();
-                drawAnalysisHeader(1);
-                currentY = 50;
+                drawContinuationHeader(doc.getNumberOfPages(), an.code);
+                currentY = 20;
             }
 
-            const drawSummaryRow = (label: string, val: number, isBold = false) => {
+            // CONTENITORE PRINCIPALE QUADRO ECONOMICO
+            doc.setFillColor(255, 255, 255);
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.25);
+            doc.roundedRect(10, currentY, 190, qeHeight, 1.5, 1.5, 'FD');
+
+            // BARRA HEADER DEL BOX
+            doc.setFillColor(44, 62, 80);
+            doc.roundedRect(10, currentY, 190, 6.5, 1.5, 1.5, 'F');
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(7.2);
+            doc.setTextColor(255, 255, 255);
+            doc.text("QUADRO ECONOMICO ANALITICO DI DETERMINAZIONE DEL PREZZO CONTRATTUALE (Art. 32 All. I.7 D.Lgs. 36/2023)", 13, currentY + 4.5);
+
+            // COLONNA SINISTRA: SVILUPPO DEI COSTI E RICARICHI
+            let rowY = currentY + 11.5;
+            const drawSummaryLine = (label: string, valStr: string, isBold = false, textCol = [51, 65, 85]) => {
                 doc.setFont("helvetica", isBold ? "bold" : "normal");
-                doc.setFontSize(isBold ? 10 : 9);
-                doc.text(label, 150, currentY, { align: 'right' });
-                doc.text(formatCurrency(val), 195, currentY, { align: 'right' });
-                currentY += 6;
+                doc.setFontSize(isBold ? 7.6 : 7.1);
+                doc.setTextColor(textCol[0], textCol[1], textCol[2]);
+                doc.text(label, 13, rowY);
+                doc.text(valStr, 116, rowY, { align: 'right' });
+                rowY += 4.5;
             };
 
-            drawSummaryRow("Totale Costo Tecnico (Materiali + M.O. + Noli)", an.costoTecnico);
-            drawSummaryRow(`Spese Generali (${an.generalExpensesRate}%)`, an.valoreSpese);
-            drawSummaryRow(`Utile d'Impresa (${an.profitRate}%)`, an.valoreUtile);
-            
-            doc.setDrawColor(0);
-            doc.setLineWidth(0.5);
-            doc.line(130, currentY - 3, 195, currentY - 3);
-            drawSummaryRow(`Importo Totale Analisi (Lotto)`, an.totalBatchValue, true);
+            const matPerc = an.costoTecnico > 0 ? ((an.totalMaterials / an.costoTecnico) * 100).toFixed(1) : '0.0';
+            const labPerc = an.costoTecnico > 0 ? ((an.totalLabor / an.costoTecnico) * 100).toFixed(1) : '0.0';
+            const eqPerc = an.costoTecnico > 0 ? ((an.totalEquipment / an.costoTecnico) * 100).toFixed(1) : '0.0';
 
-            currentY += 10;
+            drawSummaryLine("1. Costo Materiali e Forniture a piè d'opera (Gruppo A):", `€ ${formatCurrency(an.totalMaterials)}   (${matPerc}%)`, false, [154, 52, 18]);
+            drawSummaryLine("2. Costo Manodopera e Maestranze (Gruppo B):", `€ ${formatCurrency(an.totalLabor)}   (${labPerc}%)`, false, [30, 64, 175]);
+            drawSummaryLine("3. Costo Noli, Trasporti e Attrezzature (Gruppo C):", `€ ${formatCurrency(an.totalEquipment)}   (${eqPerc}%)`, false, [22, 101, 52]);
 
-            // PATTO DI FERRO 4: PREZZO UNITARIO FINALE CHIARO (BOX HERO)
-            doc.setDrawColor(142, 68, 173);
-            doc.setFillColor(142, 68, 173);
-            doc.roundedRect(100, currentY, 97, 22, 3, 3, 'F');
-            
-            doc.setTextColor(255, 255, 255);
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "bold");
-            doc.text("PREZZO UNITARIO FINALE", 105, currentY + 8);
-            
-            doc.setFontSize(18);
-            doc.text(`€ ${formatCurrency(an.totalUnitPrice)}`, 192, currentY + 16, { align: 'right' });
-            
-            doc.setFontSize(7);
-            doc.text(`al netto di ribasso per ${an.unit}`, 105, currentY + 16);
+            doc.setDrawColor(226, 232, 240);
+            doc.setLineWidth(0.2);
+            doc.line(13, rowY - 1, 116, rowY - 1);
 
-            doc.setTextColor(0, 0, 0); // Reset for signature
+            drawSummaryLine("TOTALE COSTO TECNICO DIRETTO (C.T.D. = A + B + C):", `€ ${formatCurrency(an.costoTecnico)}`, true, [15, 23, 42]);
 
-            drawSignature(doc, projectInfo, currentY + 30);
-        });
-
-        // 2. PAGINA DI RIEPILOGO FINALE (PERFEZIONE)
-        doc.addPage();
-        drawHeaderSimple(doc, projectInfo, "RIEPILOGO ANALISI PREZZI", 1);
-        
-        const summaryBody = analyses.map((an, i) => [
-            { content: (i + 1).toString(), styles: { halign: 'center' } },
-            { content: softBreakLongWords(an.code, 12), styles: { fontStyle: 'bold', textColor: [142, 68, 173] } },
-            { content: softBreakLongWords(cleanText(an.description)), styles: { fontSize: 7.5, halign: 'justify' } },
-            { content: an.unit, styles: { halign: 'center' } },
-            { content: formatCurrency(an.totalUnitPrice), styles: { halign: 'right', fontStyle: 'bold' } }
-        ]);
-
-        autoTable(doc, {
-            startY: 50,
-            head: [['N.', 'CODICE', 'DESIGNAZIONE DELLA VOCE ANALIZZATA', 'U.M.', 'PREZZO UNITARIO']],
-            body: summaryBody,
-            theme: 'grid',
-            styles: { fontSize: 8, cellPadding: 3 },
-            headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255] },
-            columnStyles: {
-                0: { cellWidth: 10 },
-                1: { cellWidth: 25 },
-                2: { cellWidth: 'auto' },
-                3: { cellWidth: 15 },
-                4: { cellWidth: 35 }
+            if ((an.totalInclusiveItems || 0) > 0) {
+                drawSummaryLine("  • di cui quota a prezzo netto soggetta a ricarico:", `€ ${formatCurrency(an.totalNetItems || 0)}`, false, [100, 116, 139]);
+                drawSummaryLine("  • di cui quota da prezzario (già compl. S.G. e Utile):", `€ ${formatCurrency(an.totalInclusiveItems || 0)}`, false, [100, 116, 139]);
             }
+
+            drawSummaryLine(`+ Spese Generali d'Impresa (${an.generalExpensesRate}%):`, `€ ${formatCurrency(an.valoreSpese)}`, false, [71, 85, 105]);
+            drawSummaryLine(`+ Utile d'Impresa (${an.profitRate}%):`, `€ ${formatCurrency(an.valoreUtile)}`, false, [71, 85, 105]);
+
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.25);
+            doc.line(13, rowY - 1, 116, rowY - 1);
+
+            drawSummaryLine(`IMPORTO TOTALE LOTTO ANALIZZATO (${formatQuantityAnalysis(an.analysisQuantity)} ${an.unit}):`, `€ ${formatCurrency(an.totalBatchValue)}`, true, [112, 38, 143]);
+
+            // HERO CARD PREZZO UNITARIO A DESTRA (coordinate X: 122 a 197)
+            const heroX = 122;
+            const heroY = currentY + 9;
+            const heroW = 75;
+            const heroH = qeHeight - 12;
+
+            doc.setFillColor(245, 243, 255);
+            doc.setDrawColor(112, 38, 143);
+            doc.setLineWidth(0.35);
+            doc.roundedRect(heroX, heroY, heroW, heroH, 1.8, 1.8, 'FD');
+
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(7.8);
+            doc.setTextColor(112, 38, 143);
+            doc.text("PREZZO UNITARIO DI APPLICAZIONE", heroX + heroW / 2, heroY + 6, { align: 'center' });
+
+            doc.setFontSize(16);
+            doc.setTextColor(76, 29, 149);
+            doc.text(`€ ${formatCurrency(an.totalUnitPrice)}`, heroX + heroW / 2, heroY + 15, { align: 'center' });
+
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(7.2);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`a ${an.unit} (al netto di IVA e ribasso d'asta)`, heroX + heroW / 2, heroY + 20, { align: 'center' });
+
+            doc.setDrawColor(216, 180, 254);
+            doc.setLineWidth(0.2);
+            doc.line(heroX + 6, heroY + 23, heroX + heroW - 6, heroY + 23);
+
+            // Prezzo in lettere
+            doc.setFont("helvetica", "bolditalic");
+            doc.setFontSize(6.8);
+            doc.setTextColor(60, 20, 120);
+            const wordsPrice = numberToItalianWords(an.totalUnitPrice);
+            doc.text(`Euro ${wordsPrice} / ${an.unit}`, heroX + heroW / 2, heroY + 28, { align: 'center' });
+
+            // Incidenza e costo manodopera
+            const laborOnUnitPrice = an.analysisQuantity > 0 ? (an.totalLabor / an.analysisQuantity) : an.totalLabor;
+            const totalLaborPerc = an.totalBatchValue > 0 ? ((an.totalLabor / an.totalBatchValue) * 100).toFixed(2) : '0.00';
+            
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(6.8);
+            doc.setTextColor(30, 64, 175);
+            doc.text(`Incidenza Manodopera: ${totalLaborPerc}%`, heroX + heroW / 2, heroY + 36, { align: 'center' });
+            
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(6.2);
+            doc.setTextColor(100, 116, 139);
+            doc.text(`(Quota costo del lavoro: € ${formatCurrency(laborOnUnitPrice)} / ${an.unit})`, heroX + heroW / 2, heroY + 40, { align: 'center' });
+
+            currentY += qeHeight + 5;
+
+            // BLOCCO DELLE FIRME CONTRATTUALI E ATTESTAZIONE
+            drawContractualAnalysisSignature(doc, projectInfo, currentY, integrityHash);
         });
 
-        drawSignature(doc, projectInfo, (doc as any).lastAutoTable.finalY + 20, integrityHash);
+        // 2. SE SONO STATE RICHIESTE PIÙ ANALISI, AGGIUNGI TABELLA DI RIEPILOGO FINALE
+        if (normalizedAnalyses.length > 1) {
+            doc.addPage();
+            drawHeaderSimple(doc, projectInfo, "RIEPILOGO GENERALE ANALISI DEI PREZZI UNITARI", 1);
+
+            const summaryBody = normalizedAnalyses.map((an, i) => {
+                const laborPerc = an.totalBatchValue > 0 ? ((an.totalLabor / an.totalBatchValue) * 100).toFixed(1) : '0.0';
+                return [
+                    { content: (i + 1).toString(), styles: { halign: 'center' } },
+                    { content: softBreakLongWords(an.code, 12), styles: { fontStyle: 'bold', textColor: [112, 38, 143], halign: 'center' } },
+                    { content: cleanText(an.description), styles: { fontSize: 7.2, isJustifiedDesc: true } },
+                    { content: an.unit, styles: { halign: 'center' } },
+                    { content: `€ ${formatCurrency(an.costoTecnico)}`, styles: { halign: 'right' } },
+                    { content: `€ ${formatCurrency(an.valoreSpese + an.valoreUtile)}`, styles: { halign: 'right' } },
+                    { content: `${laborPerc}%`, styles: { halign: 'center', textColor: [30, 64, 175], fontStyle: 'bold' } },
+                    { content: `€ ${formatCurrency(an.totalUnitPrice)}`, styles: { halign: 'right', fontStyle: 'bold', textColor: [112, 38, 143] } }
+                ];
+            });
+
+            autoTable(doc, {
+                startY: 46,
+                head: [['N.', 'CODICE', 'DESIGNAZIONE DELLA VOCE DI NUOVO PREZZO', 'U.M.', 'COSTO TECNICO €', 'S.G. + UTILE €', 'INCID. M.O.', 'PREZZO UNITARIO €']],
+                body: summaryBody,
+                theme: 'grid',
+                styles: { fontSize: 7.5, cellPadding: 2.2, lineWidth: 0.15, lineColor: [203, 213, 225] },
+                headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: 7.2 },
+                columnStyles: {
+                    0: { cellWidth: 8, halign: 'center' },
+                    1: { cellWidth: 20, halign: 'center' },
+                    2: { cellWidth: 70 },
+                    3: { cellWidth: 12, halign: 'center' },
+                    4: { cellWidth: 22, halign: 'right' },
+                    5: { cellWidth: 22, halign: 'right' },
+                    6: { cellWidth: 16, halign: 'center' },
+                    7: { cellWidth: 20, halign: 'right' }
+                },
+                willDrawCell: (data: any) => {
+                    if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isJustifiedDesc) {
+                        data.cell._linesToDraw = [...data.cell.text];
+                        data.cell.text = [];
+                    }
+                },
+                didDrawCell: (data: any) => {
+                    if (data.column.index === 2 && data.section === 'body' && data.cell._linesToDraw) {
+                        const cell = data.cell;
+                        const padLeft = cell.padding('left');
+                        const padRight = cell.padding('right');
+                        const contentWidth = cell.width - padLeft - padRight;
+                        const pos = cell.getTextPos();
+                        const fontSize = cell.styles.fontSize || 7.2;
+                        const factor = doc.getLineHeightFactor ? doc.getLineHeightFactor() : 1.15;
+                        const lineHeight = (fontSize / doc.internal.scaleFactor) * factor;
+
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(fontSize);
+                        doc.setTextColor(30, 41, 59);
+
+                        let curY = pos.y;
+                        data.cell._linesToDraw.forEach((l: string, lIdx: number) => {
+                            const isLast = lIdx === data.cell._linesToDraw.length - 1;
+                            drawJustifiedLine(doc, l, pos.x, curY, contentWidth, isLast);
+                            curY += lineHeight;
+                        });
+                    }
+                }
+            });
+
+            const summaryFinalY = (doc as any).lastAutoTable.finalY + 8;
+            drawContractualAnalysisSignature(doc, projectInfo, summaryFinalY, integrityHash);
+        }
+
+        // APPLICA PIÈ DI PAGINA UNIFORME CON NUMERAZIONE ANTI-MANOMISSIONE E HASH SU TUTTE LE PAGINE
         applyDocumentFootersAndSecurity(doc, integrityHash);
 
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
-    } catch (e) { console.error(e); alert("Errore Analisi."); }
+    } catch (e) {
+        console.error("Errore generazione PDF Analisi Prezzi:", e);
+        alert("Si è verificato un errore durante la generazione della Scheda Analisi Prezzi.");
+    }
 };
+
 
 const drawHeaderSimple = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number) => {
     doc.setTextColor(0,0,0);
