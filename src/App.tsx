@@ -282,7 +282,7 @@ interface ArticleGroupProps {
   onAddSubtotal: (articleId: string) => void;
   onOpenLinkModal: (articleId: string, measurementId: string) => void;
   onScrollToArticle: (id: string, fromId?: string) => void;
-  onViewAnalysis: (analysisId: string) => void; 
+  onViewAnalysis: (analysisId: string, articleId?: string) => void; 
   onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
   onOpenRebarCalculator: (articleId: string) => void;
@@ -871,7 +871,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                   />
                   {isAnalysisLinked && !isPrintMode && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); article.linkedAnalysisId && onViewAnalysis(article.linkedAnalysisId); }}
+                      onClick={(e) => { e.stopPropagation(); article.linkedAnalysisId && onViewAnalysis(article.linkedAnalysisId, article.id); }}
                       className="ml-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100 p-1 rounded transition-colors flex-shrink-0"
                       title="Apri Analisi Prezzo"
                     >
@@ -1251,9 +1251,9 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
                   fontSize: getDynamicNumberFontSize(formatResult(article.unitPrice), 13.5, 7, 8.5),
                   letterSpacing: (formatResult(article.unitPrice) || '').length > 7 ? '-0.03em' : 'normal'
                 }}
-                title={formatResult(article.unitPrice)}
+                title={isAnalysisLinked ? `Prezzo calcolato da Analisi Prezzo (${article.code}) - Sincronizzato: ${formatResult(article.unitPrice)} €` : formatResult(article.unitPrice)}
              >
-                {isPrintMode ? formatResult(article.unitPrice) : <span className="font-mono font-bold text-slate-800" style={{ fontSize: getDynamicNumberFontSize(formatResult(article.unitPrice), 13.5, 7, 8.5) }}>{formatResult(article.unitPrice)}</span>}
+                {isPrintMode ? formatResult(article.unitPrice) : <span className={`font-mono font-bold ${isAnalysisLinked ? 'text-purple-700' : 'text-slate-800'}`} style={{ fontSize: getDynamicNumberFontSize(formatResult(article.unitPrice), 13.5, 7, 8.5) }}>{formatResult(article.unitPrice)}</span>}
              </td>
              <td 
                 className={`border-r border-slate-200 text-right pr-2 font-mono font-black whitespace-nowrap overflow-hidden ${isIndustrialMode ? 'text-indigo-700' : (isSafetyCategory ? 'text-orange-700' : 'text-blue-700')}`} 
@@ -1596,8 +1596,42 @@ const App: React.FC = () => {
   };
 
   const handleUpdateActiveAnalysis = (updatedAnalysis: PriceAnalysis) => {
-    const updatedAnalyses = analyses.map(a => a.id === updatedAnalysis.id ? updatedAnalysis : a);
-    updateState(articles, categories, updatedAnalyses);
+    const roundedAnalysis: PriceAnalysis = {
+      ...updatedAnalysis,
+      totalUnitPrice: roundTwoDecimals(updatedAnalysis.totalUnitPrice),
+      totalBatchValue: roundTwoDecimals(updatedAnalysis.totalBatchValue)
+    };
+
+    const updatedAnalyses = analyses.map(a => a.id === roundedAnalysis.id ? roundedAnalysis : a);
+
+    const laborRate = roundedAnalysis.totalBatchValue > 0 
+      ? parseFloat(((roundedAnalysis.totalLabor / roundedAnalysis.totalBatchValue) * 100).toFixed(2)) 
+      : 0;
+
+    // Sincronizzazione automatica e reattiva con tutte le voci del computo collegate a questa tariffa analitica
+    const updatedArticles = articles.map(art => {
+      const isLinkedById = art.linkedAnalysisId === roundedAnalysis.id;
+      const isLinkedByCodeAndSource = !art.linkedAnalysisId && (
+        art.code === roundedAnalysis.code || 
+        art.priceListSource === `Da Analisi ${roundedAnalysis.code}`
+      );
+
+      if (isLinkedById || isLinkedByCodeAndSource) {
+        return {
+          ...art,
+          code: roundedAnalysis.code,
+          description: roundedAnalysis.description,
+          unit: roundedAnalysis.unit,
+          unitPrice: roundedAnalysis.totalUnitPrice,
+          laborRate: laborRate,
+          linkedAnalysisId: roundedAnalysis.id,
+          priceListSource: `Da Analisi ${roundedAnalysis.code}`
+        };
+      }
+      return art;
+    });
+
+    updateState(updatedArticles, categories, updatedAnalyses);
   };
   const [isImportAnalysisModalOpen, setIsImportAnalysisModalOpen] = useState(false);
   const [wbsOptionsContext, setWbsOptionsContext] = useState<{ type: 'import' | 'clone', sourceCode?: string, payload?: any, initialName?: string, targetCode?: string, position?: 'top' | 'bottom', isSuper?: boolean, proposedColors?: string[] } | null>(null);
@@ -1793,8 +1827,14 @@ const App: React.FC = () => {
     });
     const analysisLookup = new Map(newAnalyses.map(a => [a.id, a]));
     const newArticles = currentArticles.map(art => {
+      let matchingAn: PriceAnalysis | undefined;
       if (art.linkedAnalysisId && analysisLookup.has(art.linkedAnalysisId)) {
-        const matchingAn = analysisLookup.get(art.linkedAnalysisId)!;
+        matchingAn = analysisLookup.get(art.linkedAnalysisId)!;
+      } else if (!art.linkedAnalysisId && (art.code || art.priceListSource)) {
+        matchingAn = newAnalyses.find(a => a.code === art.code || art.priceListSource === `Da Analisi ${a.code}`);
+      }
+
+      if (matchingAn) {
         const laborRate = matchingAn.totalBatchValue > 0 ? parseFloat(((matchingAn.totalLabor / matchingAn.totalBatchValue) * 100).toFixed(2)) : 0;
         return { 
           ...art, 
@@ -1803,6 +1843,7 @@ const App: React.FC = () => {
           unit: matchingAn.unit,
           unitPrice: roundTwoDecimals(matchingAn.totalUnitPrice),
           laborRate: laborRate,
+          linkedAnalysisId: matchingAn.id,
           priceListSource: `Da Analisi ${matchingAn.code}` 
         };
       }
@@ -1824,7 +1865,10 @@ const App: React.FC = () => {
       if (window.confirm("Eliminare definitivamente questa analisi?")) {
           const filteredAn = analyses.filter(a => a.id !== id);
           const { newAnalyses: renumberedAn, newArticles } = renumberAnalyses(filteredAn, articles);
-          updateState(newArticles, categories, renumberedAn);
+          const cleanedArticles = newArticles.map(art => 
+            art.linkedAnalysisId === id ? { ...art, linkedAnalysisId: undefined, priceListSource: 'Prezzo Svincolato da Analisi' } : art
+          );
+          updateState(cleanedArticles, categories, renumberedAn);
       }
   };
 
@@ -1869,9 +1913,10 @@ const App: React.FC = () => {
       setIsImportAnalysisModalOpen(false); 
   };
 
-  const handleViewLinkedAnalysis = (analysisId: string) => {
+  const handleViewLinkedAnalysis = (analysisId: string, articleId?: string) => {
       const analysis = analyses.find(a => a.id === analysisId);
       if (analysis) { 
+        if (articleId) setReturnPath(articleId);
         setSelectedAnalysisId(analysis.id);
         setViewMode('ANALISI');
         playUISound('toggle');
@@ -2291,8 +2336,62 @@ const App: React.FC = () => {
     setTimeout(performScroll, 200);
     setTimeout(performScroll, 450);
   };
-  const handleReturnToArticle = () => { if (returnPath) { const id = returnPath; setReturnPath(null); handleScrollToArticle(id); } };
-  const handleAddEmptyArticle = (categoryCode: string) => { if (!canAddArticle()) return; const nextAnalysisCode = `AP.${(analyses.length + 1).toString().padStart(2, '0')}`; const newArticleId = Math.random().toString(36).substr(2, 9); const newMeasId = Math.random().toString(36).substr(2, 9); const newArticle: Article = { id: newArticleId, categoryCode, code: nextAnalysisCode, description: cleanDescription('Nuova voce'), unit: 'cad', unitPrice: 0, laborRate: 0, linkedAnalysisId: undefined, priceListSource: `Da Analisi ${nextAnalysisCode}`, soaCategory: activeSoaCategory, measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], quantity: 0, displayMode: wbsDisplayMode }; updateState([...articles, newArticle]); setLastAddedMeasurementId(newMeasId); handleScrollToArticle(newArticleId, undefined, categoryCode); };
+  const handleReturnToArticle = () => { 
+    if (returnPath) { 
+      const id = returnPath; 
+      setReturnPath(null); 
+      setViewMode('COMPUTO');
+      handleScrollToArticle(id); 
+    } 
+  };
+  const handleAddEmptyArticle = (categoryCode: string) => { 
+    if (!canAddArticle()) return; 
+    const nextNum = (analyses.length + 1).toString().padStart(2, '0');
+    const nextAnalysisCode = `AP.${nextNum}`; 
+    const newArticleId = Math.random().toString(36).substr(2, 9); 
+    const newMeasId = Math.random().toString(36).substr(2, 9); 
+    const newAnalysisId = 'ap_' + Date.now();
+
+    const newAnalysis: PriceAnalysis = {
+      id: newAnalysisId,
+      code: nextAnalysisCode,
+      description: cleanDescription('Nuova voce'),
+      unit: 'cad',
+      analysisQuantity: 1,
+      generalExpensesRate: 15,
+      profitRate: 10,
+      markupMode: 'exclude_from_markup',
+      components: [],
+      totalMaterials: 0,
+      totalLabor: 0,
+      totalEquipment: 0,
+      costoTecnico: 0,
+      valoreSpese: 0,
+      valoreUtile: 0,
+      totalBatchValue: 0,
+      totalUnitPrice: 0,
+      isLocked: false
+    };
+
+    const newArticle: Article = { 
+      id: newArticleId, 
+      categoryCode, 
+      code: nextAnalysisCode, 
+      description: cleanDescription('Nuova voce'), 
+      unit: 'cad', 
+      unitPrice: 0, 
+      laborRate: 0, 
+      linkedAnalysisId: newAnalysisId, 
+      priceListSource: `Da Analisi ${nextAnalysisCode}`, 
+      soaCategory: activeSoaCategory, 
+      measurements: [{ id: newMeasId, description: '', type: 'positive', multiplier: undefined }], 
+      quantity: 0, 
+      displayMode: wbsDisplayMode 
+    }; 
+    updateState([...articles, newArticle], categories, [...analyses, newAnalysis]); 
+    setLastAddedMeasurementId(newMeasId); 
+    handleScrollToArticle(newArticleId, undefined, categoryCode); 
+  };
   const handleToggleArticleLock = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isLocked: !art.isLocked } : art); updateState(updated); };
   const handleToggleArticleEnabled = (id: string) => { const updated = articles.map(art => art.id === id ? { ...art, isEnabled: art.isEnabled === false ? true : false } : art); updateState(updated); playUISound('toggle'); };
   const handleOpenRebarCalculator = (articleId: string) => { setRebarTargetArticleId(articleId); setIsRebarModalOpen(true); };

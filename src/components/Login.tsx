@@ -28,7 +28,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
       }
       try {
         player = new (window as any).YT.Player('youtube-player', {
-          videoId: 'HDHGyuyqeXw',
+          videoId: '86ihiZAOqgs',
           playerVars: {
             autoplay: 1,
             enablejsapi: 1,
