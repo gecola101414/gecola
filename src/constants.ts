@@ -126,6 +126,7 @@ export const PROJECT_INFO: ProjectInfo = {
   client: 'Nome Committente',
   designer: 'Ing. Domenico Gimondo',
   location: 'Località Cantiere',
+  province: '',
   date: new Date().toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }),
   priceList: 'Prezzario Regionale 2025', 
   region: 'Lombardia',

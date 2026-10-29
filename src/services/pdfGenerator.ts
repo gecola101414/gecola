@@ -328,29 +328,220 @@ const getLibs = async () => {
     return { jsPDF, autoTable };
 };
 
-const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number, grandTotal?: number, pageWidth?: number, pageHeight?: number, isTotalCurrency: boolean = true) => {
-    doc.setTextColor(0, 0, 0);
-    if (pageNumber === 1) {
-        doc.setFontSize(14);
-        doc.text(title, (pageWidth || 210) / 2, 15, { align: 'center' });
-        doc.setFontSize(8); 
-        doc.setFont("helvetica", "bold");
-        doc.text(projectInfo.title, 10, 22);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.text(`Committente: ${projectInfo.client}`, 10, 27);
-        doc.text(`Data: ${projectInfo.date}`, 10, 31);
-        doc.text(`Prezzario: ${projectInfo.region} ${projectInfo.year}`, 10, 35);
-    } else {
-        doc.setFontSize(7.2); 
-        doc.setFont("helvetica", "bold");
-        doc.text(projectInfo.title, 10, 20); 
+/**
+ * Genera il Frontespizio Ufficiale di Copertina ("Testalino") Standard GeCoLa,
+ * con la bandana verticale in Celestino GeCoLa (#bae6fd / #38bdf8),
+ * intestazione Ente in Blu Reale, Titolo in Rosso Mattone, e dati di progetto completi.
+ */
+export const drawAccaCoverPage = (
+    doc: any,
+    projectInfo: ProjectInfo,
+    documentTitle: string,
+    subTitle?: string
+) => {
+    const pageWidth = doc.internal.pageSize.width || 210;
+    const pageHeight = doc.internal.pageSize.height || 297;
+
+    // 1. DOPPIA RIGA DI RILEGATURA SUL MARGINE SINISTRO
+    doc.setDrawColor(40, 50, 65);
+    doc.setLineWidth(0.2);
+    doc.line(7, 8, 7, pageHeight - 8);
+    doc.line(9, 8, 9, pageHeight - 8);
+
+    // 2. CORNICE PERIMETRALE ESTERNA DEL FOGLIO
+    doc.setDrawColor(40, 50, 65);
+    doc.setLineWidth(0.25);
+    doc.rect(9, 8, pageWidth - 17, pageHeight - 16);
+
+    // 3. INTESTAZIONE ENTE / LUOGO DEI LAVORI (in Blu Reale)
+    doc.setTextColor(0, 51, 153); // #003399 Blu Reale
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13.5);
+    
+    let enteLine1 = "esempio: Comune di ...";
+    let enteLine2 = "esempio: Provincia di ...";
+    if (projectInfo.location && projectInfo.location.trim().length > 0) {
+        const loc = projectInfo.location.trim();
+        enteLine1 = loc.toLowerCase().startsWith("comune") ? loc : `Comune di ${loc}`;
+    } else if (projectInfo.region) {
+        enteLine1 = `Comune di ${projectInfo.region}`;
     }
-    if (pageNumber > 1 && grandTotal !== undefined) {
-        doc.setFontSize(9);
+
+    if (projectInfo.province && projectInfo.province.trim().length > 0) {
+        const prov = projectInfo.province.trim();
+        enteLine2 = prov.toLowerCase().startsWith("provincia") ? prov : `Provincia di ${prov}`;
+    } else if (projectInfo.region) {
+        enteLine2 = `Provincia di ${projectInfo.region}`;
+    }
+
+    doc.text(enteLine1, 54, 28);
+    doc.text(enteLine2, 54, 35);
+
+    // Indicazione "pag. 1" in alto a destra
+    doc.setTextColor(70, 80, 95);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text("pag. 1", pageWidth - 14, 42, { align: 'right' });
+
+    // 4. BANDANA VERTICALE CELESTINO GECOLA (Brand GeCoLa)
+    const bandX = 9;
+    const bandY = 54;
+    const bandWidth = 39;
+    const bandHeight = 222;
+
+    // Sfondo Celestino GeCoLa (Azzurro cielo luminoso, fresco e professionale)
+    doc.setFillColor(186, 230, 253); // #bae6fd Celestino Sky-200
+    doc.rect(bandX, bandY, bandWidth, bandHeight, 'F');
+
+    // Bordo destro della fascia celestina
+    doc.setDrawColor(56, 189, 248); // #38bdf8
+    doc.setLineWidth(0.4);
+    doc.line(bandX + bandWidth, bandY, bandX + bandWidth, bandY + bandHeight);
+
+    // 5. TITOLO CENTRALE IN ROSSO MATTONE / BORDEAUX (ELENCO PREZZI, COMPUTO METRICO)
+    doc.setTextColor(139, 0, 0); // Dark Red #8b0000
+    doc.setFont("helvetica", "bold");
+    
+    let titleFontSize = 24;
+    if (documentTitle.length > 18) titleFontSize = 20;
+    if (documentTitle.length > 26) titleFontSize = 16;
+    doc.setFontSize(titleFontSize);
+    
+    const centerTitleX = (pageWidth + bandX + bandWidth) / 2;
+    doc.text(documentTitle, centerTitleX, 88, { align: 'center' });
+
+    if (subTitle) {
+        doc.setFontSize(10.5);
         doc.setFont("helvetica", "bold");
-        doc.text("RIPORTO:", 160, 30, { align: 'right' });
-        doc.text(isTotalCurrency ? formatCurrency(grandTotal) : formatNumber(grandTotal), 200, 30, { align: 'right' });
+        doc.setTextColor(80, 90, 105);
+        doc.text(subTitle, centerTitleX, 96, { align: 'center' });
+    }
+
+    // 6. DATI DEL PROGETTO (OGGETTO, COMMITTENTE, PROGETTISTA)
+    const contentX = bandX + bandWidth + 6;
+    const contentMaxWidth = pageWidth - contentX - 14;
+
+    // 6A. OGGETTO
+    const oggettoY = 118;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("OGGETTO:", bandX + bandWidth - 3, oggettoY, { align: 'right' });
+    
+    const oggettoText = projectInfo.title || "Lavori edili ed impiantistici di contratto";
+    const splitOggetto = doc.splitTextToSize(oggettoText, contentMaxWidth);
+    doc.text(splitOggetto, contentX, oggettoY);
+
+    const oggettoLinesCount = Array.isArray(splitOggetto) ? splitOggetto.length : 1;
+    const oggettoBlockHeight = Math.max(16, oggettoLinesCount * 4.5);
+
+    // 6B. COMMITTENTE
+    const committenteY = oggettoY + oggettoBlockHeight + 10;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("COMMITTENTE:", bandX + bandWidth - 3, committenteY, { align: 'right' });
+
+    const committenteText = projectInfo.client || "Amministrazione Committente";
+    const splitCommittente = doc.splitTextToSize(committenteText, contentMaxWidth);
+    doc.text(splitCommittente, contentX, committenteY);
+
+    const committenteLinesCount = Array.isArray(splitCommittente) ? splitCommittente.length : 1;
+    const committenteBlockHeight = Math.max(14, committenteLinesCount * 4.5);
+
+    // 6C. PROGETTISTA (Aggiunto come richiesto)
+    const progettistaY = committenteY + committenteBlockHeight + 10;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("PROGETTISTA:", bandX + bandWidth - 3, progettistaY, { align: 'right' });
+
+    const progettistaText = projectInfo.designer || "Ufficio Tecnico / Progettista Incaricato";
+    const splitProgettista = doc.splitTextToSize(progettistaText, contentMaxWidth);
+    doc.text(splitProgettista, contentX, progettistaY);
+
+    // 7. DATA E FIRMA (IL TECNICO) - In basso a destra
+    const dataY = Math.min(235, progettistaY + 28);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Data,  ${projectInfo.date || '...' }`, contentX, dataY);
+
+    const tecnicoX = pageWidth - 55;
+    const tecnicoY = dataY + 12;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text("IL TECNICO", tecnicoX, tecnicoY, { align: 'center' });
+
+    doc.setDrawColor(100, 116, 139);
+    doc.setLineWidth(0.2);
+    doc.line(tecnicoX - 25, tecnicoY + 12, tecnicoX + 25, tecnicoY + 12);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text(projectInfo.designer || "Firma e Timbro", tecnicoX, tecnicoY + 16, { align: 'center' });
+
+    // 8. PIEDIPAGINA / COPYRIGHT
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.2);
+    doc.line(9, pageHeight - 15, pageWidth - 8, pageHeight - 15);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("GeCoLa Cloud by GeCoLa Soft", pageWidth - 14, pageHeight - 11, { align: 'right' });
+    doc.text(`Prezzario di Riferimento: ${projectInfo.region || ''} ${projectInfo.year || ''}`, 12, pageHeight - 11);
+};
+
+/**
+ * Disegna la cornice perimetrale, doppia linea di rilegatura a sinistra,
+ * numero di pagina in alto a destra e "COMMITTENTE: [ ... ]" in basso a sinistra,
+ * identico al layout contabile editoriale GeCoLa.
+ */
+export const drawAccaPageFrame = (doc: any, pageNumber: number, projectInfo: ProjectInfo) => {
+    const pageWidth = doc.internal.pageSize.width || 210;
+    const pageHeight = doc.internal.pageSize.height || 297;
+
+    // Doppia linea di rilegatura sinistra
+    doc.setDrawColor(40, 50, 65);
+    doc.setLineWidth(0.2);
+    doc.line(7, 8, 7, pageHeight - 8);
+    doc.line(9, 8, 9, pageHeight - 8);
+
+    // Cornice perimetrale esterna
+    doc.setLineWidth(0.25);
+    doc.rect(9, 8, pageWidth - 17, pageHeight - 16);
+
+    // Indicazione pagina in alto a destra
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(60, 70, 85);
+    doc.text(`pag. ${pageNumber}`, pageWidth - 14, 14, { align: 'right' });
+
+    // Dicitura Committente a fondo pagina a sinistra (Standard PriMus: "COMMITTENTE: [ ... ]")
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(50, 60, 75);
+    const clientText = projectInfo.client ? `COMMITTENTE: [ ${projectInfo.client} ]` : `COMMITTENTE: [ ]`;
+    doc.text(clientText, 12, pageHeight - 11);
+};
+
+export const drawHeaderSimple = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number) => {
+    drawAccaPageFrame(doc, pageNumber, projectInfo);
+};
+
+const drawHeader = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number, grandTotal?: number, pageWidth?: number, pageHeight?: number, isTotalCurrency: boolean = true) => {
+    drawAccaPageFrame(doc, pageNumber, projectInfo);
+    
+    // Testata tecnica standard PriMus: se riporto presente sulle pagine successive
+    if (pageNumber > 2 && grandTotal !== undefined && grandTotal > 0) {
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(0, 0, 0);
+        doc.text("R I P O R T O", 105, 14, { align: 'center' });
+        doc.text(isTotalCurrency ? `€ ${formatCurrency(grandTotal)}` : formatNumber(grandTotal), 200, 14, { align: 'right' });
     }
 };
 
@@ -364,13 +555,14 @@ const drawFooter = (
     isTotalCurrency: boolean = true, 
     isLastPageOfTable: boolean = false
 ) => {
-    const footerY = pageHeight - 15;
+    const footerY = pageHeight - 11;
     if (!isLastPageOfTable && grandTotal !== undefined && pageTotal !== undefined) {
         const currentCumulative = grandTotal + pageTotal;
-        doc.setFontSize(9);
+        doc.setFontSize(8.5);
         doc.setFont("helvetica", "bold");
-        doc.text("A RIPORTARE:", 160, footerY, { align: 'right' });
-        doc.text(isTotalCurrency ? formatCurrency(currentCumulative) : formatNumber(currentCumulative), 200, footerY, { align: 'right' });
+        doc.setTextColor(0, 0, 0);
+        doc.text("A RIPORTARE", 160, footerY, { align: 'right' });
+        doc.text(isTotalCurrency ? `€ ${formatCurrency(currentCumulative)}` : formatNumber(currentCumulative), 200, footerY, { align: 'right' });
     }
 };
 
@@ -444,53 +636,39 @@ const drawSignature = (doc: any, projectInfo: ProjectInfo, yPos: number, integri
 };
 
 /**
- * Applica a TUTTE le pagine del documento:
- * 1. Numerazione formale a 3 cifre (001, 002, ... 010, 011) anti-camuffamento
- * 2. Impronta crittografica SHA-256 di controllo integrità
- * 3. Linea divisoria e attestazione di conformità D.Lgs. 82/2005 (CAD)
+ * Applica a tutte le pagine dei prospetti contabili (da pagina 2 in poi):
+ * - Riferimento normativo D.Lgs. 36/2023 & CAD D.Lgs. 82/2005
+ * - Impronta crittografica SHA-256 di controllo integrità
+ * Lascia la copertina ufficiale (Pagina 1 - Testalino) intatta e professionale.
  */
 const applyDocumentFootersAndSecurity = (doc: any, integrityHash?: string) => {
     const totalPages = doc.internal.getNumberOfPages();
-    const totalPagesStr = String(totalPages).padStart(3, '0');
     
-    for (let p = 1; p <= totalPages; p++) {
+    for (let p = 2; p <= totalPages; p++) {
         doc.setPage(p);
         const pWidth = doc.internal.pageSize.width;
         const pHeight = doc.internal.pageSize.height;
-        const pageStr = String(p).padStart(3, '0');
         
-        // Linea divisoria sottile
-        doc.setDrawColor(210, 215, 222);
-        doc.setLineWidth(0.15);
-        doc.line(10, pHeight - 11, pWidth - 10, pHeight - 11);
-        
-        // Sinistra: Impronta crittografica di sicurezza
+        // Impronta crittografica di sicurezza posta sotto la cornice perimetrale
         if (integrityHash) {
             doc.setFont("courier", "bold");
-            doc.setFontSize(6.2);
-            doc.setTextColor(100, 110, 125);
-            const shortHash = `${integrityHash.substring(0, 24).toUpperCase()}...[${integrityHash.substring(56, 64).toUpperCase()}]`;
-            doc.text(`SHA-256: ${shortHash}`, 10, pHeight - 6.5);
+            doc.setFontSize(6);
+            doc.setTextColor(120, 130, 145);
+            const shortHash = `${integrityHash.substring(0, 20).toUpperCase()}...[${integrityHash.substring(56, 64).toUpperCase()}]`;
+            doc.text(`SHA-256: ${shortHash}`, 12, pHeight - 4.2);
         }
         
-        // Centro: Numerazione a 3 cifre anti-manomissione (es. Pagina 001 di 012)
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.setTextColor(40, 45, 55);
-        doc.text(`Pagina ${pageStr} di ${totalPagesStr}`, pWidth / 2, pHeight - 6.5, { align: 'center' });
-        
-        // Destra: Attestazione legale CAD
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6);
-        doc.setTextColor(110, 115, 130);
-        doc.text(`Integrità Digitale D.Lgs. 82/2005 CAD`, pWidth - 10, pHeight - 6.5, { align: 'right' });
+        doc.setTextColor(120, 130, 145);
+        doc.text(`Integrità Digitale D.Lgs. 36/2023 - CAD D.Lgs. 82/2005`, pWidth - 12, pHeight - 4.2, { align: 'right' });
     }
 };
 
 const drawGridLines = (doc: any, startY: number, endY: number) => {
     doc.setDrawColor(200);
     doc.setLineWidth(0.1);
-    const xPositions = [10, 20, 42, 102, 112, 124, 136, 148, 166, 184, 200];
+    const xPositions = [10, 19, 40, 98, 110.5, 122, 133.5, 146, 164, 182, 200];
     xPositions.forEach(x => {
         doc.line(x, startY, x, endY);
     });
@@ -676,8 +854,16 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     const pageHeight = doc.internal.pageSize.height;
     const title = filterType === 'work' ? "COMPUTO METRICO ESTIMATIVO" : "COMPUTO ONERI DELLA SICUREZZA";
 
-    tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
+    // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+    drawAccaCoverPage(
+        doc,
+        projectInfo,
+        filterType === 'work' ? "COMPUTO METRICO" : "COMPUTO ONERI SICUREZZA",
+        filterType === 'work' ? "COMPUTO METRICO ESTIMATIVO" : "STIMA DEI COSTI PER LA SICUREZZA"
+    );
+    doc.addPage();
 
+    // 2. CORPO DELLA TABELLA COMPUTO (INIZIA DA PAGINA 2 SENZA SPAZIATORI VUOTI)
     let globalTotalForClosing = 0;
     const topLevels = categories.filter(c => !c.parentId);
     const globalCounter = { current: 1 };
@@ -766,23 +952,23 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     autoTable(doc, {
       head: [['Num.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'par.ug.', 'lung.', 'larg.', 'H/peso', 'Quantità', 'unitario', 'TOTALE']],
       body: tableBody,
-      startY: 44, 
-      margin: { top: 38, bottom: 25, left: 10, right: 10 }, 
+      startY: 18, 
+      margin: { top: 18, bottom: 22, left: 10, right: 10 }, 
       theme: 'plain', 
       styles: { fontSize: 8, valign: 'top', cellPadding: 1.5, lineWidth: 0, overflow: 'linebreak', font: 'helvetica', rowPageBreak: 'auto' },
       columnStyles: { 
-          0: { cellWidth: 10, halign: 'center' }, 
-          1: { cellWidth: 22 }, 
-          2: { cellWidth: 60 }, 
-          3: { cellWidth: 10, halign: 'center' }, 
-          4: { cellWidth: 12, halign: 'center' }, 
-          5: { cellWidth: 12, halign: 'center' }, 
-          6: { cellWidth: 12, halign: 'center' }, 
+          0: { cellWidth: 9, halign: 'center' }, 
+          1: { cellWidth: 21 }, 
+          2: { cellWidth: 58 }, 
+          3: { cellWidth: 12.5, halign: 'center' }, 
+          4: { cellWidth: 11.5, halign: 'center' }, 
+          5: { cellWidth: 11.5, halign: 'center' }, 
+          6: { cellWidth: 12.5, halign: 'center' }, 
           7: { cellWidth: 18, halign: 'right' }, 
           8: { cellWidth: 18, halign: 'right' }, 
-          9: { cellWidth: 16, halign: 'right' } 
+          9: { cellWidth: 18, halign: 'right' } 
       },
-      headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', halign: 'center', lineWidth: { bottom: 0.5 }, lineColor: [0,0,0] },
+      headStyles: { fillColor: [240, 240, 240], textColor: [0,0,0], fontStyle: 'bold', fontSize: 6.8, cellPadding: { top: 1.5, bottom: 1.5, left: 0.5, right: 0.5 }, halign: 'center', lineWidth: { bottom: 0.5 }, lineColor: [0,0,0] },
       willDrawCell: (data: any) => {
           if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isArtDesc) {
               data.cell._linesToDraw = [...data.cell.text];
@@ -915,8 +1101,8 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
           }
       },
       didDrawPage: (data: any) => {
-          const currentTableStartY = data.pageNumber === 1 ? 44 : 38;
-          const defaultTableEndY = pageHeight - 25;
+          const currentTableStartY = 18;
+          const defaultTableEndY = pageHeight - 16;
           drawHeader(doc, projectInfo, title, data.pageNumber, grandTotal, doc.internal.pageSize.width, doc.internal.pageSize.height);
           
           if (isClosingTablePage && closingTotalStartY > currentTableStartY) {
@@ -965,6 +1151,20 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
 
     totalLavoriSum = categoryTotals.reduce((sum, item) => sum + item.total, 0);
 
+    // Calcolo dell'Incidenza della Manodopera (Obbligo D.Lgs. 36/2023)
+    let totalLaborSum = 0;
+    articles.forEach(art => {
+        if (art.isEnabled === false) return;
+        const cat = categories.find(c => c.code === art.categoryCode);
+        if (cat && cat.type === filterType) {
+            const artTotal = art.quantity * art.unitPrice;
+            if (art.laborRate && art.laborRate > 0) {
+                totalLaborSum += artTotal * (art.laborRate / 100);
+            }
+        }
+    });
+    const overallLaborPercentage = totalLavoriSum > 0 ? (totalLaborSum / totalLavoriSum) * 100 : 0;
+
     categoryTotals.forEach(item => {
         const percentage = totalLavoriSum > 0 ? (item.total / totalLavoriSum) * 100 : 0;
         
@@ -1012,6 +1212,45 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
             } 
         }
     ]);
+
+    // RIGO INCIDENZA MANODOPERA (D.Lgs. 36/2023 - NON SOGGETTA A RIBASSO D'ASTA)
+    summaryTableBody.push([
+        { 
+            content: 'di cui INCIDENZA DELLA MANODOPERA (D.Lgs. 36/2023 - non soggetta a ribasso)', 
+            colSpan: 2, 
+            styles: { 
+                fillColor: [240, 249, 255], 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 9, 
+                cellPadding: { top: 3, bottom: 3, right: 3, left: 3 }, 
+                textColor: [14, 116, 144] 
+            } 
+        },
+        { 
+            content: `€ ${formatCurrency(totalLaborSum)}`, 
+            styles: { 
+                fillColor: [240, 249, 255], 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 9.5, 
+                cellPadding: { top: 3, bottom: 3, right: 3, left: 3 }, 
+                textColor: [14, 116, 144] 
+            } 
+        },
+        { 
+            content: `${overallLaborPercentage.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`, 
+            styles: { 
+                fillColor: [240, 249, 255], 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 9, 
+                cellPadding: { top: 3, bottom: 3, right: 3, left: 3 }, 
+                textColor: [14, 116, 144] 
+            } 
+        }
+    ]);
+
     summaryTableBody.push([
         { 
             content: `Sommano in lettere: Euro ${numberToItalianWords(totalLavoriSum)}`, 
@@ -1032,8 +1271,8 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
     autoTable(doc, {
         head: summaryHead,
         body: summaryTableBody,
-        startY: 30,
-        margin: { left: 10, right: 10 },
+        startY: 20,
+        margin: { left: 10, right: 10, top: 18, bottom: 20 },
         theme: 'grid',
         styles: { fontSize: 8.5, cellPadding: 2.5, overflow: 'linebreak' },
         columnStyles: {
@@ -1044,8 +1283,9 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         },
         headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
         didDrawPage: (data) => {
-            doc.setFontSize(12); doc.setFont("helvetica", "bold");
-            doc.text(`RIEPILOGO GENERALE ${filterType === 'work' ? 'LAVORI' : 'SICUREZZA'}`, 105, 20, { align: 'center' });
+            drawAccaPageFrame(doc, data.pageNumber, projectInfo);
+            doc.setFontSize(11); doc.setFont("helvetica", "bold"); doc.setTextColor(15, 23, 42);
+            doc.text(`RIEPILOGO GENERALE ${filterType === 'work' ? 'LAVORI' : 'SICUREZZA'}`, 105, 14, { align: 'center' });
         }
     });
 
@@ -1074,7 +1314,14 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
     const tableBody: any[] = [];
     const pageHeight = doc.internal.pageSize.height;
 
-    tableBody.push([{ content: '', colSpan: 10, styles: { minCellHeight: 10, lineWidth: 0, fillColor: [255, 255, 255] } }]);
+    // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+    drawAccaCoverPage(
+        doc,
+        projectInfo,
+        "COMPUTO SUBAPPALTO",
+        "COMPUTO METRICO DELLE OPERE IN SUBAPPALTO"
+    );
+    doc.addPage();
 
     // Master sequential index map per mantenere la numerazione globale originale
     const masterIndexMap = new Map<string, number>();
@@ -1351,23 +1598,23 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
     autoTable(doc, {
       head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'PAR.UG', 'LUNG.', 'LARG.', 'H/PESO', 'QUANTITÀ', 'PREZZO OFF. €', 'IMPORTO OFF. €']],
       body: tableBody,
-      startY: 42,
-      margin: { left: 10, right: 10, top: 38, bottom: 25 },
+      startY: 18,
+      margin: { left: 10, right: 10, top: 18, bottom: 22 },
       theme: 'plain',
       styles: { fontSize: 8, cellPadding: 1, overflow: 'linebreak' },
       columnStyles: {
-          0: { cellWidth: 10, halign: 'center' },
-          1: { cellWidth: 22, halign: 'center' },
-          2: { cellWidth: 60 },
-          3: { cellWidth: 10, halign: 'center' },
-          4: { cellWidth: 12, halign: 'center' },
-          5: { cellWidth: 12, halign: 'center' },
-          6: { cellWidth: 12, halign: 'center' },
+          0: { cellWidth: 9, halign: 'center' },
+          1: { cellWidth: 21, halign: 'center' },
+          2: { cellWidth: 58 },
+          3: { cellWidth: 12.5, halign: 'center' },
+          4: { cellWidth: 11.5, halign: 'center' },
+          5: { cellWidth: 11.5, halign: 'center' },
+          6: { cellWidth: 12.5, halign: 'center' },
           7: { cellWidth: 18, halign: 'right' },
           8: { cellWidth: 18, halign: 'right' },
-          9: { cellWidth: 16, halign: 'right' }
+          9: { cellWidth: 18, halign: 'right' }
       },
-      headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6.8, cellPadding: { top: 1.5, bottom: 1.5, left: 0.5, right: 0.5 }, halign: 'center' },
       willDrawCell: (data: any) => {
           if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isArtDesc) {
               data.cell._linesToDraw = [...data.cell.text];
@@ -1419,9 +1666,9 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
           }
       },
       didDrawPage: (data: any) => {
-          const currentTableStartY = data.pageNumber === 1 ? 44 : 38;
-          const defaultTableEndY = pageHeight - 25;
-          drawHeader(doc, projectInfo, "COMPUTO METRICO", data.pageNumber, 0, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          const currentTableStartY = 18;
+          const defaultTableEndY = pageHeight - 16;
+          drawHeader(doc, projectInfo, "COMPUTO SUBAPPALTO", data.pageNumber, 0, doc.internal.pageSize.width, doc.internal.pageSize.height);
           drawGridLines(doc, currentTableStartY, defaultTableEndY); 
           drawTableFrame(doc, currentTableStartY, defaultTableEndY);
           drawFooter(doc, data.pageNumber, 0, 0, doc.internal.pageSize.width, doc.internal.pageSize.height, false, true);
@@ -1461,6 +1708,15 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
         const tableBody: any[] = [];
         const globalCounter = { current: 1 };
 
+        // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+        drawAccaCoverPage(
+            doc,
+            projectInfo,
+            "ELENCO PREZZI",
+            "ELENCO DEI PREZZI UNITARI"
+        );
+        doc.addPage();
+
         const integrityHash = await computeProjectIntegrityHash(
             projectInfo,
             categories,
@@ -1489,12 +1745,19 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
                     }
                 }
 
+                // Incidenza della manodopera nel prezzo unitario (D.Lgs. 36/2023)
+                let priceContent = `€ ${formatCurrency(art.unitPrice)}\n(Euro ${wordsPrice})`;
+                if (art.laborRate && art.laborRate > 0) {
+                    const laborVal = art.unitPrice * (art.laborRate / 100);
+                    priceContent += `\n(di cui manodopera: € ${formatCurrency(laborVal)} - ${art.laborRate.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`;
+                }
+
                 tableBody.push([
                   { content: `${gNum}\n(${artNum})`, styles: { halign: 'center', isArt: true, cellPadding: { top: 2.5, bottom: 2 } } }, 
                   { content: formatTariffCode(art.code, 21, 6.8, doc), styles: { fontStyle: 'bold', fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), halign: 'center', overflow: 'linebreak', cellPadding: { top: 2.5, bottom: 2, left: 1, right: 1 } } }, 
                   { content: finalDescription, styles: { isArtDesc: true, fontSize: 8, cellPadding: { left: 3, right: 3, top: 2.5, bottom: 2.5 } } }, 
                   { content: art.unit, styles: { halign: 'center', cellPadding: { top: 2.5, bottom: 2 } } }, 
-                  { content: `€ ${formatCurrency(art.unitPrice)}\n(Euro ${wordsPrice})`, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7.2, cellPadding: { top: 2.5, bottom: 2.5, right: 2.5, left: 2 } } }
+                  { content: priceContent, styles: { halign: 'right', fontStyle: 'bold', fontSize: 7, cellPadding: { top: 2.5, bottom: 2.5, right: 2.5, left: 2 } } }
                 ]);
             });
         });
@@ -1502,8 +1765,8 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
         autoTable(doc, { 
             head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'U.M.', 'PREZZO UNITARIO']], 
             body: tableBody, 
-            startY: 42, 
-            margin: { left: 10, right: 10, top: 25, bottom: 16 },
+            startY: 18, 
+            margin: { left: 10, right: 10, top: 18, bottom: 20 },
             theme: 'grid', 
             styles: { fontSize: 8, cellPadding: 2.5, overflow: 'linebreak' }, 
             columnStyles: {
@@ -1513,8 +1776,12 @@ export const generateElencoPrezziPdf = async (projectInfo: ProjectInfo, categori
                 3: { cellWidth: 12, halign: 'center' },
                 4: { cellWidth: 40, halign: 'right' }
             },
-            headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' }, 
-            didDrawPage: (data: any) => { drawHeaderSimple(doc, projectInfo, "ELENCO PREZZI UNITARI", data.pageNumber); },
+            headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.2, cellPadding: { top: 1.8, bottom: 1.8, left: 0.8, right: 0.8 }, halign: 'center' }, 
+            didDrawPage: (data: any) => { 
+                drawAccaPageFrame(doc, data.pageNumber, projectInfo);
+                doc.setFontSize(8.5); doc.setFont("helvetica", "bold"); doc.setTextColor(50, 60, 75);
+                doc.text("ELENCO DEI PREZZI UNITARI", 105, 14, { align: 'center' });
+            },
             willDrawCell: (data: any) => {
                 if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isArtDesc) {
                     data.cell._linesToDraw = [...data.cell.text];
@@ -1600,6 +1867,15 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
         let totalLaborSum = 0;
         let totalWorksSum = 0;
         const globalCounter = { current: 1 };
+
+        // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+        drawAccaCoverPage(
+            doc,
+            projectInfo,
+            "INCIDENZA MANODOPERA",
+            "STIMA DELL'INCIDENZA DELLA MANODOPERA (D.Lgs. 36/2023)"
+        );
+        doc.addPage();
 
         categories.forEach((cat) => {
             if (cat.isSuperCategory) return;
@@ -1727,8 +2003,8 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
         autoTable(doc, { 
             head: [['N. ORD.', 'CODICE TARIFFARIO', 'DESIGNAZIONE DELLA LAVORAZIONE', 'IMPORTO TOTALE (€)', 'ALIQUOTA M.O.', 'IMPORTO M.O. (€)']], 
             body: tableBody, 
-            startY: 42, 
-            margin: { left: 10, right: 10, top: 25, bottom: 16 },
+            startY: 18, 
+            margin: { left: 10, right: 10, top: 18, bottom: 20 },
             theme: 'grid', 
             styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' }, 
             columnStyles: {
@@ -1739,25 +2015,12 @@ export const generateManodoperaPdf = async (projectInfo: ProjectInfo, categories
                 4: { cellWidth: 22, halign: 'center' },
                 5: { cellWidth: 28, halign: 'right' }
             },
-            headStyles: { fillColor: [41, 128, 185], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' }, 
+            headStyles: { fillColor: [41, 128, 185], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7.2, cellPadding: { top: 1.8, bottom: 1.8, left: 0.8, right: 0.8 }, halign: 'center' }, 
             didDrawPage: (data: any) => { 
-                if (data.pageNumber === 1) {
-                    doc.setTextColor(0, 0, 0);
-                    doc.setFontSize(13); doc.setFont("helvetica", "bold"); 
-                    doc.text("STIMA INCIDENZA MANODOPERA", 105, 16, { align: 'center' });
-                    doc.setFontSize(7.5); doc.setFont("helvetica", "italic"); doc.setTextColor(70, 70, 70);
-                    doc.text("(Ai sensi del Codice dei Contratti Pubblici D.Lgs. 36/2023 - Quantificazione forza lavoro e stima non ribassabile)", 105, 21, { align: 'center' });
-                    doc.setTextColor(0, 0, 0);
-                    doc.setFontSize(8); doc.setFont("helvetica", "bold");
-                    doc.text(projectInfo.title, 12, 28);
-                    doc.setFontSize(8); doc.setFont("helvetica", "normal"); 
-                    doc.text(`Committente: ${projectInfo.client}`, 12, 33);
-                    doc.text(`Progettista: ${projectInfo.designer}`, 12, 37); 
-                } else {
-                    doc.setTextColor(0, 0, 0);
-                    doc.setFontSize(7.2); 
-                    doc.setFont("helvetica", "bold"); doc.text(projectInfo.title, 12, 15); 
-                }
+                drawAccaPageFrame(doc, data.pageNumber, projectInfo);
+                doc.setTextColor(15, 23, 42);
+                doc.setFontSize(8.5); doc.setFont("helvetica", "bold"); 
+                doc.text("STIMA DELL'INCIDENZA DELLA MANODOPERA (D.Lgs. 36/2023)", 105, 14, { align: 'center' });
             },
             willDrawCell: (data: any) => {
                 if (data.column.index === 2 && data.section === 'body' && data.cell.raw?.styles?.isArtDesc) {
@@ -2231,7 +2494,16 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
             doc.line(10, 13, 200, 13);
         };
 
-        // 1. SCHEDE DELLE SINGOLE ANALISI (DOCUMENTO CONTRATTUALE)
+        // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+        drawAccaCoverPage(
+            doc,
+            projectInfo,
+            "ANALISI PREZZI",
+            "ANALISI DEI PREZZI UNITARI E GIUSTIFICAZIONE DEI COSTI (D.Lgs. 36/2023)"
+        );
+        doc.addPage();
+
+        // 2. SCHEDE DELLE SINGOLE ANALISI (DOCUMENTO CONTRATTUALE)
         normalizedAnalyses.forEach((an, idx) => {
             if (idx > 0) doc.addPage();
 
@@ -2689,19 +2961,7 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
 };
 
 
-const drawHeaderSimple = (doc: any, projectInfo: ProjectInfo, title: string, pageNumber: number) => {
-    doc.setTextColor(0,0,0);
-    if (pageNumber === 1) {
-        doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.text(title, 105, 18, { align: 'center' });
-        doc.setFontSize(8); 
-        doc.text(projectInfo.title, 12, 28);
-        doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.text(`Committente: ${projectInfo.client}`, 12, 33);
-        doc.text(`Progettista: ${projectInfo.designer}`, 12, 37); 
-    } else {
-        doc.setFontSize(7.2); 
-        doc.setFont("helvetica", "bold"); doc.text(projectInfo.title, 12, 15); 
-    }
-};
+
 
 export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleData: any[], maxCalendarDays: number) => {
     try {
@@ -3060,37 +3320,22 @@ export const generateDistintaFerriPdf = async (
             detailTableBody.push([{ content: '', colSpan: 9, styles: { cellPadding: 1, lineWidth: 0 } }]);
         });
 
-        // Intestazione prima pagina
+        // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+        drawAccaCoverPage(
+            doc,
+            projectInfo,
+            "DISTINTA DEI FERRI",
+            "SAGOMARIO E DISTINTA DEI FERRI D'ARMATURA (NTC 2018)"
+        );
+        doc.addPage();
+
+        // Intestazione pagine
         const drawDistintaHeader = (d: any, pageNum: number) => {
+            drawAccaPageFrame(d, pageNum, projectInfo);
             d.setTextColor(15, 23, 42);
-            if (pageNum === 1) {
-                d.setFontSize(14);
-                d.setFont("helvetica", "bold");
-                d.text("DISTINTA DEI FERRI E SAGOMARIO D'ARMATURA", pageWidth / 2, 14, { align: 'center' });
-                
-                d.setFontSize(8.5);
-                d.setFont("helvetica", "normal");
-                d.text("Acciaio in barre tonde nervate B450C ad aderenza migliorata (D.M. 17/01/2018 NTC)", pageWidth / 2, 19, { align: 'center' });
-
-                d.setFontSize(8);
-                d.setFont("helvetica", "bold");
-                d.text(`OPERA / PROGETTO: ${projectInfo.title}`, 10, 26);
-                d.setFont("helvetica", "normal");
-                d.text(`COMMITTENTE: ${projectInfo.client}`, 10, 31);
-                d.text(`PROGETTISTA DELLE STRUTTURE: ${projectInfo.designer}`, 10, 36);
-                d.text(`LOCALITÀ CANTIERE: ${projectInfo.location}   |   DATA: ${projectInfo.date}`, 10, 41);
-
-                d.setDrawColor(203, 213, 225);
-                d.setLineWidth(0.3);
-                d.line(10, 44, pageWidth - 10, 44);
-            } else {
-                d.setFontSize(7.5);
-                d.setFont("helvetica", "bold");
-                d.text(`DISTINTA FERRI - ${projectInfo.title}`, 10, 12);
-                d.setDrawColor(226, 232, 240);
-                d.setLineWidth(0.2);
-                d.line(10, 14, pageWidth - 10, 14);
-            }
+            d.setFontSize(8.5);
+            d.setFont("helvetica", "bold");
+            d.text("DISTINTA DEI FERRI E SAGOMARIO D'ARMATURA (NTC 2018)", pageWidth / 2, 14, { align: 'center' });
         };
 
         // Generazione Tabella 1: Elementi Dettagliati
@@ -3107,7 +3352,7 @@ export const generateDistintaFerriPdf = async (
                 { content: 'Peso Tot. (kg)', styles: { halign: 'right' } }
             ]],
             body: detailTableBody,
-            startY: 47,
+            startY: 18,
             margin: { left: 10, right: 10, top: 18, bottom: 20 },
             theme: 'grid',
             headStyles: {

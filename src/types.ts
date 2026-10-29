@@ -97,6 +97,7 @@ export interface ProjectInfo {
   client: string;
   designer: string;
   location: string;
+  province?: string;
   date: string;
   priceList: string; 
   region: string;

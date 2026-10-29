@@ -28,7 +28,7 @@ const ProjectHeader: React.FC<ProjectHeaderProps> = ({ info, onEdit }) => {
             {info.title}
           </h1>
           <div className="flex items-center text-gray-500 text-sm space-x-4">
-             <span className="flex items-center"><MapPin className="w-4 h-4 mr-1" /> {info.location}</span>
+             <span className="flex items-center"><MapPin className="w-4 h-4 mr-1" /> {info.location}{info.province ? ` (${info.province})` : ''}</span>
              <span className="flex items-center"><Calendar className="w-4 h-4 mr-1" /> {info.date}</span>
           </div>
         </div>

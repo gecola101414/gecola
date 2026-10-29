@@ -46,6 +46,7 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
       designer: cleanDescription(formData.designer),
       client: cleanDescription(formData.client),
       location: cleanDescription(formData.location),
+      province: cleanDescription(formData.province || ''),
       date: cleanDescription(formData.date),
     };
     onSave(cleanedData);
@@ -128,14 +129,22 @@ const ProjectSettingsModal: React.FC<ProjectSettingsModalProps> = ({ isOpen, onC
                 </div>
 
                 <div className="space-y-2">
-                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Luogo del Cantiere</label>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Luogo / Comune del Cantiere</label>
                     <div className="relative group">
                         <MapPin className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
-                        <input type="text" value={formData.location} onChange={e => handleChange('location', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" />
+                        <input type="text" value={formData.location} onChange={e => handleChange('location', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" placeholder="Es: Milano, Roma, Napoli..." />
                     </div>
                 </div>
 
                 <div className="space-y-2">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Provincia</label>
+                    <div className="relative group">
+                        <MapPin className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
+                        <input type="text" value={formData.province || ''} onChange={e => handleChange('province', e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl pl-12 pr-4 py-3 outline-none focus:border-blue-500 bg-white font-bold text-slate-700 text-sm shadow-sm transition-all" placeholder="Es: MI, RM, NA oppure Milano..." />
+                    </div>
+                </div>
+
+                <div className="col-span-2 space-y-2">
                     <label className="block text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Data del Computo</label>
                     <div className="relative group">
                         <Calendar className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors" />
