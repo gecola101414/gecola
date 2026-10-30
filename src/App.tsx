@@ -1402,6 +1402,30 @@ const App: React.FC = () => {
   useEffect(() => { setToolbarPos({ x: (window.innerWidth / 2) - 100, y: 30 }); }, []);
 
   const handleVisitorLogin = () => { setUser('visitor'); };
+  const handleMilanoDemoLogin = () => {
+    setUser('visitor');
+    setProjectInfo(prev => ({
+      ...prev,
+      title: 'Intervento Comune di Milano',
+      client: 'Comune di Milano',
+      designer: 'Ing. Ciccillo CACACE',
+      location: 'Milano (MI)',
+      province: 'Milano',
+      region: 'Lombardia',
+      priceList: 'Prezzario Regione Lombardia 2025'
+    }));
+    const milanoArticles = INITIAL_ARTICLES.map(art => {
+      if (['NP.01', 'NP.02', 'NP.03', 'NP.04', 'NP.05'].includes(art.code)) {
+        return { 
+          ...art, 
+          priceListSource: 'Voce definita dal progettista - Ing. Ciccillo CACACE',
+          description: art.description.startsWith('[') ? art.description : `[VOCE PROGETTISTA - Ing. Ciccillo CACACE] ${art.description}`
+        };
+      }
+      return art;
+    });
+    updateState(milanoArticles, categories, analyses);
+  };
   const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
 
@@ -2837,7 +2861,7 @@ const App: React.FC = () => {
       {authLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 text-white"><Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" /><p className="font-black uppercase tracking-widest text-xs">Sistema in Avvio...</p></div>
       ) : !user ? (
-        <Login onVisitorLogin={handleVisitorLogin} />
+        <Login onVisitorLogin={handleVisitorLogin} onMilanoDemoLogin={handleMilanoDemoLogin} />
       ) : (
         <>
           {!isFocusMode && (
@@ -3373,7 +3397,7 @@ const App: React.FC = () => {
           </div>
           <ProjectSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} info={projectInfo} onSave={(newInfo) => setProjectInfo(newInfo)} />
           {editingArticle && <ArticleEditModal isOpen={isEditArticleModalOpen} onClose={() => { setIsEditArticleModalOpen(false); setEditingArticle(null); }} article={editingArticle} onSave={handleArticleEditSave} onConvertToAnalysis={handleConvertArticleToAnalysis} />}
-          {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
+          {linkTarget && <LinkArticleModal isOpen={isLinkModalOpen} onClose={() => { setIsLinkModalOpen(false); setLinkTarget(null); }} articles={articles} categories={categories} currentArticleId={linkTarget.articleId} onLink={handleLinkMeasurement} />}
           <CategoryEditModal isOpen={isCategoryModalOpen} onClose={() => setIsCategoryModalOpen(false)} onSave={handleSaveCategory} onDelete={handleDeleteCategory} onToggleLock={handleToggleCategoryLock} onToggleEnabled={handleToggleCategoryVisibility} onDuplicate={(code) => { setWbsOptionsContext({ type: 'clone', sourceCode: code, initialName: categories.find(c => c.code === code)?.name || '' }); }} initialData={editingCategory} nextWbsCode={generateNextWbsCode(categories)} forcedIsSuper={creatingForcedIsSuper} />
           <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
           <AnalysisEditorModal isOpen={isAnalysisEditorOpen} onClose={() => setIsAnalysisEditorOpen(false)} analysis={editingAnalysis} onSave={handleSaveAnalysis} nextCode={`AP.${(analyses.length + 1).toString().padStart(2, '0')}`} projectInfo={projectInfo} />

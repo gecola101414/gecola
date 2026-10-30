@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
+  onMilanoDemoLogin: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
+const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -299,6 +300,18 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin }) => {
                             <span className="text-[11px] uppercase tracking-widest">Entra come Visitatore</span>
                         </div>
                         <span className="text-[8px] text-slate-400 font-bold uppercase group-hover:text-orange-600 transition-colors">Ambiente Test • 15 Voci</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={onMilanoDemoLogin}
+                        className="w-full mt-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-4 rounded-[1.8rem] shadow-lg transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
+                    >
+                        <div className="flex items-center gap-2">
+                            <Building className="w-5 h-5 text-blue-200 group-hover:scale-110 transition-transform" /> 
+                            <span className="text-[11px] uppercase tracking-widest">Intervento Comune di Milano</span>
+                        </div>
+                        <span className="text-[8px] text-blue-200 font-bold uppercase">Prov. Milano • Ing. Ciccillo CACACE</span>
                     </button>
                     
                     <div className="mt-6 text-center">
