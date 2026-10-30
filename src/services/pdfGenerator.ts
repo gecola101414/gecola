@@ -1216,44 +1216,6 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         }
     ]);
 
-    // RIGO INCIDENZA MANODOPERA (D.Lgs. 36/2023 - NON SOGGETTA A RIBASSO D'ASTA)
-    summaryTableBody.push([
-        { 
-            content: 'di cui INCIDENZA DELLA MANODOPERA (D.Lgs. 36/2023 - non soggetta a ribasso)', 
-            colSpan: 2, 
-            styles: { 
-                fillColor: [240, 249, 255], 
-                fontStyle: 'bold', 
-                halign: 'right', 
-                fontSize: 9, 
-                cellPadding: { top: 3, bottom: 3, right: 3, left: 3 }, 
-                textColor: [14, 116, 144] 
-            } 
-        },
-        { 
-            content: `€ ${formatCurrency(totalLaborSum)}`, 
-            styles: { 
-                fillColor: [240, 249, 255], 
-                fontStyle: 'bold', 
-                halign: 'right', 
-                fontSize: 9.5, 
-                cellPadding: { top: 3, bottom: 3, right: 3, left: 3 }, 
-                textColor: [14, 116, 144] 
-            } 
-        },
-        { 
-            content: `${overallLaborPercentage.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`, 
-            styles: { 
-                fillColor: [240, 249, 255], 
-                fontStyle: 'bold', 
-                halign: 'right', 
-                fontSize: 9, 
-                cellPadding: { top: 3, bottom: 3, right: 3, left: 3 }, 
-                textColor: [14, 116, 144] 
-            } 
-        }
-    ]);
-
     summaryTableBody.push([
         { 
             content: `Sommano in lettere: Euro ${numberToItalianWords(totalLavoriSum)}`, 
@@ -1280,9 +1242,9 @@ export const generateComputoMetricPdf = async (projectInfo: ProjectInfo, categor
         styles: { fontSize: 8.5, cellPadding: 2.5, overflow: 'linebreak' },
         columnStyles: {
             0: { cellWidth: 20 },
-            1: { cellWidth: 100 }, 
-            2: { cellWidth: 45 },
-            3: { cellWidth: 25 }
+            1: { cellWidth: 95 }, 
+            2: { cellWidth: 52 },
+            3: { cellWidth: 23 }
         },
         headStyles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
         didDrawPage: (data) => {

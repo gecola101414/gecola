@@ -1414,17 +1414,144 @@ const App: React.FC = () => {
       region: 'Lombardia',
       priceList: 'Prezzario Regione Lombardia 2025'
     }));
+
+    const designerAnalyses: PriceAnalysis[] = [
+      {
+        id: 'ap_np_01',
+        code: 'NP.01',
+        description: '[VOCE PROGETTISTA - Ing. Ciccillo CACACE] Allestimento container uso ufficio direzione lavori e spogliatoio operai coibentato con impianto clima',
+        unit: 'cad',
+        analysisQuantity: 1,
+        generalExpensesRate: 15,
+        profitRate: 10,
+        markupMode: 'exclude_from_markup',
+        components: [
+          { id: 'c1', type: 'material', code: 'MAT.01', description: 'Nolo container coibentato 6x2.4m con clima', unit: 'cad', unitPrice: 2200, quantity: 1, includesMarkup: false },
+          { id: 'c2', type: 'labor', code: 'LAB.01', description: 'Specialista montaggio e allacciamenti provvisori', unit: 'h', unitPrice: 35, quantity: 25, includesMarkup: false },
+          { id: 'c3', type: 'equipment', code: 'EQ.01', description: 'Autogru per posizionamento container', unit: 'h', unitPrice: 90, quantity: 2, includesMarkup: false }
+        ],
+        totalMaterials: 2200,
+        totalLabor: 875,
+        totalEquipment: 180,
+        costoTecnico: 3255,
+        valoreSpese: 488.25,
+        valoreUtile: 325.50,
+        totalBatchValue: 4068.75,
+        totalUnitPrice: 3500,
+        isLocked: true
+      },
+      {
+        id: 'ap_np_02',
+        code: 'NP.02',
+        description: '[VOCE PROGETTISTA - Ing. Ciccillo CACACE] Rimozione e trasporto a pubbliche discariche autorizzate di materiali di risulta speciali e pericolosi',
+        unit: 't',
+        analysisQuantity: 1,
+        generalExpensesRate: 15,
+        profitRate: 10,
+        markupMode: 'exclude_from_markup',
+        components: [
+          { id: 'c4', type: 'material', code: 'MAT.02', description: 'Sacconi big bag omologati per rifiuti speciali', unit: 'cad', unitPrice: 15, quantity: 1 },
+          { id: 'c5', type: 'labor', code: 'LAB.02', description: 'Operaio qualificato carico e imbrago', unit: 'h', unitPrice: 30, quantity: 1.5 },
+          { id: 'c6', type: 'equipment', code: 'EQ.02', description: 'Autocarro con gru e oneri conferimento', unit: 't', unitPrice: 65, quantity: 1 }
+        ],
+        totalMaterials: 15,
+        totalLabor: 45,
+        totalEquipment: 65,
+        costoTecnico: 125,
+        valoreSpese: 18.75,
+        valoreUtile: 12.50,
+        totalBatchValue: 156.25,
+        totalUnitPrice: 85,
+        isLocked: true
+      },
+      {
+        id: 'ap_np_03',
+        code: 'NP.03',
+        description: '[VOCE PROGETTISTA - Ing. Ciccillo CACACE] Sottofondo alleggerito in argilla espansa e legante idraulico ad alta resistenza spessore medio 10 cm',
+        unit: 'm²',
+        analysisQuantity: 1,
+        generalExpensesRate: 15,
+        profitRate: 10,
+        markupMode: 'exclude_from_markup',
+        components: [
+          { id: 'c7', type: 'material', code: 'MAT.03', description: 'Argilla espansa e legante predosato', unit: 'm³', unitPrice: 110, quantity: 0.1 },
+          { id: 'c8', type: 'labor', code: 'LAB.03', description: 'Muratore specializzato posa sottofondo', unit: 'h', unitPrice: 32, quantity: 0.35 },
+          { id: 'c9', type: 'equipment', code: 'EQ.03', description: 'Pompa impastatrice e trasporto piano', unit: 'm²', unitPrice: 2, quantity: 1 }
+        ],
+        totalMaterials: 11,
+        totalLabor: 11.20,
+        totalEquipment: 2,
+        costoTecnico: 24.20,
+        valoreSpese: 3.63,
+        valoreUtile: 2.42,
+        totalBatchValue: 30.25,
+        totalUnitPrice: 26,
+        isLocked: true
+      },
+      {
+        id: 'ap_np_04',
+        code: 'NP.04',
+        description: '[VOCE PROGETTISTA - Ing. Ciccillo CACACE] Installazione sistema di ventilazione meccanica controllata (VMC) puntuale con recupero di calore entalpico',
+        unit: 'cad',
+        analysisQuantity: 1,
+        generalExpensesRate: 15,
+        profitRate: 10,
+        markupMode: 'exclude_from_markup',
+        components: [
+          { id: 'c10', type: 'material', code: 'MAT.04', description: 'Unità VMC puntuale con scambiatore ceramico', unit: 'cad', unitPrice: 500, quantity: 1 },
+          { id: 'c11', type: 'labor', code: 'LAB.04', description: 'Tecnico installatore impiantista', unit: 'h', unitPrice: 38, quantity: 5 },
+          { id: 'c12', type: 'equipment', code: 'EQ.04', description: 'Carotatrice diamantata per foro parete', unit: 'cad', unitPrice: 50, quantity: 1 }
+        ],
+        totalMaterials: 500,
+        totalLabor: 190,
+        totalEquipment: 50,
+        costoTecnico: 740,
+        valoreSpese: 111,
+        valoreUtile: 74,
+        totalBatchValue: 925,
+        totalUnitPrice: 750,
+        isLocked: true
+      },
+      {
+        id: 'ap_np_05',
+        code: 'NP.05',
+        description: '[VOCE PROGETTISTA - Ing. Ciccillo CACACE] Realizzazione impianto domotico avanzato KNX per gestione centralizzata luci, tapparelle e termoregolazione',
+        unit: 'a corpo',
+        analysisQuantity: 1,
+        generalExpensesRate: 15,
+        profitRate: 10,
+        markupMode: 'exclude_from_markup',
+        components: [
+          { id: 'c13', type: 'material', code: 'MAT.05', description: 'Attuatori KNX, alimentatore e touch panel 7"', unit: 'a corpo', unitPrice: 3200, quantity: 1 },
+          { id: 'c14', type: 'labor', code: 'LAB.05', description: 'Programmatore KNX e cablatore specializzato', unit: 'h', unitPrice: 45, quantity: 30 },
+          { id: 'c15', type: 'equipment', code: 'EQ.05', description: 'Strumentazione diagnostica bus KNX', unit: 'giorno', unitPrice: 100, quantity: 2 }
+        ],
+        totalMaterials: 3200,
+        totalLabor: 1350,
+        totalEquipment: 200,
+        costoTecnico: 4750,
+        valoreSpese: 712.50,
+        valoreUtile: 475,
+        totalBatchValue: 5937.50,
+        totalUnitPrice: 4800,
+        isLocked: true
+      }
+    ];
+
     const milanoArticles = INITIAL_ARTICLES.map(art => {
       if (['NP.01', 'NP.02', 'NP.03', 'NP.04', 'NP.05'].includes(art.code)) {
+        const matchingAn = designerAnalyses.find(an => an.code === art.code);
         return { 
           ...art, 
           priceListSource: 'Voce definita dal progettista - Ing. Ciccillo CACACE',
-          description: art.description.startsWith('[') ? art.description : `[VOCE PROGETTISTA - Ing. Ciccillo CACACE] ${art.description}`
+          description: art.description.startsWith('[') ? art.description : `[VOCE PROGETTISTA - Ing. Ciccillo CACACE] ${art.description}`,
+          linkedAnalysisId: matchingAn?.id
         };
       }
       return art;
     });
-    updateState(milanoArticles, categories, analyses);
+
+    updateState(milanoArticles, categories, [...analyses, ...designerAnalyses]);
   };
   const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
