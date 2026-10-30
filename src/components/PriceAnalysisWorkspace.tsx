@@ -1091,6 +1091,12 @@ export const PriceAnalysisWorkspace: React.FC<PriceAnalysisWorkspaceProps> = ({
                 <button
                   key={g.key}
                   onClick={() => onSelectGroupFilter?.(g.key)}
+                  onDragOver={(e) => { e.preventDefault(); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    onSelectGroupFilter?.(g.key);
+                    handleDropItem(e, g.catCode);
+                  }}
                   className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 ${
                     isSelected
                       ? 'text-white shadow-sm'

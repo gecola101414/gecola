@@ -207,9 +207,10 @@ const drawJustifiedLine = (
     const standardSpaceWidth = doc.getTextWidth(' ');
     const calculatedGap = numGaps > 0 ? availableGapSpace / numGaps : standardSpaceWidth;
     
-    // Se lo spazio per i gap è insufficiente o se il gap risulterebbe innaturale/eccessivo (> 2.8 volte lo spazio normale o < 0.4),
-    // disegna il testo con spaziatura standard senza forzare la giustificazione per evitare sbordature
-    if (availableGapSpace <= 0 || calculatedGap > standardSpaceWidth * 2.8 || calculatedGap < standardSpaceWidth * 0.4) {
+    // Se lo spazio per i gap è insufficiente o se il gap risulterebbe innaturale/eccessivo,
+    // disegna il testo con spaziatura standard senza forzare la giustificazione per evitare sbordature.
+    // Abbiamo allentato le tolleranze per favorire la giustificazione anche in contesti compatti.
+    if (availableGapSpace <= 0 || calculatedGap > standardSpaceWidth * 4 || calculatedGap < standardSpaceWidth * 0.1) {
         doc.text(trimmed, x, y);
         return;
     }
@@ -377,11 +378,7 @@ export const drawAccaCoverPage = (
     doc.text(enteLine1, 54, 28);
     doc.text(enteLine2, 54, 35);
 
-    // Indicazione "pag. 1" in alto a destra
-    doc.setTextColor(70, 80, 95);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text("pag. 1", pageWidth - 14, 42, { align: 'right' });
+
 
     // 4. BANDANA VERTICALE CELESTINO GECOLA (Brand GeCoLa)
     const bandX = 9;
@@ -514,11 +511,7 @@ export const drawAccaPageFrame = (doc: any, pageNumber: number, projectInfo: Pro
     doc.setLineWidth(0.25);
     doc.rect(9, 8, pageWidth - 17, pageHeight - 16);
 
-    // Indicazione pagina in alto a destra
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(60, 70, 85);
-    doc.text(`pag. ${pageNumber}`, pageWidth - 14, 14, { align: 'right' });
+
 
     // Dicitura Committente a fondo pagina a sinistra (Standard PriMus: "COMMITTENTE: [ ... ]")
     doc.setFont("helvetica", "bold");
@@ -643,13 +636,16 @@ const drawSignature = (doc: any, projectInfo: ProjectInfo, yPos: number, integri
  */
 const applyDocumentFootersAndSecurity = (doc: any, integrityHash?: string) => {
     const totalPages = doc.internal.getNumberOfPages();
+    const realTotal = totalPages - 1;
+    const totalPagesStr = String(realTotal).padStart(2, '0');
     
     for (let p = 2; p <= totalPages; p++) {
         doc.setPage(p);
         const pWidth = doc.internal.pageSize.width;
         const pHeight = doc.internal.pageSize.height;
+        const pageStr = String(p - 1).padStart(2, '0');
         
-        // Impronta crittografica di sicurezza posta sotto la cornice perimetrale
+        // Impronta crittografica di sicurezza
         if (integrityHash) {
             doc.setFont("courier", "bold");
             doc.setFontSize(6);
@@ -658,6 +654,13 @@ const applyDocumentFootersAndSecurity = (doc: any, integrityHash?: string) => {
             doc.text(`SHA-256: ${shortHash}`, 12, pHeight - 4.2);
         }
         
+        // Numerazione (Pagina 02 di 04)
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.setTextColor(40, 45, 55);
+        doc.text(`Pagina ${pageStr} di ${totalPagesStr}`, pWidth / 2, pHeight - 4.2, { align: 'center' });
+        
+        // Riferimento normativo
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6);
         doc.setTextColor(120, 130, 145);
