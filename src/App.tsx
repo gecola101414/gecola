@@ -1301,9 +1301,14 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 type ViewMode = 'COMPUTO' | 'SICUREZZA' | 'ANALISI' | 'SUMMARY' | 'CRONOPROGRAMMA'; 
 interface Snapshot { articles: Article[]; categories: Category[]; analyses: PriceAnalysis[]; }
 
+const isNewProjectTab = typeof window !== 'undefined' && (
+  new URLSearchParams(window.location.search).get('nuovo') === '1' ||
+  new URLSearchParams(window.location.search).get('new') === '1'
+);
+
 const App: React.FC = () => {
-  const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(() => isNewProjectTab ? 'visitor' : null);
+  const [authLoading, setAuthLoading] = useState(() => !isNewProjectTab);
   const [isWorkspaceDragOver, setIsWorkspaceDragOver] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
@@ -1356,7 +1361,11 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => { 
-        setUser(firebaseUser as FirebaseUser);
+        if (firebaseUser) {
+          setUser(firebaseUser as FirebaseUser);
+        } else if (isNewProjectTab) {
+          setUser('visitor');
+        }
         setAuthLoading(false); 
     });
     return () => unsubscribe();
@@ -1578,13 +1587,18 @@ const App: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(initializedCategories);
-  const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
+  const [articles, setArticles] = useState<Article[]>(() => isNewProjectTab ? [] : INITIAL_ARTICLES);
   const articlesRef = useRef(articles);
   useEffect(() => {
     articlesRef.current = articles;
   }, [articles]);
-  const [analyses, setAnalyses] = useState<PriceAnalysis[]>(INITIAL_ANALYSES);
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo>(PROJECT_INFO);
+  const [analyses, setAnalyses] = useState<PriceAnalysis[]>(() => isNewProjectTab ? [] : INITIAL_ANALYSES);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo>(() => isNewProjectTab ? {
+    ...PROJECT_INFO,
+    title: 'Nuovo Computo Metrico',
+    client: '',
+    designer: ''
+  } : PROJECT_INFO);
   const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(categories[0]?.code || 'WBS.01');
   const [activeColumn, setActiveColumn] = useState<string | null>(null);
   const [history, setHistory] = useState<Snapshot[]>([]);
@@ -2855,21 +2869,9 @@ const App: React.FC = () => {
   const handleToggleCategoryVisibility = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c); updateState(articles, newCats); playUISound('toggle'); };
   const handleSaveCategory = (name: string, isSuper: boolean, color: string, soa?: string) => { if (editingCategory) { const newCats = categories.map(c => c.id === editingCategory.id ? { ...c, name, isSuperCategory: isSuper, color, soaCategory: soa } : c); updateState(articles, newCats); } else { const newCode = generateNextWbsCode(categories); const newCat: Category = { id: `cat_${Date.now()}`, code: newCode, name, isEnabled: true, isLocked: false, isSuperCategory: isSuper, type: viewMode === 'SICUREZZA' ? 'safety' : 'work', color: color, soaCategory: soa }; let newCatsList = isSuper ? [newCat, ...categories] : [...categories, newCat]; const result = renumberCategories(newCatsList, articles); updateState(result.newArticles, result.newCategories); setSelectedCategoryCode(newCat.code); const assignedCode = result.codeMap[newCat.code] || newCat.code; setLastMovedItemId(assignedCode); setTimeout(() => setLastMovedItemId(null), 3000); } setIsCategoryModalOpen(false); playUISound('confirm'); };
   const handleResetProject = () => {
-    if (articles.length > 0 && !window.confirm("Vuoi iniziare un Nuovo Computo? Le modifiche non salvate andranno perse.")) {
-      return;
-    }
-    setArticles([]);
-    setAnalyses([]);
-    setProjectInfo({
-      ...PROJECT_INFO,
-      title: 'Nuovo Computo Metrico',
-      client: '',
-      designer: ''
-    });
-    setSelectedCategoryCode(categories[0]?.code || 'WBS.01');
-    setCurrentFileHandle(null);
-    setViewMode('COMPUTO');
     playUISound('newline');
+    const newTabUrl = `${window.location.origin}${window.location.pathname}?nuovo=1`;
+    window.open(newTabUrl, '_blank');
   };
   const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { 
     const effectiveTargetId = rebarTargetArticleId || articles.find(a => 
@@ -3051,7 +3053,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                    <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Computo"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Computo</span></button>
+                    <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Computo (apre in una nuova scheda)"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Computo (Nuova Scheda)</span></button>
                     <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <button 
                       onClick={() => { setIsSaveModalOpen(true); playUISound('confirm'); }} 
