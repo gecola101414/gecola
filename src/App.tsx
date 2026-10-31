@@ -1401,15 +1401,28 @@ const App: React.FC = () => {
 
   useEffect(() => { setToolbarPos({ x: (window.innerWidth / 2) - 100, y: 30 }); }, []);
 
-  const handleVisitorLogin = () => { setUser('visitor'); };
+  const handleVisitorLogin = () => { 
+    setUser('visitor'); 
+    setArticles([]);
+    setAnalyses([]);
+    setProjectInfo(prev => ({
+      ...prev,
+      title: 'Nuovo Computo Metrico (Visitatore)',
+      designer: 'Ing. Progettista',
+      client: 'Committente Test'
+    }));
+    setViewMode('COMPUTO');
+    setSelectedCategoryCode('WBS.01');
+    playUISound('confirm');
+  };
   const handleMilanoDemoLogin = () => {
     setUser('visitor');
     setProjectInfo(prev => ({
       ...prev,
-      title: 'Intervento Comune di Milano',
+      title: 'Ristrutturazione Fabbricato Via Garibaldi, 12 - Milano',
       client: 'Comune di Milano',
       designer: 'Ing. Ciccillo CACACE',
-      location: 'Milano (MI)',
+      location: 'Via Garibaldi, 12 - Milano (MI)',
       province: 'Milano',
       region: 'Lombardia',
       priceList: 'Prezzario Regione Lombardia 2025'
@@ -2841,7 +2854,23 @@ const App: React.FC = () => {
   const handleToggleCategoryLock = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isLocked: !c.isLocked } : c); updateState(articles, newCats); playUISound('toggle'); };
   const handleToggleCategoryVisibility = (code: string) => { const newCats = categories.map(c => c.code === code ? { ...c, isEnabled: !c.isEnabled } : c); updateState(articles, newCats); playUISound('toggle'); };
   const handleSaveCategory = (name: string, isSuper: boolean, color: string, soa?: string) => { if (editingCategory) { const newCats = categories.map(c => c.id === editingCategory.id ? { ...c, name, isSuperCategory: isSuper, color, soaCategory: soa } : c); updateState(articles, newCats); } else { const newCode = generateNextWbsCode(categories); const newCat: Category = { id: `cat_${Date.now()}`, code: newCode, name, isEnabled: true, isLocked: false, isSuperCategory: isSuper, type: viewMode === 'SICUREZZA' ? 'safety' : 'work', color: color, soaCategory: soa }; let newCatsList = isSuper ? [newCat, ...categories] : [...categories, newCat]; const result = renumberCategories(newCatsList, articles); updateState(result.newArticles, result.newCategories); setSelectedCategoryCode(newCat.code); const assignedCode = result.codeMap[newCat.code] || newCat.code; setLastMovedItemId(assignedCode); setTimeout(() => setLastMovedItemId(null), 3000); } setIsCategoryModalOpen(false); playUISound('confirm'); };
-  const handleResetProject = () => { window.open(window.location.href, '_blank'); playUISound('newline'); };
+  const handleResetProject = () => {
+    if (articles.length > 0 && !window.confirm("Vuoi iniziare un Nuovo Computo? Le modifiche non salvate andranno perse.")) {
+      return;
+    }
+    setArticles([]);
+    setAnalyses([]);
+    setProjectInfo({
+      ...PROJECT_INFO,
+      title: 'Nuovo Computo Metrico',
+      client: '',
+      designer: ''
+    });
+    setSelectedCategoryCode(categories[0]?.code || 'WBS.01');
+    setCurrentFileHandle(null);
+    setViewMode('COMPUTO');
+    playUISound('newline');
+  };
   const handleAddRebarMeasurement = (measurements: Array<{ diameter: number; weight: number; multiplier: number; length: number; description: string }>) => { 
     const effectiveTargetId = rebarTargetArticleId || articles.find(a => 
       a.unit?.toLowerCase().includes('kg') || 
@@ -3022,7 +3051,7 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                    <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Progetto"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Progetto</span></button>
+                    <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Computo"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Computo</span></button>
                     <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
                     <button 
                       onClick={() => { setIsSaveModalOpen(true); playUISound('confirm'); }} 
@@ -3051,7 +3080,7 @@ const App: React.FC = () => {
             </div>
           )}
           <div className={`flex flex-1 overflow-hidden transition-all duration-500 ${isFocusMode ? 'bg-[#1e293b]' : ''}`}>
-            {!isFocusMode && (
+            {!isFocusMode && viewMode !== 'CRONOPROGRAMMA' && (
                 <div className="w-[20.4rem] bg-slate-100 border-r border-slate-200 flex flex-col flex-shrink-0 z-40 shadow-xs transition-all duration-300 relative pl-[6px]">
                 <div onMouseEnter={() => startScroll(-3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(-3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(-3); }} onDragLeave={stopScroll} className="absolute top-[135px] left-0 right-0 h-10 z-[100] cursor-n-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-b from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronUp className={`text-blue-600 animate-bounce w-6 h-6 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
                 <div onMouseEnter={() => startScroll(3)} onMouseLeave={stopScroll} onDragOver={(e) => { e.preventDefault(); startScroll(3); }} onDragEnter={(e) => { e.preventDefault(); startScroll(3); }} onDragLeave={stopScroll} className="absolute bottom-0 left-0 right-0 h-16 z-[100] cursor-s-resize opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-blue-500/40 to-transparent flex items-center justify-center pointer-events-auto"><ChevronDown className={`text-blue-600 animate-bounce w-8 h-8 ${draggedCategoryCode || isDraggingArticle || isDraggingAnalysis ? 'opacity-50' : 'opacity-100'}`} /></div>
@@ -3380,7 +3409,7 @@ const App: React.FC = () => {
                {viewMode === 'SUMMARY' ? (
                    <div className="flex-1 overflow-y-auto p-12 bg-white"><Summary totals={totals} info={projectInfo} categories={categories} articles={articles} analyses={analyses} /></div>
                ) : viewMode === 'CRONOPROGRAMMA' ? (
-                   <div className="flex-1 overflow-hidden"><ScheduleView categories={categories} articles={articles} projectInfo={projectInfo} offsets={scheduleOffsets} teamSizes={teamSizes} onOffsetChange={(id, val) => setScheduleOffsets(prev => ({ ...prev, [id]: val }))} onTeamSizeChange={(id, val) => setTeamSizes(prev => ({ ...prev, [id]: val }))} onReorderCategories={(newCats) => { const result = renumberCategories(newCats, articles); updateState(result.newArticles, result.newCategories); }} /></div>
+                   <div className="flex-1 overflow-hidden"><ScheduleView categories={categories} articles={articles} projectInfo={projectInfo} offsets={scheduleOffsets} teamSizes={teamSizes} onOffsetChange={(id, val) => setScheduleOffsets(prev => ({ ...prev, [id]: val }))} onTeamSizeChange={(id, val) => setTeamSizes(prev => ({ ...prev, [id]: val }))} onReorderCategories={(newCats) => { const result = renumberCategories(newCats, articles); updateState(result.newArticles, result.newCategories); }} onClose={() => setViewMode('COMPUTO')} /></div>
                ) : viewMode === 'ANALISI' ? (
                    currentActiveAnalysis ? (
                      <PriceAnalysisWorkspace

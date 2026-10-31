@@ -2975,6 +2975,24 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
             doc.setFontSize(6);
             doc.text(d.toString(), x + dayWidth/2, currentY + 7, { align: 'center' });
         }
+
+        // Linee verticali di avanzamento quadri-settimanale (ogni 28 giorni naturali/consecutivi)
+        for(let d=28; d<=maxCalendarDays; d+=28) {
+            const xMilestone = margin + wbsColumnWidth + (d * dayWidth);
+            doc.setDrawColor(79, 70, 229);
+            doc.setLineWidth(0.4);
+            doc.setLineDash([2, 1], 0);
+            doc.line(xMilestone, headerHeight, xMilestone, contentBottomY);
+            doc.setLineDash([]);
+
+            // Badge nell'intestazione
+            doc.setFillColor(79, 70, 229);
+            doc.roundedRect(xMilestone - 9, headerHeight - 6.5, 18, 5, 1, 1, 'F');
+            doc.setFontSize(4.8);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(255, 255, 255);
+            doc.text(`${d / 7}ª SETT. (${d} gg)`, xMilestone, headerHeight - 3, { align: 'center' });
+        }
         
         currentY += 10;
         doc.setDrawColor(0); doc.setLineWidth(0.3);
@@ -3054,7 +3072,8 @@ export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleDa
         const noteItems = [
             "1. Le durate di ogni singola lavorazione riportate in tabella sono state incrementate del 10% rispetto al calcolo teorico di produzione. Tale incremento cautelativo tiene conto delle medie stagionali relative alle condizioni meteo, delle festività nazionali e patronali, di eventuali scioperi del settore e di possibili imprevisti logistici o interferenze di cantiere.",
             "2. Il presente cronoprogramma è sviluppato sulla base di una settimana lavorativa di 5 (cinque) giorni (Lunedì-Venerdì) e su un unico turno di lavoro giornaliero standard.",
-            "3. La durata del cantiere è espressa in 'giorni naturali e consecutivi', ovvero comprensivi delle domeniche e di tutti gli altri giorni festivi, ai sensi della normativa vigente sui LL.PP. (Rif. Art. 121 DPR 207/2010 e s.m.i.)."
+            "3. La durata del cantiere è espressa in 'giorni naturali e consecutivi', ovvero comprensivi delle domeniche e di tutti gli altri giorni festivi, ai sensi della normativa vigente sui LL.PP. (Rif. Art. 121 DPR 207/2010 e s.m.i.).",
+            "4. Le linee verticali tratteggiate indaco ogni 4 settimane (28 giorni) indicano la scansione quadri-settimanale del progetto, consentendo la rapida individuazione dei cicli di avanzamento e della durata complessiva dell'intero intervento anche su stampe e anteprime compatte."
         ];
 
         let noteY = listY + 5;

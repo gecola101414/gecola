@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Category, Article, ProjectInfo } from '../types';
-import { Calendar, Clock, MoveHorizontal, Info, HardHat, ZoomIn, ZoomOut, FileDown, Layers, ChevronDown, GripVertical, Coins, TrendingUp, X, FileText, Award, Users, Plus, Minus, PenTool } from 'lucide-react';
+import { Calendar, Clock, MoveHorizontal, Info, HardHat, ZoomIn, ZoomOut, FileDown, Layers, ChevronDown, GripVertical, Coins, TrendingUp, X, FileText, Award, Users, Plus, Minus, PenTool, ArrowLeft } from 'lucide-react';
 import { VIVID_COLORS } from '../constants';
 import { generateScheduleA3Pdf } from '../services/pdfGenerator';
 
@@ -13,6 +13,7 @@ interface ScheduleViewProps {
   onOffsetChange: (catId: string, days: number) => void;
   onTeamSizeChange: (catId: string, size: number) => void;
   onReorderCategories: (newCategories: Category[]) => void;
+  onClose?: () => void;
 }
 
 // Parametro di produzione: 240€ di manodopera prodotta al giorno da un operaio (Uniformato a Summary)
@@ -52,7 +53,7 @@ const getCalendarBounds = (workingOffset: number, workingDuration: number) => {
   return { calendarStart, calendarEnd, calendarDuration: (calendarEnd - calendarStart) + 1 };
 };
 
-const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, projectInfo, offsets, teamSizes, onOffsetChange, onTeamSizeChange, onReorderCategories }) => {
+const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, projectInfo, offsets, teamSizes, onOffsetChange, onTeamSizeChange, onReorderCategories, onClose }) => {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   
@@ -348,21 +349,32 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
-            <div className="bg-slate-900/80 px-6 py-3 rounded-2xl border border-slate-700 flex items-center gap-4 shadow-inner">
+        <div className="flex items-center gap-4">
+            {onClose && (
+              <button 
+                onClick={onClose}
+                className="bg-slate-700/90 hover:bg-slate-600 text-white px-5 py-3 rounded-2xl font-black uppercase text-xs tracking-wider flex items-center gap-2 transition-all active:scale-95 shadow-md border border-slate-600 hover:border-blue-400 group cursor-pointer"
+                title="Torna alla schermata del Computo Metrico"
+              >
+                <ArrowLeft className="w-4 h-4 text-blue-400 group-hover:-translate-x-1 transition-transform" />
+                <span>Torna al Computo</span>
+              </button>
+            )}
+            <div className="bg-slate-900/80 px-5 py-2.5 rounded-2xl border border-slate-700 flex items-center gap-4 shadow-inner">
                 <ZoomOut className="w-4 h-4 text-slate-500" />
                 <input 
-                    type="range" min="15" max="120" value={dayWidth} 
+                    type="range" min="10" max="120" value={dayWidth} 
                     onChange={(e) => setDayWidth(parseInt(e.target.value))}
-                    className="w-48 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    className="w-44 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    title={`Zoom scala temporale: ${dayWidth}px/giorno`}
                 />
                 <ZoomIn className="w-4 h-4 text-blue-400" />
             </div>
             <button 
                 onClick={() => generateScheduleA3Pdf(projectInfo, scheduleData, maxCalendarDays)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-4 rounded-[1.5rem] font-black uppercase text-xs tracking-widest shadow-xl flex items-center gap-3 transition-all active:scale-95 group"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center gap-2.5 transition-all active:scale-95 group cursor-pointer"
             >
-                <FileDown className="w-5 h-5" /> Esporta A3
+                <FileDown className="w-4 h-4" /> Esporta A3
             </button>
         </div>
       </div>
@@ -396,21 +408,37 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
                 {dropTargetId === cat.id && (
                     <div className={`absolute left-0 right-0 h-1 bg-blue-500 z-50 shadow-[0_0_15px_rgba(59,130,246,1)] ${dropPosition === 'top' ? 'top-0' : 'bottom-0'}`} />
                 )}
-                <div className="flex items-center gap-4 w-full pointer-events-none">
-                    <GripVertical className="w-4 h-4 text-slate-600 group-hover:text-slate-400 shrink-0" />
+                <div className="flex items-center gap-3 w-full">
+                    <GripVertical className="w-4 h-4 text-slate-600 group-hover:text-slate-400 shrink-0 pointer-events-none" />
                     <div className="flex flex-col w-full">
                         <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 pointer-events-none">
                                 <span className={`text-[9px] font-black px-2 py-0.5 rounded shadow-sm text-white`} style={{ backgroundColor: cat.barColor }}>{cat.code}</span>
-                                <span className="text-[10px] text-slate-300 font-black truncate uppercase tracking-tighter max-w-[180px]">{cat.name}</span>
+                                <span className="text-[10px] text-slate-300 font-black truncate uppercase tracking-tighter max-w-[160px]">{cat.name}</span>
                             </div>
-                            {/* COLONNA Sq. */}
-                            <div className="bg-slate-900 border border-slate-700 px-2 py-0.5 rounded-lg flex items-center gap-1.5">
-                                <Users className="w-2.5 h-2.5 text-blue-400" />
-                                <span className="text-[9px] font-black text-blue-300">Sq.:{cat.teamSize}</span>
+                            {/* COLONNA Sq. CON CONTROLLI RAPIDI +/- */}
+                            <div className="bg-slate-900 border border-slate-700 px-1 py-0.5 rounded-lg flex items-center gap-1 z-30" onClick={(e) => e.stopPropagation()}>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); onTeamSizeChange(cat.id, Math.max(1, cat.teamSize - 1)); }}
+                                  className="w-4 h-4 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-red-400 flex items-center justify-center transition-colors active:scale-90"
+                                  title="Riduci squadra (-1)"
+                                >
+                                  <Minus className="w-2.5 h-2.5" />
+                                </button>
+                                <div className="flex items-center gap-0.5 px-0.5 pointer-events-none">
+                                  <Users className="w-2.5 h-2.5 text-blue-400" />
+                                  <span className="text-[9px] font-black text-blue-300 font-mono">Sq.:{cat.teamSize}</span>
+                                </div>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); onTeamSizeChange(cat.id, Math.min(10, cat.teamSize + 1)); }}
+                                  className="w-4 h-4 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 flex items-center justify-center transition-colors active:scale-90"
+                                  title="Aumenta squadra (+1)"
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                </button>
                             </div>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center pointer-events-none">
                             <div className="flex flex-col">
                                 <span className="text-[11px] font-black text-white/80 font-mono tracking-tight">{new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(cat.totalLabor)}</span>
                                 <span className="text-[7px] text-slate-500 uppercase font-black tracking-widest">Valore Manodopera</span>
@@ -440,14 +468,20 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
             <div style={{ height: headerHeight }} className="border-b border-slate-700 bg-slate-900 flex sticky top-0 z-30 shadow-md shrink-0">
               {daysArray.map(day => {
                 const weekend = isWeekend(day);
+                const is28Milestone = day % 28 === 0;
                 return (
                   <div 
                     key={day} 
                     style={{ width: dayWidth }} 
-                    className={`h-full border-r border-slate-800/50 flex flex-col items-center justify-center flex-shrink-0 ${weekend ? 'bg-slate-800/60' : ''}`}
+                    className={`h-full border-r border-slate-800/50 flex flex-col items-center justify-center flex-shrink-0 relative ${weekend ? 'bg-slate-800/60' : ''} ${is28Milestone ? 'border-r-2 border-r-indigo-400' : ''}`}
                   >
-                    <span className={`text-[11px] font-black font-mono ${weekend ? 'text-red-400/40' : 'text-slate-400'}`}>{day}</span>
+                    <span className={`text-[11px] font-black font-mono ${weekend ? 'text-red-400/40' : (is28Milestone ? 'text-indigo-300 font-extrabold' : 'text-slate-400')}`}>{day}</span>
                     {dayWidth > 50 && <span className="text-[6px] text-slate-600 font-black uppercase mt-0.5">{weekend ? 'OFF' : 'WORK'}</span>}
+                    {is28Milestone && (
+                      <div className="absolute -top-1 -right-3 z-40 bg-indigo-600 text-white text-[7px] font-black px-1.5 py-0.2 rounded-full shadow-lg border border-indigo-300 pointer-events-none whitespace-nowrap">
+                        {day / 7}ª Sett. ({day}gg)
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -467,6 +501,22 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
                             />
                         );
                     })}
+                </div>
+
+                {/* Linee verticali ogni 4 settimane (28 giorni) */}
+                <div className="absolute top-0 bottom-0 left-0 right-0 pointer-events-none z-15">
+                    {daysArray.filter(day => day % 28 === 0).map(milestoneDay => (
+                        <div 
+                            key={`milestone-line-${milestoneDay}`} 
+                            style={{ left: milestoneDay * dayWidth }}
+                            className="absolute top-0 bottom-0 pointer-events-none flex flex-col items-center z-15"
+                        >
+                            <div className="h-full border-r-2 border-dashed border-indigo-400/80 shadow-[0_0_12px_rgba(99,102,241,0.7)]"></div>
+                            <div className="sticky top-2 bg-indigo-600 text-white font-mono font-black text-[7.5px] px-2 py-0.5 rounded-full shadow-lg border border-indigo-300 whitespace-nowrap -translate-x-1/2 z-30 tracking-tight">
+                                {milestoneDay / 7}ª Sett. ({milestoneDay} gg)
+                            </div>
+                        </div>
+                    ))}
                 </div>
 
                 {/* Barre Gantt */}
@@ -534,6 +584,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
                       <div className="w-full h-full bg-[repeating-linear-gradient(45deg,transparent,transparent_2px,rgba(255,255,255,0.05)_2px,rgba(255,255,255,0.05)_4px)]" />
                   </div>
                   <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Sospensione Weekend</span>
+              </div>
+              <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 bg-slate-900 border-2 border-dashed border-indigo-400 rounded-lg flex items-center justify-center">
+                      <div className="w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />
+                  </div>
+                  <span className="text-[10px] font-black uppercase text-indigo-300 tracking-widest">Ciclo 4 Sett. (28 gg)</span>
               </div>
               <div className="h-4 w-px bg-slate-700 mx-2 hidden md:block" />
               <div className="flex items-center gap-3">

@@ -299,7 +299,7 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
                             <UserCircle className="w-5 h-5 text-slate-300 group-hover:text-orange-500 transition-colors" /> 
                             <span className="text-[11px] uppercase tracking-widest">Entra come Visitatore</span>
                         </div>
-                        <span className="text-[8px] text-slate-400 font-bold uppercase group-hover:text-orange-600 transition-colors">Ambiente Test • 15 Voci</span>
+                        <span className="text-[8px] text-slate-400 font-bold uppercase group-hover:text-orange-600 transition-colors">Ambiente Test • Computo Vuoto</span>
                     </button>
 
                     <button
@@ -308,10 +308,10 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
                         className="w-full mt-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-4 rounded-[1.8rem] shadow-lg transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
                     >
                         <div className="flex items-center gap-2">
-                            <Building className="w-5 h-5 text-blue-200 group-hover:scale-110 transition-transform" /> 
-                            <span className="text-[11px] uppercase tracking-widest">Intervento Comune di Milano</span>
+                            <Building className="w-5 h-5 text-blue-200 group-hover:scale-110 transition-transform shrink-0" /> 
+                            <span className="text-[10px] uppercase tracking-widest text-center leading-tight">Ristrutturazione Fabbricato Via Garibaldi, 12 - Milano</span>
                         </div>
-                        <span className="text-[8px] text-blue-200 font-bold uppercase">Prov. Milano • Ing. Ciccillo CACACE</span>
+                        <span className="text-[8px] text-blue-200 font-bold uppercase text-center">Comune di Milano • Ing. Ciccillo CACACE</span>
                     </button>
                     
                     <div className="mt-6 text-center">
