@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Category, Article, ProjectInfo } from '../types';
-import { Calendar, Clock, MoveHorizontal, Info, HardHat, ZoomIn, ZoomOut, FileDown, Layers, ChevronDown, GripVertical, Coins, TrendingUp, X, FileText, Award, Users, Plus, Minus, PenTool, ArrowLeft } from 'lucide-react';
+import { Calendar, Clock, MoveHorizontal, Info, HardHat, ZoomIn, ZoomOut, FileDown, Layers, ChevronDown, GripVertical, Coins, TrendingUp, X, FileText, Award, Users, Plus, Minus, PenTool, ArrowLeft, Printer } from 'lucide-react';
 import { VIVID_COLORS } from '../constants';
-import { generateScheduleA3Pdf } from '../services/pdfGenerator';
+import { generateSchedulePdf, generateScheduleA3Pdf, SchedulePaperFormat, SCHEDULE_FORMATS } from '../services/pdfGenerator';
 
 interface ScheduleViewProps {
   categories: Category[];
@@ -67,6 +67,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
   const [dropPosition, setDropPosition] = useState<'top' | 'bottom' | null>(null);
 
   const [selectedWbsId, setSelectedWbsId] = useState<string | null>(null);
+  const [selectedFormat, setSelectedFormat] = useState<SchedulePaperFormat>('A3');
+  const [hoveredWbsId, setHoveredWbsId] = useState<string | null>(null);
 
   const isSyncingRef = useRef(false);
 
@@ -370,11 +372,41 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
                 />
                 <ZoomIn className="w-4 h-4 text-blue-400" />
             </div>
+            {/* SELETTORE FORMATO PDF (A0 - A4 PER PLOTTER E FASCICOLI) */}
+            <div className="bg-slate-900/90 p-1 rounded-2xl border border-slate-700 flex items-center gap-1 shadow-inner">
+                <div className="px-2 py-1 flex items-center gap-1.5 text-slate-400">
+                    <Printer className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="text-[9px] font-black uppercase tracking-wider hidden xl:inline">Foglio:</span>
+                </div>
+                {SCHEDULE_FORMATS.map(fmt => {
+                    const isSelected = selectedFormat === fmt.id;
+                    const isPlotter = fmt.id === 'A0' || fmt.id === 'A1';
+                    return (
+                        <button
+                            key={fmt.id}
+                            onClick={() => setSelectedFormat(fmt.id)}
+                            className={`px-2.5 py-1.5 rounded-xl font-mono text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
+                                isSelected
+                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 scale-105'
+                                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                            }`}
+                            title={`${fmt.label} (${fmt.dimensions}) - ${fmt.description}`}
+                        >
+                            <span>{fmt.id}</span>
+                            {isPlotter && <span className="text-[7.5px] uppercase font-bold text-amber-300 hidden 2xl:inline tracking-tighter">Plotter</span>}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* PULSANTE ESPORTA PDF CON FORMATO SELEZIONATO */}
             <button 
-                onClick={() => generateScheduleA3Pdf(projectInfo, scheduleData, maxCalendarDays)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center gap-2.5 transition-all active:scale-95 group cursor-pointer"
+                onClick={() => generateSchedulePdf(projectInfo, scheduleData, maxCalendarDays, selectedFormat)}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-2xl font-black uppercase text-xs tracking-wider shadow-xl flex items-center gap-2 transition-all active:scale-95 group cursor-pointer shrink-0"
+                title={`Esporta Cronoprogramma in formato ${selectedFormat} (${SCHEDULE_FORMATS.find(f => f.id === selectedFormat)?.dimensions})`}
             >
-                <FileDown className="w-4 h-4" /> Esporta A3
+                <FileDown className="w-4 h-4 group-hover:-translate-y-0.5 transition-transform" />
+                <span>Esporta {selectedFormat} {selectedFormat === 'A0' || selectedFormat === 'A1' ? 'Plotter' : ''}</span>
             </button>
         </div>
       </div>
@@ -402,8 +434,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
                 onDragEnd={() => { setDraggedWbsId(null); setDropTargetId(null); }}
                 onClick={() => handleWbsFocusInTimeline(cat)}
                 onDoubleClick={() => handleWbsOpenDossier(cat.id)}
+                onMouseEnter={() => setHoveredWbsId(cat.id)}
+                onMouseLeave={() => setHoveredWbsId(null)}
                 style={{ height: rowHeight }}
-                className={`border-b border-slate-700/50 flex items-center px-6 group hover:bg-slate-700/30 transition-all relative cursor-pointer ${draggedWbsId === cat.id ? 'opacity-20 grayscale bg-blue-900/20' : ''}`}
+                className={`border-b border-slate-700/50 flex items-center px-6 group transition-all relative cursor-pointer ${
+                    draggedWbsId === cat.id ? 'opacity-20 grayscale bg-blue-900/20' : ''
+                } ${hoveredWbsId === cat.id ? 'bg-slate-700/60 ring-1 ring-inset ring-blue-400/40' : 'hover:bg-slate-700/30'}`}
               >
                 {dropTargetId === cat.id && (
                     <div className={`absolute left-0 right-0 h-1 bg-blue-500 z-50 shadow-[0_0_15px_rgba(59,130,246,1)] ${dropPosition === 'top' ? 'top-0' : 'bottom-0'}`} />
@@ -519,22 +555,44 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({ categories, articles, proje
                     ))}
                 </div>
 
-                {/* Barre Gantt */}
+                {/* Barre Gantt con Binario di Riferimento Orizzontale */}
                 <div className="relative z-10">
-                    {scheduleData.map(cat => (
+                    {scheduleData.map((cat, idx) => (
                         <div 
                             key={cat.id} 
                             style={{ height: rowHeight }}
-                            className="border-b border-slate-700/10 flex items-center relative group"
+                            onMouseEnter={() => setHoveredWbsId(cat.id)}
+                            onMouseLeave={() => setHoveredWbsId(null)}
+                            className={`border-b border-slate-700/20 flex items-center relative group transition-colors ${
+                                idx % 2 === 1 ? 'bg-slate-900/30' : 'bg-transparent'
+                            } ${hoveredWbsId === cat.id ? 'bg-blue-900/15' : ''}`}
                         >
-                            <div className="absolute inset-0 bg-white/[0.01] pointer-events-none group-hover:bg-white/[0.03]" />
-                            
+                            {/* BINARIO DI RIFERIMENTO ORIZZONTALE CONTINUO (linea guida mezzeria tratteggiata) */}
+                            <div className={`absolute left-0 right-0 top-1/2 -translate-y-1/2 h-px pointer-events-none transition-all ${
+                                hoveredWbsId === cat.id 
+                                    ? 'border-b-2 border-dashed border-blue-400/80 shadow-[0_0_10px_rgba(59,130,246,0.6)] z-[6]' 
+                                    : 'border-b border-dashed border-slate-700/35 z-[5]'
+                            }`} />
+
+                            {/* CORSIA GUIDA LEGGERA (track band non invasiva) */}
+                            <div className={`absolute inset-x-0 top-2.5 bottom-2.5 rounded-lg pointer-events-none transition-all z-[4] ${
+                                hoveredWbsId === cat.id
+                                    ? 'bg-blue-500/[0.06] border-y border-blue-400/30'
+                                    : 'border-y border-slate-800/25 group-hover:bg-slate-800/20'
+                            }`} />
+
+                            {/* BADGE GUIDA FLOTTANTE STICKY: segue lo scroll orizzontale per correlare immediatamente voci lontane */}
+                            <div className="sticky left-2 z-[25] opacity-50 group-hover:opacity-100 transition-opacity pointer-events-none flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900/95 border border-slate-700/80 shadow-md backdrop-blur-sm shrink-0">
+                                <span className="w-2 h-2 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: cat.barColor }} />
+                                <span className="text-[9px] font-mono font-black text-slate-300 tracking-tight">{cat.code}</span>
+                            </div>
+
                             <div 
                                 onMouseDown={(e) => handleBarMouseDown(e, cat.id)}
                                 onDoubleClick={() => handleWbsOpenDossier(cat.id)}
                                 style={{ 
                                     left: (cat.calendarStart - 1) * dayWidth, 
-                                    width: cat.calendarDuration * dayWidth,
+                                    width: Math.max(12, cat.calendarDuration * dayWidth),
                                     backgroundColor: cat.barColor + 'dd',
                                     borderColor: cat.barColor
                                 }}

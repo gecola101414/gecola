@@ -3565,174 +3565,421 @@ export const generateAnalisiPrezziPdf = async (projectInfo: ProjectInfo, analyse
 
 
 
-export const generateScheduleA3Pdf = async (projectInfo: ProjectInfo, scheduleData: any[], maxCalendarDays: number) => {
+export type SchedulePaperFormat = 'A0' | 'A1' | 'A2' | 'A3' | 'A4';
+
+export interface ScheduleFormatInfo {
+    id: SchedulePaperFormat;
+    label: string;
+    description: string;
+    dimensions: string;
+    width: number;
+    height: number;
+}
+
+export const SCHEDULE_FORMATS: ScheduleFormatInfo[] = [
+    { id: 'A0', label: 'A0 Plotter Maxi', description: 'Grandi Opere & Tavole di Cantiere', dimensions: '1189 × 841 mm', width: 1189, height: 841 },
+    { id: 'A1', label: 'A1 Plotter Standard', description: 'Tavole Esecutive di Progetto', dimensions: '841 × 594 mm', width: 841, height: 594 },
+    { id: 'A2', label: 'A2 Plotter Compatto', description: 'Formato Intermedio Studio', dimensions: '594 × 420 mm', width: 594, height: 420 },
+    { id: 'A3', label: 'A3 Tabloid Cantiere', description: 'Standard Fascicolo & Cantiere (Consigliato)', dimensions: '420 × 297 mm', width: 420, height: 297 },
+    { id: 'A4', label: 'A4 Fascicolo Ufficio', description: 'Allegato Relazione Tecnica', dimensions: '297 × 210 mm', width: 297, height: 210 },
+];
+
+interface ScheduleGeomConfig {
+    margin: number;
+    wbsNameWidth: number;
+    wbsDaysWidth: number;
+    wbsTeamWidth: number;
+    rowHeight: number;
+    headerHeight: number;
+    headerBarHeight: number;
+    titleSize: number;
+    subFontSize: number;
+    thFontSize: number;
+    dayFontSize: number;
+    wbsFontSize: number;
+    barH: number;
+    reportTitleSize: number;
+    reportFontSize: number;
+}
+
+const SCHEDULE_GEOM: Record<SchedulePaperFormat, ScheduleGeomConfig> = {
+    A0: {
+        margin: 22,
+        wbsNameWidth: 160,
+        wbsDaysWidth: 26,
+        wbsTeamWidth: 24,
+        rowHeight: 18,
+        headerHeight: 52,
+        headerBarHeight: 14,
+        titleSize: 28,
+        subFontSize: 13,
+        thFontSize: 12.5,
+        dayFontSize: 8.5,
+        wbsFontSize: 11.5,
+        barH: 8.5,
+        reportTitleSize: 18,
+        reportFontSize: 12.5
+    },
+    A1: {
+        margin: 18,
+        wbsNameWidth: 120,
+        wbsDaysWidth: 20,
+        wbsTeamWidth: 18,
+        rowHeight: 14,
+        headerHeight: 44,
+        headerBarHeight: 11.5,
+        titleSize: 22,
+        subFontSize: 10.5,
+        thFontSize: 10.5,
+        dayFontSize: 7.2,
+        wbsFontSize: 9.5,
+        barH: 6.8,
+        reportTitleSize: 15,
+        reportFontSize: 10.5
+    },
+    A2: {
+        margin: 16,
+        wbsNameWidth: 90,
+        wbsDaysWidth: 16,
+        wbsTeamWidth: 15,
+        rowHeight: 11.5,
+        headerHeight: 38,
+        headerBarHeight: 9.5,
+        titleSize: 18,
+        subFontSize: 9,
+        thFontSize: 9,
+        dayFontSize: 6.2,
+        wbsFontSize: 8.2,
+        barH: 5.6,
+        reportTitleSize: 13,
+        reportFontSize: 9
+    },
+    A3: {
+        margin: 14,
+        wbsNameWidth: 68,
+        wbsDaysWidth: 13,
+        wbsTeamWidth: 13,
+        rowHeight: 9.5,
+        headerHeight: 32,
+        headerBarHeight: 8,
+        titleSize: 15,
+        subFontSize: 8,
+        thFontSize: 7.8,
+        dayFontSize: 5.2,
+        wbsFontSize: 7.2,
+        barH: 4.8,
+        reportTitleSize: 11,
+        reportFontSize: 8
+    },
+    A4: {
+        margin: 10,
+        wbsNameWidth: 48,
+        wbsDaysWidth: 10,
+        wbsTeamWidth: 10,
+        rowHeight: 7.5,
+        headerHeight: 26,
+        headerBarHeight: 6.5,
+        titleSize: 12,
+        subFontSize: 6.5,
+        thFontSize: 6.5,
+        dayFontSize: 4.2,
+        wbsFontSize: 5.8,
+        barH: 3.8,
+        reportTitleSize: 9,
+        reportFontSize: 6.5
+    }
+};
+
+/**
+ * Genera il Cronoprogramma Generale dei Lavori in formato PDF professionale
+ * Supporta formati plotter da A0 ad A4 con binario orizzontale di guida per ciascun gruppo WBS.
+ */
+export const generateSchedulePdf = async (
+    projectInfo: ProjectInfo, 
+    scheduleData: any[], 
+    maxCalendarDays: number,
+    paperFormat: SchedulePaperFormat = 'A3'
+) => {
     try {
         const { jsPDF } = await getLibs();
-        const doc = new jsPDF({ orientation: 'landscape', format: 'a3', unit: 'mm' });
+        const cfg = SCHEDULE_GEOM[paperFormat] || SCHEDULE_GEOM.A3;
+        const formatDimensionsMap: Record<SchedulePaperFormat, [number, number]> = {
+            A0: [1189, 841],
+            A1: [841, 594],
+            A2: [594, 420],
+            A3: [420, 297],
+            A4: [297, 210]
+        };
+
+        const targetDims = formatDimensionsMap[paperFormat] || [420, 297];
+        const doc = new jsPDF({ 
+            orientation: 'landscape', 
+            format: targetDims, 
+            unit: 'mm' 
+        });
         
-        const margin = 15;
-        const pageWidth = 420;
-        const pageHeight = 297;
-        const wbsNameWidth = 60;
-        const wbsDaysWidth = 12;
-        const wbsTeamWidth = 12;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = cfg.margin;
+        const wbsNameWidth = cfg.wbsNameWidth;
+        const wbsDaysWidth = cfg.wbsDaysWidth;
+        const wbsTeamWidth = cfg.wbsTeamWidth;
         const wbsColumnWidth = wbsNameWidth + wbsDaysWidth + wbsTeamWidth;
         const timelineWidth = pageWidth - margin * 2 - wbsColumnWidth;
-        const dayWidth = timelineWidth / maxCalendarDays;
-        const rowHeight = 10;
-        const headerHeight = 35;
+        const dayWidth = Math.max(0.5, timelineWidth / Math.max(1, maxCalendarDays));
+        const rowHeight = cfg.rowHeight;
+        const headerHeight = cfg.headerHeight;
+        const headerBarHeight = cfg.headerBarHeight;
 
-        doc.setFontSize(18); doc.setFont("helvetica", "bold");
-        doc.text("CRONOPROGRAMMA DEI LAVORI", pageWidth / 2, 15, { align: 'center' });
-        doc.setFontSize(8); doc.setFont("helvetica", "normal"); 
-        doc.text(`Progetto: ${projectInfo.title}`, margin, 25);
-        doc.text(`Committente: ${projectInfo.client}`, margin, 30);
+        // INTESTAZIONE UFFICIALE TAVOLA CRONOPROGRAMMA
+        doc.setFontSize(cfg.titleSize); 
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 41, 59);
+        doc.text("CRONOPROGRAMMA GENERALE DEI LAVORI", pageWidth / 2, margin + (cfg.headerHeight * 0.15), { align: 'center' });
 
-        let currentY = headerHeight;
+        doc.setFontSize(cfg.subFontSize); 
+        doc.setFont("helvetica", "normal"); 
+        doc.setTextColor(51, 65, 85);
+        const subTopY = margin + (cfg.headerHeight * 0.42);
+        const lineStep = cfg.subFontSize * 0.55;
+        doc.text(`Progetto: ${projectInfo.title}`, margin, subTopY);
+        doc.text(`Committente: ${projectInfo.client}`, margin, subTopY + lineStep);
+        doc.text(`Località: ${projectInfo.location}  |  Data: ${projectInfo.date}`, margin, subTopY + (lineStep * 2));
 
-        doc.setDrawColor(0); doc.setLineWidth(0.5);
-        doc.line(margin, currentY, pageWidth - margin, currentY);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(8);
-        doc.text("WBS / ATTIVITÀ", margin + 2, currentY + 7);
-        doc.text("Giorni", margin + wbsNameWidth + 2, currentY + 7);
-        doc.text("Sq.", margin + wbsNameWidth + wbsDaysWidth + 2, currentY + 7);
+        // Riquadro info formato su plotter a destra
+        doc.text(`Tavola: ${paperFormat} (${Math.round(pageWidth)} × ${Math.round(pageHeight)} mm) - Cronoprogramma LL.PP.`, pageWidth - margin, subTopY, { align: 'right' });
+        doc.text(`Progettista: ${projectInfo.designer}`, pageWidth - margin, subTopY + lineStep, { align: 'right' });
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(37, 99, 235);
+        doc.text(`Scala Temporale: ${maxCalendarDays} Giorni Naturali e Consecutivi`, pageWidth - margin, subTopY + (lineStep * 2), { align: 'right' });
+
+        let currentY = margin + headerHeight;
+
+        // BARRA INTESTAZIONE TABELLA WBS E TIMELINE
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, currentY, pageWidth - margin * 2, headerBarHeight, 'F');
         
-        const contentBottomY = currentY + 10 + (scheduleData.length * rowHeight);
+        doc.setFont("helvetica", "bold"); 
+        doc.setFontSize(cfg.thFontSize);
+        doc.setTextColor(255, 255, 255);
+        doc.text("WBS / GRUPPO DI LAVORAZIONE", margin + 3, currentY + (headerBarHeight * 0.65));
+        doc.text("GG", margin + wbsNameWidth + (wbsDaysWidth / 2), currentY + (headerBarHeight * 0.65), { align: 'center' });
+        doc.text("Sq.", margin + wbsNameWidth + wbsDaysWidth + (wbsTeamWidth / 2), currentY + (headerBarHeight * 0.65), { align: 'center' });
+        
+        const contentBottomY = currentY + headerBarHeight + (scheduleData.length * rowHeight);
 
-        for(let d=1; d<=maxCalendarDays; d++) {
-            const x = margin + wbsColumnWidth + (d-1) * dayWidth;
+        // HEADER DEI GIORNI E SFONDI WEEKEND
+        doc.setFontSize(cfg.dayFontSize);
+        for (let d = 1; d <= maxCalendarDays; d++) {
+            const x = margin + wbsColumnWidth + (d - 1) * dayWidth;
             const weekend = d % 7 === 6 || d % 7 === 0;
+            
+            // Sfondo weekend nella timeline
             if (weekend) {
-                doc.setFillColor(235, 235, 235);
-                doc.rect(x, currentY, dayWidth, contentBottomY - currentY, 'F');
+                doc.setFillColor(241, 245, 249);
+                doc.rect(x, currentY + headerBarHeight, dayWidth, contentBottomY - (currentY + headerBarHeight), 'F');
             }
-            doc.setDrawColor(210); doc.setLineWidth(0.1);
-            doc.line(x, currentY, x, contentBottomY);
-            doc.setTextColor(120);
-            doc.setFontSize(6);
-            doc.text(d.toString(), x + dayWidth/2, currentY + 7, { align: 'center' });
+            
+            // Linea verticale sottile di scansione giornaliera
+            doc.setDrawColor(226, 232, 240); 
+            doc.setLineWidth(0.08);
+            doc.line(x, currentY + headerBarHeight, x, contentBottomY);
+            
+            // Numero del giorno nella barra header
+            doc.setTextColor(weekend ? 203 : 255, weekend ? 213 : 255, weekend ? 225 : 255);
+            doc.text(d.toString(), x + dayWidth / 2, currentY + (headerBarHeight * 0.65), { align: 'center' });
         }
 
-        // Linee verticali di avanzamento quadri-settimanale (ogni 28 giorni naturali/consecutivi)
-        for(let d=28; d<=maxCalendarDays; d+=28) {
+        // LINEE VERTICALI DI AVANZAMENTO QUADRI-SETTIMANALE (OGNI 28 GIORNI)
+        for (let d = 28; d <= maxCalendarDays; d += 28) {
             const xMilestone = margin + wbsColumnWidth + (d * dayWidth);
             doc.setDrawColor(79, 70, 229);
-            doc.setLineWidth(0.4);
+            doc.setLineWidth(0.35);
             doc.setLineDash([2, 1], 0);
-            doc.line(xMilestone, headerHeight, xMilestone, contentBottomY);
+            doc.line(xMilestone, currentY, xMilestone, contentBottomY);
             doc.setLineDash([]);
 
-            // Badge nell'intestazione
+            // Badge milestone nell'intestazione
+            const badgeW = Math.max(16, cfg.thFontSize * 1.8);
+            const badgeH = headerBarHeight * 0.45;
             doc.setFillColor(79, 70, 229);
-            doc.roundedRect(xMilestone - 9, headerHeight - 6.5, 18, 5, 1, 1, 'F');
-            doc.setFontSize(4.8);
+            doc.roundedRect(xMilestone - (badgeW / 2), currentY - (badgeH * 0.8), badgeW, badgeH, 1, 1, 'F');
+            doc.setFontSize(Math.max(4, cfg.dayFontSize * 0.9));
             doc.setFont("helvetica", "bold");
             doc.setTextColor(255, 255, 255);
-            doc.text(`${d / 7}ª SETT. (${d} gg)`, xMilestone, headerHeight - 3, { align: 'center' });
+            doc.text(`${d / 7}ª SETT.`, xMilestone, currentY - (badgeH * 0.15), { align: 'center' });
         }
         
-        currentY += 10;
-        doc.setDrawColor(0); doc.setLineWidth(0.3);
-        doc.line(margin, currentY, pageWidth - margin, currentY);
+        currentY += headerBarHeight;
 
         let totalLaborValue = 0;
         let lastDay = 0;
 
-        scheduleData.forEach((cat) => {
-            if (currentY + rowHeight > pageHeight - margin) return;
+        // CICLO RIGHE WBS CON IL BINARIO DI RIFERIMENTO ORIZZONTALE
+        scheduleData.forEach((cat, catIdx) => {
             totalLaborValue += cat.totalLabor;
             if (cat.calendarEnd > lastDay) lastDay = cat.calendarEnd;
-            doc.setDrawColor(240); doc.setLineWidth(0.05);
-            doc.line(margin, currentY + rowHeight, pageWidth - margin, currentY + rowHeight);
-            doc.setFont("helvetica", "bold"); doc.setFontSize(7.5);
-            doc.setTextColor(0);
-            doc.text(`${cat.code} - ${cat.name.substring(0, 32)}`, margin + 2, currentY + 7);
-            doc.setFont("helvetica", "bold"); doc.setFontSize(7);
-            doc.setTextColor(60, 60, 60);
-            doc.text(cat.duration.toString(), margin + wbsNameWidth + 3, currentY + 7);
-            doc.setTextColor(0, 80, 180);
-            doc.text(cat.teamSize.toString(), margin + wbsNameWidth + wbsDaysWidth + 3, currentY + 7);
 
+            // 1. Sfondo alternato leggero (effetto zebrato chiarissimo per guidare l'occhio)
+            if (catIdx % 2 === 1) {
+                doc.setFillColor(248, 250, 252);
+                doc.rect(margin, currentY, pageWidth - margin * 2, rowHeight, 'F');
+            }
+
+            // 2. BINARIO DI RIFERIMENTO ORIZZONTALE (guida visiva di mezzeria tratteggiata leggera)
+            // Permette di collegare con precisione immediata anche voci molto lontane nel tempo alla colonna WBS di riferimento
+            const centerY = currentY + (rowHeight / 2);
+            doc.setDrawColor(210, 218, 230); // grigio ardesia leggero, non invasivo
+            doc.setLineWidth(0.12);
+            doc.setLineDash([1.5, 1.5], 0);
+            doc.line(margin + wbsColumnWidth, centerY, pageWidth - margin, centerY);
+            doc.setLineDash([]); // Ripristina linea solida
+
+            // 3. Linea di separazione inferiore riga
+            doc.setDrawColor(226, 232, 240); 
+            doc.setLineWidth(0.15);
+            doc.line(margin, currentY + rowHeight, pageWidth - margin, currentY + rowHeight);
+
+            // 4. Testi WBS / Capitolo
+            doc.setFont("helvetica", "bold"); 
+            doc.setFontSize(cfg.wbsFontSize);
+            doc.setTextColor(15, 23, 42);
+            const maxChars = Math.max(16, Math.floor(wbsNameWidth / (cfg.wbsFontSize * 0.42)));
+            const catNameTrimmed = cat.name.length > maxChars ? cat.name.substring(0, maxChars - 2) + '..' : cat.name;
+            doc.text(`${cat.code} - ${catNameTrimmed}`, margin + 2.5, centerY + (cfg.wbsFontSize * 0.32));
+
+            // Durata GG
+            doc.setFont("helvetica", "bold"); 
+            doc.setFontSize(cfg.wbsFontSize * 0.95);
+            doc.setTextColor(71, 85, 105);
+            doc.text(cat.duration.toString(), margin + wbsNameWidth + (wbsDaysWidth / 2), centerY + (cfg.wbsFontSize * 0.32), { align: 'center' });
+
+            // Squadra Tipo Sq.
+            doc.setTextColor(37, 99, 235);
+            doc.text(cat.teamSize.toString(), margin + wbsNameWidth + wbsDaysWidth + (wbsTeamWidth / 2), centerY + (cfg.wbsFontSize * 0.32), { align: 'center' });
+
+            // 5. Barra Gantt posizionata perfettamente sul binario
             const barX = margin + wbsColumnWidth + ((cat.calendarStart - 1) * dayWidth);
-            const barW = cat.calendarDuration * dayWidth;
-            const barH = 5;
-            const barY = currentY + (rowHeight - barH) / 2;
+            const barW = Math.max(1, cat.calendarDuration * dayWidth);
+            const barTopY = centerY - (cfg.barH / 2);
 
             const hex = cat.barColor || '#3B82F6';
-            const r = parseInt(hex.slice(1, 3), 16);
-            const g = parseInt(hex.slice(3, 5), 16);
-            const b = parseInt(hex.slice(5, 7), 16);
+            const r = parseInt(hex.slice(1, 3), 16) || 59;
+            const g = parseInt(hex.slice(3, 5), 16) || 130;
+            const b = parseInt(hex.slice(5, 7), 16) || 246;
             doc.setFillColor(r, g, b);
-            doc.roundedRect(barX, barY, barW, barH, 0.5, 0.5, 'F');
+            doc.roundedRect(barX, barTopY, barW, cfg.barH, 0.6, 0.6, 'F');
+
+            // 6. Etichetta identificativa WBS sul binario / barra per identificazione immediata
+            const labelFontSize = Math.min(cfg.wbsFontSize * 0.82, cfg.barH * 0.65);
+            doc.setFontSize(labelFontSize);
+            doc.setFont("helvetica", "bold");
+            if (barW >= 15) {
+                doc.setTextColor(255, 255, 255);
+                doc.text(cat.code, barX + 2, centerY + (labelFontSize * 0.35));
+            } else {
+                doc.setTextColor(71, 85, 105);
+                doc.text(cat.code, barX + barW + 1.5, centerY + (labelFontSize * 0.35));
+            }
+
             currentY += rowHeight;
         });
 
-        doc.setDrawColor(0); doc.setLineWidth(0.5);
-        doc.line(margin + wbsColumnWidth, headerHeight, margin + wbsColumnWidth, contentBottomY);
-        doc.setLineWidth(0.5);
-        doc.rect(margin, headerHeight, pageWidth - margin * 2, contentBottomY - headerHeight);
+        // BORDI PRINCIPALI DELLA TABELLA
+        doc.setDrawColor(30, 41, 59); 
+        doc.setLineWidth(0.4);
+        doc.line(margin + wbsColumnWidth, margin + headerHeight, margin + wbsColumnWidth, contentBottomY);
+        doc.rect(margin, margin + headerHeight, pageWidth - margin * 2, contentBottomY - (margin + headerHeight));
 
-        let reportY = contentBottomY + 15;
-        if (reportY > pageHeight - 80) { doc.addPage(); reportY = margin + 10; }
+        // BLOCCO RIEPILOGATIVO DATI ESSENZIALI & RELAZIONE TECNICA
+        let reportY = contentBottomY + (cfg.rowHeight * 1.2);
+        const estimatedReportHeight = 65;
+        if (reportY + estimatedReportHeight > pageHeight - margin) { 
+            doc.addPage(); 
+            reportY = margin + 12; 
+        }
         
-        doc.setFontSize(11); doc.setFont("helvetica", "bold");
-        doc.setTextColor(44, 62, 80);
+        doc.setFontSize(cfg.reportTitleSize); 
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 41, 59);
         doc.text("DATI ESSENZIALI DEL CRONOPROGRAMMA", margin, reportY);
         
-        doc.setFontSize(9); doc.setFont("helvetica", "normal");
+        doc.setFontSize(cfg.reportFontSize); 
+        doc.setFont("helvetica", "normal");
         doc.setTextColor(0);
         
         const manDaysTotal = Math.ceil(totalLaborValue / 240);
         const consecutiveDays = lastDay;
+        const repStep = cfg.reportFontSize * 0.65;
 
-        let listY = reportY + 8;
-        doc.setFont("helvetica", "bold"); doc.text("- Durata complessiva del cantiere:", margin, listY);
-        doc.setFont("helvetica", "normal"); doc.text(`${consecutiveDays} giorni naturali e consecutivi`, margin + 60, listY);
+        let listY = reportY + repStep + 3;
+        doc.setFont("helvetica", "bold"); 
+        doc.text("- Durata complessiva dell'intervento:", margin, listY);
+        doc.setFont("helvetica", "normal"); 
+        doc.text(`${consecutiveDays} giorni naturali e consecutivi`, margin + (wbsColumnWidth * 0.8), listY);
         
-        listY += 6;
-        doc.setFont("helvetica", "bold"); doc.text("- Fabbisogno totale forza lavoro:", margin, listY);
-        doc.setFont("helvetica", "normal"); doc.text(`${manDaysTotal} Uomini-Giorno (UG)`, margin + 60, listY);
+        listY += repStep;
+        doc.setFont("helvetica", "bold"); 
+        doc.text("- Fabbisogno totale forza lavoro:", margin, listY);
+        doc.setFont("helvetica", "normal"); 
+        doc.text(`${manDaysTotal} Uomini-Giorno (UG)`, margin + (wbsColumnWidth * 0.8), listY);
         
-        listY += 6;
-        doc.setFont("helvetica", "bold"); doc.text("- Importo manodopera stimata:", margin, listY);
-        doc.setFont("helvetica", "normal"); doc.text(`€ ${formatCurrency(totalLaborValue)}`, margin + 60, listY);
+        listY += repStep;
+        doc.setFont("helvetica", "bold"); 
+        doc.text("- Importo manodopera stimata:", margin, listY);
+        doc.setFont("helvetica", "normal"); 
+        doc.text(`€ ${formatCurrency(totalLaborValue)}`, margin + (wbsColumnWidth * 0.8), listY);
 
-        listY += 6;
-        doc.setFont("helvetica", "bold"); doc.text("- Produzione base considerata:", margin, listY);
-        doc.setFont("helvetica", "normal"); doc.text(`€ 240,00/giorno per singolo operaio (Sq.)`, margin + 60, listY);
+        listY += repStep;
+        doc.setFont("helvetica", "bold"); 
+        doc.text("- Resa base standard operaio:", margin, listY);
+        doc.setFont("helvetica", "normal"); 
+        doc.text(`€ 240,00 / giorno per singolo operaio (Configurazione Squadra Sq.)`, margin + (wbsColumnWidth * 0.8), listY);
 
-        listY += 12;
-        doc.setFontSize(8); doc.setFont("helvetica", "bold");
-        doc.text("NOTE TECNICHE E NORMATIVE:", margin, listY);
+        listY += repStep * 1.8;
+        doc.setFontSize(Math.max(6, cfg.reportFontSize * 0.85)); 
+        doc.setFont("helvetica", "bold");
+        doc.text("NOTE METODOLOGICHE E NORMATIVE:", margin, listY);
         doc.setFont("helvetica", "italic");
         
         const noteItems = [
-            "1. Le durate di ogni singola lavorazione riportate in tabella sono state incrementate del 10% rispetto al calcolo teorico di produzione. Tale incremento cautelativo tiene conto delle medie stagionali relative alle condizioni meteo, delle festività nazionali e patronali, di eventuali scioperi del settore e di possibili imprevisti logistici o interferenze di cantiere.",
-            "2. Il presente cronoprogramma è sviluppato sulla base di una settimana lavorativa di 5 (cinque) giorni (Lunedì-Venerdì) e su un unico turno di lavoro giornaliero standard.",
-            "3. La durata del cantiere è espressa in 'giorni naturali e consecutivi', ovvero comprensivi delle domeniche e di tutti gli altri giorni festivi, ai sensi della normativa vigente sui LL.PP. (Rif. Art. 121 DPR 207/2010 e s.m.i.).",
-            "4. Le linee verticali tratteggiate indaco ogni 4 settimane (28 giorni) indicano la scansione quadri-settimanale del progetto, consentendo la rapida individuazione dei cicli di avanzamento e della durata complessiva dell'intero intervento anche su stampe e anteprime compatte."
+            "1. Le durate operative delle singole lavorazioni sono calcolate incrementando del 10% la produzione teorica contrattuale (Patto di Ferro). Tale coefficiente cautelativo assorbe le oscillazioni meteorologiche stagionali, le festività patronali e nazionali e le interferenze logistiche di cantiere.",
+            "2. Lo sviluppo cronologico è programmato su una settimana lavorativa tipo di 5 (cinque) giorni (Lunedì-Venerdì) con unico turno giornaliero standard.",
+            "3. La durata complessiva del cantiere è computata in 'giorni naturali e consecutivi', comprensiva di sabati, domeniche e festività infrasettimanali, ai sensi del D.Lgs. 36/2023 e s.m.i. (ex Art. 121 DPR 207/2010).",
+            "4. Ciascun gruppo WBS è dotato di binario orizzontale di riferimento continuo e scansione quadri-settimanale (28 giorni), assicurando l'univoca correlazione visiva delle lavorazioni anche su formati plotter estesi (A0 - A4)."
         ];
 
-        let noteY = listY + 5;
+        let noteY = listY + (repStep * 0.8);
         noteItems.forEach(note => {
             const splitNote = doc.splitTextToSize(note, pageWidth - margin * 2);
             doc.text(splitNote, margin, noteY);
-            noteY += (splitNote.length * 4) + 2;
+            noteY += (splitNote.length * (cfg.reportFontSize * 0.45)) + 1.5;
         });
         
-        const sigX = pageWidth - margin - 70;
-        const sigY = noteY + 10;
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        const sigX = pageWidth - margin - (wbsColumnWidth * 0.8);
+        const sigY = noteY + (repStep * 1.2);
+        doc.setFont("helvetica", "normal"); 
+        doc.setFontSize(cfg.reportFontSize);
         doc.text(`${projectInfo.location}, ${projectInfo.date}`, margin, sigY);
         doc.setFont("helvetica", "bold");
-        doc.text("IL PROGETTISTA", sigX + 35, sigY, { align: 'center' });
+        doc.text("IL PROGETTISTA", sigX + (wbsColumnWidth * 0.4), sigY, { align: 'center' });
         doc.setLineWidth(0.2);
-        doc.line(sigX, sigY + 10, sigX + 70, sigY + 10);
+        doc.line(sigX, sigY + 8, sigX + (wbsColumnWidth * 0.8), sigY + 8);
         doc.setFont("helvetica", "normal");
-        doc.text(projectInfo.designer, sigX + 35, sigY + 16, { align: 'center' });
+        doc.text(projectInfo.designer, sigX + (wbsColumnWidth * 0.4), sigY + 14, { align: 'center' });
 
         window.open(URL.createObjectURL(doc.output('blob')), '_blank');
-    } catch (e) { console.error(e); alert("Errore A3."); }
+    } catch (e) { 
+        console.error("Errore generazione PDF Cronoprogramma:", e); 
+        alert("Si è verificato un errore durante la generazione del Cronoprogramma in formato " + paperFormat); 
+    }
+};
+
+/**
+ * Alias di retrocompatibilità per il formato A3
+ */
+export const generateScheduleA3Pdf = (projectInfo: ProjectInfo, scheduleData: any[], maxCalendarDays: number) => {
+    return generateSchedulePdf(projectInfo, scheduleData, maxCalendarDays, 'A3');
 };
 
 export const generateProfessionalPdf = generateComputoMetricPdf;
