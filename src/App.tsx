@@ -3068,7 +3068,13 @@ const App: React.FC = () => {
                         {isPrintMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-xl py-2 z-[100] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3 font-bold"><FileText className="w-4 h-4 text-blue-500" />Computo Estimativo (.pdf)</button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricoSubappaltoPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-emerald-800 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100"><Briefcase className="w-4 h-4 text-emerald-600" />Computo Metrico Subappalto (.pdf)</button>
+                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricoSubappaltoPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-emerald-800 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100">
+                                    <Briefcase className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                                    <div>
+                                        <div>Computo Metrico Subappalto (.pdf)</div>
+                                        <div className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">PDF Attivo con Prezzi Offerti Compilabili</div>
+                                    </div>
+                                </button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateDistintaFerriPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-amber-800 hover:bg-amber-50 flex items-center gap-3 font-bold border-b border-slate-100"><RebarCagePillarIcon className="w-4 h-4" />Distinta Ferri e Sagomario (.pdf)</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateComputoSicurezzaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-orange-50 flex items-center gap-3 font-bold"><ShieldAlert className="w-3.5 h-3.5 text-orange-500" />Computo Oneri Sicurezza</button>
                                 <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-3.5 h-3.5 text-slate-500" />Elenco Prezzi Unitari</button>

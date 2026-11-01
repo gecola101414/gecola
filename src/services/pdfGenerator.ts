@@ -489,7 +489,9 @@ export const drawAccaCoverPage = (
     doc.setFontSize(6.5);
     doc.setTextColor(100, 116, 139);
     doc.text("GeCoLa Cloud by GeCoLa Soft", pageWidth - 14, pageHeight - 11, { align: 'right' });
-    doc.text(`Prezzario di Riferimento: ${projectInfo.region || ''} ${projectInfo.year || ''}`, 12, pageHeight - 11);
+    if (!documentTitle.includes("SUBAPPALTO")) {
+        doc.text(`Prezzario di Riferimento: ${projectInfo.region || ''} ${projectInfo.year || ''}`, 12, pageHeight - 11);
+    }
 };
 
 /**
@@ -1272,6 +1274,85 @@ export const generateComputoSicurezzaPdf = async (projectInfo: ProjectInfo, cate
     return generateComputoMetricPdf(projectInfo, categories, articles, 'safety');
 };
 
+const ACRO_PARSE_SNIPPET = `function(v){if(v===null||v===undefined||v==="")return 0;if(typeof v==="number")return v;var s=String(v).replace(/[^0-9,-]/g,"");if(s.indexOf(",")>-1&&s.indexOf(".")>-1){if(s.lastIndexOf(",")>s.lastIndexOf(".")){s=s.replace(/\\./g,"").replace(",",".");}else{s=s.replace(/,/g,"");}}else if(s.indexOf(",")>-1){s=s.replace(",",".");}var n=parseFloat(s);return isNaN(n)?0:n;}`;
+
+const ACRO_FMT_SNIPPET = `function(v){if(v===null||v===undefined||v==="")return"";var n=(typeof v==="number")?v:parseFloat(String(v).replace(/[^0-9,-]/g,"").replace(",","."));if(isNaN(n)||n===0)return"";var isNeg=n<0;var abs=Math.abs(n);var parts=abs.toFixed(2).split(".");var ip=parts[0];var dp=parts[1];var res="";while(ip.length>3){res="."+ip.slice(ip.length-3)+res;ip=ip.slice(0,ip.length-3);}res=ip+res;return(isNeg?"-":"")+res+","+dp;}`;
+
+interface InteractiveFieldConfig {
+    fieldName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    page: number;
+    readOnly?: boolean;
+    defaultValue?: string;
+    jsCalc?: string | null;
+    isPriceInput?: boolean;
+    nextFieldName?: string | null;
+    isTotal?: boolean;
+    textAlign?: 'left' | 'center' | 'right';
+}
+
+const addAcroFormField = (doc: any, config: InteractiveFieldConfig) => {
+    try {
+        const tf = new doc.AcroFormTextField();
+        tf.fieldName = config.fieldName;
+        tf.value = config.defaultValue || '';
+        tf.x = config.x;
+        tf.y = config.y;
+        tf.width = config.width;
+        tf.height = config.height;
+        tf.page = config.page;
+        tf.readOnly = config.readOnly ?? false;
+        tf.textAlign = config.textAlign || 'right';
+
+        const origGetKV = tf.getKeyValueListForStream.bind(tf);
+        tf.getKeyValueListForStream = function() {
+            const list = origGetKV();
+            const qVal = config.textAlign === 'center' ? 1 : (config.textAlign === 'left' ? 0 : 2);
+            if (!list.some((item: any) => item.key === 'Q')) {
+                list.push({ key: 'Q', value: qVal });
+            }
+            const fontSize = config.isTotal ? 8.5 : 7.5;
+            const fontColor = config.isTotal ? '0 0.2 0.65' : (config.readOnly ? '0.1 0.1 0.15' : '0 0.25 0.8');
+            list.push({ key: 'DA', value: `(/Helv ${fontSize} Tf ${fontColor} rg)` });
+
+            if (!config.readOnly) {
+                list.push({ key: 'BS', value: '<< /W 0.5 /S /S >>' });
+                list.push({ key: 'MK', value: '<< /BC [0.2 0.55 0.85] /BG [0.94 0.98 1.0] >>' });
+            } else {
+                list.push({ key: 'BS', value: '<< /W 0.3 /S /S >>' });
+                list.push({ key: 'MK', value: config.isTotal ? '<< /BC [0.6 0.7 0.85] /BG [0.90 0.94 0.99] >>' : '<< /BC [0.8 0.85 0.9] /BG [0.97 0.97 0.98] >>' });
+            }
+
+            if (config.isPriceInput) {
+                const nextJump = config.nextFieldName ? `var isNav=(event.commitKey===1||event.commitKey===0||event.commitKey===2);if(isNav&&!event.shift){try{var nf=this.getField("${config.nextFieldName}");if(nf){var p=(typeof nf.page==="number")?nf.page:(nf.page&&typeof nf.page[0]==="number"?nf.page[0]:-1);if(p===this.pageNum){nf.setFocus();}}}catch(e){}}` : '';
+                const priceCommitJs = `try{if(event.willCommit){this.calculateNow();${nextJump}}}catch(e){}`;
+                const blurJs = `try{var v=event.target.value;if(v){var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var num=_p(v);if(num>0){event.target.value=_f(num);}}this.calculateNow();}catch(e){}`;
+                const escPrice = priceCommitJs.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+                const escBlur = blurJs.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+                list.push({
+                    key: 'AA',
+                    value: `<< /K << /S /JavaScript /JS (${escPrice}) >> /Bl << /S /JavaScript /JS (${escBlur}) >> >>`
+                });
+            } else if (config.jsCalc) {
+                const escapedJs = config.jsCalc.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+                list.push({
+                    key: 'AA',
+                    value: `<< /C << /S /JavaScript /JS (${escapedJs}) >> >>`
+                });
+            }
+            return list;
+        };
+
+        doc.addField(tf);
+        return tf;
+    } catch (e) {
+        console.warn("Error adding AcroFormField:", config.fieldName, e);
+    }
+};
+
 export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
   try {
     const { jsPDF, autoTable } = await getLibs();
@@ -1279,16 +1360,86 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
     const tableBody: any[] = [];
     const pageHeight = doc.internal.pageSize.height;
 
+    // Registrazione funzioni JavaScript globali a livello di documento PDF
+    doc.addJS(`
+function _p(v) {
+    if (v === null || v === undefined || v === "") return 0;
+    if (typeof v === "number") return v;
+    var s = String(v).replace(/[^0-9,-]/g, "");
+    if (s.indexOf(",") > -1 && s.indexOf(".") > -1) {
+        if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+            s = s.replace(/\\./g, "").replace(",", ".");
+        } else {
+            s = s.replace(/,/g, "");
+        }
+    } else if (s.indexOf(",") > -1) {
+        s = s.replace(",", ".");
+    }
+    var n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+}
+function _fmt(v) {
+    if (v === null || v === undefined || v === "") return "";
+    var n = (typeof v === "number") ? v : parseFloat(String(v).replace(/[^0-9,-]/g, "").replace(",", "."));
+    if (isNaN(n) || n === 0) return "";
+    var isNeg = n < 0;
+    var absVal = Math.abs(n);
+    var parts = absVal.toFixed(2).split(".");
+    var ip = parts[0];
+    var dp = parts[1];
+    var res = "";
+    while (ip.length > 3) {
+        res = "." + ip.slice(ip.length - 3) + res;
+        ip = ip.slice(0, ip.length - 3);
+    }
+    res = ip + res;
+    return (isNeg ? "-" : "") + res + "," + dp;
+}
+function _calcRow(priceField, qty) {
+    try {
+        var f = this.getField(priceField);
+        var p = f ? _p(f.value) : 0;
+        if (p > 0) return _fmt(p * qty);
+    } catch(e) {}
+    return "";
+}
+function _calcSum(fList) {
+    try {
+        var sum = 0;
+        for (var i = 0; i < fList.length; i++) {
+            var f = this.getField(fList[i]);
+            if (f) sum += _p(f.value);
+        }
+        if (sum > 0) return _fmt(sum);
+    } catch(e) {}
+    return "";
+}
+function _calcPerc(subField, grandField) {
+    try {
+        var sf = this.getField(subField);
+        var gf = this.getField(grandField);
+        var sVal = sf ? _p(sf.value) : 0;
+        var gVal = gf ? _p(gf.value) : 0;
+        if (gVal > 0 && sVal > 0) {
+            var perc = (sVal / gVal) * 100;
+            return perc.toFixed(2).replace(".", ",") + " %";
+        }
+    } catch(e) {}
+    return "";
+}
+`);
+
     // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
+    // Esclusione totale del prezzario: solo Titolo, Committente, Indirizzo originario cantiere e Progettista
     drawAccaCoverPage(
         doc,
         projectInfo,
         "COMPUTO SUBAPPALTO",
-        "COMPUTO METRICO DELLE OPERE IN SUBAPPALTO"
+        "COMPUTO METRICO OPERE IN SUBAPPALTO"
     );
     doc.addPage();
 
-    // Master sequential index map per mantenere la numerazione globale originale
+    // Master sequential index map per mantenere la numerazione globale
     const masterIndexMap = new Map<string, number>();
     let masterCount = 1;
     categories.forEach(cat => {
@@ -1298,9 +1449,243 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
         });
     });
 
-    const topLevels = categories.filter(c => !c.parentId && c.isEnabled !== false);
+    const cleanCode = (s: string) => s.replace(/[^a-zA-Z0-9]/g, '_');
+
+    // Helper per pulire il testo ed eliminare ogni traccia di prezzari, tariffe o marcatori di voci del progettista
+    const cleanSubappaltoDesc = (desc: string): string => {
+        let t = cleanText(desc);
+        // Rimuove ogni dicitura o prefisso di voce definita dal progettista o nuovo prezzo
+        t = t.replace(/^\[?VOCE\s+(?:DEFINITA\s+DAL\s+)?PROGETTISTA[^\]]*\]?\s*[:-]?\s*/gi, '');
+        t = t.replace(/^\[?NUOVO\s+PREZZO[^\]]*\]?\s*[:-]?\s*/gi, '');
+        t = t.replace(/^\[?N\.?P\.?[0-9]*\]?\s*[:-]?\s*/gi, '');
+        // Rimuove riferimenti a prezzari regionali e cataloghi
+        t = t.replace(/Prezzario\s+[^\n.,;)]+/gi, '');
+        t = t.replace(/Tariffa\s+regionale[^\n.,;)]+/gi, '');
+        t = t.replace(/Elenco\s+prezzi[^\n.,;)]+/gi, '');
+        return t.trim();
+    };
+
+    const allImportFieldNames: string[] = [];
+    const pageImportFieldsMap: Record<number, string[]> = {};
+    const calculatedFieldObjects: any[] = [];
     let totalActiveArticles = 0;
-    
+
+    // Rilevamento preventivo ordinato delle categorie attive e delle voci per navigazione automatica con Invio/Tab
+    const activeCategories: Category[] = [];
+    const activeArticlesOrdered: {
+        art: Article;
+        cat: Category;
+        gNum: number;
+        priceFieldName: string;
+        importFieldName: string;
+    }[] = [];
+
+    const collectActive = (cat: Category) => {
+        const catArticles = articles.filter(a => a.categoryCode === cat.code && a.isEnabled !== false);
+        if (catArticles.length === 0) return;
+        activeCategories.push(cat);
+        catArticles.forEach((art, artIndex) => {
+            const gNum = art.originalGlobalIndex || masterIndexMap.get(art.id) || (artIndex + 1);
+            activeArticlesOrdered.push({
+                art,
+                cat,
+                gNum,
+                priceFieldName: `P_${gNum}`,
+                importFieldName: `IMP_${gNum}`
+            });
+        });
+    };
+
+    const topLevels = categories.filter(c => !c.parentId && c.isEnabled !== false);
+    topLevels.forEach(root => {
+        if (root.isSuperCategory) {
+            const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory && c.isEnabled !== false);
+            children.forEach(child => collectActive(child));
+        } else {
+            collectActive(root);
+        }
+    });
+
+    const nextPriceFieldMap = new Map<string, string>();
+    for (let i = 0; i < activeArticlesOrdered.length; i++) {
+        if (i < activeArticlesOrdered.length - 1) {
+            nextPriceFieldMap.set(activeArticlesOrdered[i].priceFieldName, activeArticlesOrdered[i + 1].priceFieldName);
+        } else {
+            nextPriceFieldMap.set(activeArticlesOrdered[i].priceFieldName, "BTN_CALCOLA_OFFERTA");
+        }
+    }
+
+    // Helper per elaborare ciascuna categoria WBS
+    const processCategory = (cat: Category) => {
+        const catArticles = articles.filter(a => a.categoryCode === cat.code && a.isEnabled !== false);
+        if (catArticles.length === 0) return;
+        totalActiveArticles += catArticles.length;
+
+        // Intestazione WBS / Gruppo di lavorazione
+        tableBody.push([
+            { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+            { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
+            { 
+              content: `${cat.code} - ${cat.name}`, 
+              colSpan: 8, 
+              styles: { 
+                fillColor: [240, 240, 240], 
+                fontStyle: 'bold', 
+                halign: 'left', 
+                cellPadding: { left: 1.5, right: 1.5, top: 3, bottom: 3 }, 
+                isWbs: true, 
+                lineWidth: 0 
+              } 
+            },
+            '', '', '', '', '', '', ''
+        ]);
+
+        const wbsImportFieldNames: string[] = [];
+
+        catArticles.forEach((art, artIndex) => {
+            const wbsN = getWbsNumber(cat.code);
+            const artNum = `${wbsN}.${artIndex + 1}`;
+            const gNum = art.originalGlobalIndex || masterIndexMap.get(art.id) || (artIndex + 1);
+
+            // Dicitura giuridica latina "OMISSIS" su tutte le voci (anche definite dal progettista) per neutralità assoluta dell'offerta
+            const subCode = "[ OMISSIS ]";
+            let finalDescription = cleanSubappaltoDesc(art.description);
+            if (projectInfo.descriptionLength === 'short') {
+                doc.setFontSize(8.5);
+                const splitLines = doc.splitTextToSize(finalDescription, 54); 
+                if (splitLines.length > 6) {
+                    finalDescription = splitLines.slice(0, 6).join('\n') + ' .....';
+                }
+            }
+
+            const priceFieldName = `P_${gNum}`;
+            const importFieldName = `IMP_${gNum}`;
+            wbsImportFieldNames.push(importFieldName);
+            allImportFieldNames.push(importFieldName);
+
+            // Rigo testata articolo
+            tableBody.push([
+                { 
+                  content: `${gNum}\n(${artNum})`, 
+                  styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
+                },
+                { 
+                  content: subCode, 
+                  styles: { 
+                    isArt: true, 
+                    fontStyle: 'bolditalic', 
+                    cellPadding: { top: 3.5, bottom: 1, left: 0.5, right: 0.5 }, 
+                    fontSize: 7, 
+                    textColor: [90, 105, 125],
+                    halign: 'center' 
+                  } 
+                },
+                { 
+                  content: finalDescription, 
+                  styles: { 
+                    isArt: true, 
+                    isArtDesc: true,
+                    fontStyle: 'normal', 
+                    cellPadding: { left: 2.5, right: 2.5, top: 3.5, bottom: 1.5 }, 
+                    fontSize: 8.5, 
+                    valign: 'top', 
+                    textColor: [20, 20, 20]
+                  } 
+                },
+                '', '', '', '', '', '', ''
+            ]);
+
+            // Misure dettagliate
+            if (art.measurements && art.measurements.length > 0) {
+                let runningPartial = 0;
+                art.measurements.forEach((m) => {
+                    const isDeduction = m.type === 'deduction';
+                    let val = calculateMeasurementValue(m);
+                    let displayVal = val;
+                    if (m.type === 'subtotal') {
+                        displayVal = runningPartial;
+                        runningPartial = 0;
+                    } else {
+                        runningPartial += val;
+                    }
+                    
+                    const rowTextColor = isDeduction ? [200, 0, 0] : [60, 60, 60];
+
+                    tableBody.push([ 
+                        '', '', 
+                        { 
+                          content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, 
+                          styles: { 
+                            fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', 
+                            halign: m.type === 'subtotal' ? 'right' : 'left', 
+                            textColor: rowTextColor, 
+                            cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, 
+                            fontSize: 8 
+                          } 
+                        }, 
+                        { content: formatNumber(m.multiplier), styles: { halign: 'center', textColor: rowTextColor } }, 
+                        { content: formatNumber(m.length), styles: { halign: 'center', textColor: rowTextColor } }, 
+                        { content: formatNumber(m.width), styles: { halign: 'center', textColor: rowTextColor } }, 
+                        { content: formatNumber(m.height), styles: { halign: 'center', textColor: rowTextColor } }, 
+                        { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', cellPadding: { left: 1.5 }, fontSize: 8, textColor: rowTextColor } }, 
+                        '', '' 
+                    ]);
+                });
+            }
+
+            // Rigo SOMMANO con i campi attivi compilabili/calcolati
+            tableBody.push([ 
+                '', '', 
+                { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, 
+                '', '', '', '', 
+                { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, 
+                { content: '', styles: { isPriceField: true, fieldName: priceFieldName, nextFieldName: nextPriceFieldMap.get(priceFieldName), artId: art.id, isTotalRow: true } }, 
+                { content: '', styles: { isImportField: true, fieldName: importFieldName, priceField: priceFieldName, qty: art.quantity || 0, artId: art.id, isTotalRow: true } } 
+            ]);
+            tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
+        });
+
+        // Totale Parziale WBS con formula automatica
+        const wbsSubtotalFieldName = `SUBTOT_${cleanCode(cat.code)}`;
+        tableBody.push([
+            { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+            { 
+              content: `TOTALE PARZIALE ${cat.code} - ${cat.name.toUpperCase()}`, 
+              colSpan: 6, 
+              styles: { 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 8.5, 
+                cellPadding: { top: 2.5, bottom: 2.5, right: 3 }, 
+                fillColor: [240, 245, 252], 
+                textColor: [20, 30, 50] 
+              } 
+            },
+            { 
+              content: '€', 
+              styles: { 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 8.5, 
+                fillColor: [240, 245, 252], 
+                textColor: [0, 51, 153],
+                cellPadding: { top: 2.5, bottom: 2.5, right: 1 }
+              } 
+            },
+            { 
+              content: '', 
+              styles: { 
+                isWbsSubtotalField: true, 
+                fieldName: wbsSubtotalFieldName, 
+                wbsCode: cat.code, 
+                importFields: [...wbsImportFieldNames],
+                fillColor: [240, 245, 252]
+              } 
+            }
+        ]);
+        tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 2 } }]);
+    };
+
     topLevels.forEach(root => {
         if (root.isSuperCategory) {
             const children = categories.filter(c => c.parentId === root.code && !c.isSuperCategory && c.isEnabled !== false);
@@ -1309,218 +1694,53 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
                     { content: '', colSpan: 2, styles: { lineWidth: 0 } },
                     { content: `AREA: ${root.name.toUpperCase()}`, colSpan: 8, styles: { fillColor: [44, 62, 80], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', cellPadding: 3, isSuper: true } }
                 ]);
-                children.forEach(child => {
-                    const catArticles = articles.filter(a => a.categoryCode === child.code && a.isEnabled !== false);
-                    if (catArticles.length === 0) return;
-                    totalActiveArticles += catArticles.length;
-
-                    tableBody.push([
-                        { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-                        { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-                        { content: `${child.code} - ${child.name}`, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
-                        '', '', '', '', '', '', ''
-                    ]);
-
-                    catArticles.forEach((art, artIndex) => {
-                        const wbsN = getWbsNumber(child.code);
-                        const artNum = `${wbsN}.${artIndex + 1}`;
-                        const gNum = art.originalGlobalIndex || masterIndexMap.get(art.id) || (artIndex + 1);
-
-                        let finalDescription = cleanText(art.description);
-                        if (projectInfo.descriptionLength === 'short') {
-                            doc.setFontSize(8.5);
-                            const splitLines = doc.splitTextToSize(finalDescription, 55); 
-                            if (splitLines.length > 6) {
-                                finalDescription = splitLines.slice(0, 6).join('\n') + ' .....';
-                            }
-                        }
-
-                        tableBody.push([
-                            { 
-                              content: `${gNum}\n(${artNum})`, 
-                              styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
-                            },
-                            { 
-                              content: formatTariffCode(art.code, 18, 6.8, doc), 
-                              styles: { 
-                                isArt: true, 
-                                fontStyle: 'bold', 
-                                cellPadding: { top: 3, bottom: 1, left: 0.5, right: 0.5 }, 
-                                fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), 
-                                halign: 'center',
-                                overflow: 'linebreak'
-                              } 
-                            },
-                            { 
-                              content: finalDescription, 
-                              styles: { 
-                                isArt: true, 
-                                isArtDesc: true,
-                                fontStyle: 'normal', 
-                                cellPadding: { left: 2.5, right: 2.5, top: 3.5, bottom: 1.5 }, 
-                                fontSize: 8.5, 
-                                valign: 'top', 
-                                textColor: [20, 20, 20]
-                              } 
-                            },
-                            '', '', '', '', '', '', ''
-                        ]);
-
-                        if (art.measurements && art.measurements.length > 0) {
-                            let runningPartial = 0;
-                            art.measurements.forEach((m) => {
-                                const isDeduction = m.type === 'deduction';
-                                let val = calculateMeasurementValue(m);
-                                let displayVal = val;
-                                if (m.type === 'subtotal') {
-                                    displayVal = runningPartial;
-                                    runningPartial = 0;
-                                } else {
-                                    runningPartial += val;
-                                }
-                                
-                                const rowTextColor = isDeduction ? [200, 0, 0] : [60, 60, 60];
-
-                                tableBody.push([ 
-                                    '', '', 
-                                    { 
-                                      content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, 
-                                      styles: { 
-                                        fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', 
-                                        halign: m.type === 'subtotal' ? 'right' : 'left', 
-                                        textColor: rowTextColor, 
-                                        cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, 
-                                        fontSize: 8 
-                                      } 
-                                    }, 
-                                    { content: formatNumber(m.multiplier), styles: { halign: 'center', textColor: rowTextColor } }, 
-                                    { content: formatNumber(m.length), styles: { halign: 'center', textColor: rowTextColor } }, 
-                                    { content: formatNumber(m.width), styles: { halign: 'center', textColor: rowTextColor } }, 
-                                    { content: formatNumber(m.height), styles: { halign: 'center', textColor: rowTextColor } }, 
-                                    { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', cellPadding: { left: 1.5 }, fontSize: 8, textColor: rowTextColor } }, 
-                                    '', '' 
-                                ]);
-                            });
-                        }
-
-                        tableBody.push([ 
-                            '', '', 
-                            { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, 
-                            '', '', '', '', 
-                            { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, 
-                            { content: '', styles: { halign: 'right', isTotalRow: true } }, 
-                            { content: '', styles: { halign: 'right', isTotalRow: true } } 
-                        ]);
-                        tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
-                    });
-                });
+                children.forEach(child => processCategory(child));
             }
         } else {
-            const catArticles = articles.filter(a => a.categoryCode === root.code && a.isEnabled !== false);
-            if (catArticles.length === 0) return;
-            totalActiveArticles += catArticles.length;
-
-            tableBody.push([
-                { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-                { content: '', styles: { isWbs: true, lineWidth: 0 } }, 
-                { content: `${root.code} - ${root.name}`, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', halign: 'left', cellPadding: { left: 1, right: 1, top: 3, bottom: 3 }, isWbs: true, lineWidth: 0 } },
-                '', '', '', '', '', '', ''
-            ]);
-
-            catArticles.forEach((art, artIndex) => {
-                const wbsN = getWbsNumber(root.code);
-                const artNum = `${wbsN}.${artIndex + 1}`;
-                const gNum = art.originalGlobalIndex || masterIndexMap.get(art.id) || (artIndex + 1);
-
-                let finalDescription = cleanText(art.description);
-                if (projectInfo.descriptionLength === 'short') {
-                    doc.setFontSize(8.5);
-                    const splitLines = doc.splitTextToSize(finalDescription, 55); 
-                    if (splitLines.length > 6) {
-                        finalDescription = splitLines.slice(0, 6).join('\n') + ' .....';
-                    }
-                }
-
-                tableBody.push([
-                    { 
-                      content: `${gNum}\n(${artNum})`, 
-                      styles: { isArt: true, halign: 'center', cellPadding: { top: 3, bottom: 1 } } 
-                    },
-                    { 
-                      content: formatTariffCode(art.code, 18, 6.8, doc), 
-                      styles: { 
-                        isArt: true, 
-                        fontStyle: 'bold', 
-                        cellPadding: { top: 3, bottom: 1, left: 0.5, right: 0.5 }, 
-                        fontSize: art.code.length > 25 ? 6 : (art.code.length > 16 ? 6.5 : 7.2), 
-                        halign: 'center',
-                        overflow: 'linebreak'
-                      } 
-                    },
-                    { 
-                      content: finalDescription, 
-                      styles: { 
-                        isArt: true, 
-                        isArtDesc: true,
-                        fontStyle: 'normal', 
-                        cellPadding: { left: 2.5, right: 2.5, top: 3.5, bottom: 1.5 }, 
-                        fontSize: 8.5, 
-                        valign: 'top', 
-                        textColor: [20, 20, 20]
-                      } 
-                    },
-                    '', '', '', '', '', '', ''
-                ]);
-
-                if (art.measurements && art.measurements.length > 0) {
-                    let runningPartial = 0;
-                    art.measurements.forEach((m) => {
-                        const isDeduction = m.type === 'deduction';
-                        let val = calculateMeasurementValue(m);
-                        let displayVal = val;
-                        if (m.type === 'subtotal') {
-                            displayVal = runningPartial;
-                            runningPartial = 0;
-                        } else {
-                            runningPartial += val;
-                        }
-                        
-                        const rowTextColor = isDeduction ? [200, 0, 0] : [60, 60, 60];
-
-                        tableBody.push([ 
-                            '', '', 
-                            { 
-                              content: m.type === 'subtotal' ? 'Sommano parziali' : m.description, 
-                              styles: { 
-                                fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', 
-                                halign: m.type === 'subtotal' ? 'right' : 'left', 
-                                textColor: rowTextColor, 
-                                cellPadding: { left: m.type === 'subtotal' ? 1 : 2, top: 1, bottom: 1 }, 
-                                fontSize: 8 
-                              } 
-                            }, 
-                            { content: formatNumber(m.multiplier), styles: { halign: 'center', textColor: rowTextColor } }, 
-                            { content: formatNumber(m.length), styles: { halign: 'center', textColor: rowTextColor } }, 
-                            { content: formatNumber(m.width), styles: { halign: 'center', textColor: rowTextColor } }, 
-                            { content: formatNumber(m.height), styles: { halign: 'center', textColor: rowTextColor } }, 
-                            { content: formatNumber(displayVal), styles: { halign: 'right', fontStyle: m.type === 'subtotal' || isDeduction ? 'bold' : 'normal', cellPadding: { left: 1.5 }, fontSize: 8, textColor: rowTextColor } }, 
-                            '', '' 
-                        ]);
-                    });
-                }
-
-                tableBody.push([ 
-                    '', '', 
-                    { content: `SOMMANO ${art.unit}`, styles: { fontStyle: 'bold', halign: 'right', cellPadding: { right: 1, top: 3, bottom: 2 }, isTotalRow: true } }, 
-                    '', '', '', '', 
-                    { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, 
-                    { content: '', styles: { halign: 'right', isTotalRow: true } }, 
-                    { content: '', styles: { halign: 'right', isTotalRow: true } } 
-                ]);
-                tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
-            });
+            processCategory(root);
         }
     });
+
+    // Rigo TOTALE GENERALE SUBAPPALTO
+    const grandTotalFieldName = "TOTALE_GENERALE_SUBAPPALTO";
+    tableBody.push([
+        { content: '', colSpan: 2, styles: { lineWidth: 0 } },
+        { 
+            content: `TOTALE GENERALE OPERE IN SUBAPPALTO (VOCI ATTIVE: ${totalActiveArticles})`, 
+            colSpan: 6, 
+            styles: { 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 9.5, 
+                cellPadding: { top: 3.5, bottom: 3.5, right: 3, left: 3 }, 
+                fillColor: [225, 238, 255], 
+                textColor: [10, 25, 60],
+                isClosingTotalRow: true
+            } 
+        },
+        { 
+            content: '€', 
+            styles: { 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 9.5, 
+                cellPadding: { top: 3.5, bottom: 3.5, right: 1 }, 
+                fillColor: [225, 238, 255], 
+                textColor: [0, 40, 140],
+                isClosingTotalRow: true
+            } 
+        },
+        { 
+            content: '', 
+            styles: { 
+                isGrandTotalField: true, 
+                fieldName: grandTotalFieldName, 
+                allImportFields: [...allImportFieldNames],
+                fillColor: [225, 238, 255],
+                isClosingTotalRow: true
+            } 
+        }
+    ]);
 
     const integrityHash = await computeProjectIntegrityHash(
         projectInfo,
@@ -1530,41 +1750,11 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
         "COMPUTO METRICO SUBAPPALTO"
     );
 
-    tableBody.push([
-        { content: '', colSpan: 2, styles: { lineWidth: 0 } },
-        { 
-            content: `RIEPILOGO COMPUTO METRICO (VOCI ATTIVE: ${totalActiveArticles})`, 
-            colSpan: 6, 
-            styles: { 
-                fontStyle: 'bold', 
-                halign: 'right', 
-                fontSize: 10.5, 
-                cellPadding: { top: 4, bottom: 4, right: 3, left: 3 }, 
-                fillColor: [244, 247, 252], 
-                textColor: [15, 23, 42],
-                isClosingTotalRow: true
-            } 
-        },
-        { 
-            content: 'OFFERTA €', 
-            colSpan: 2, 
-            styles: { 
-                fontStyle: 'bold', 
-                halign: 'center', 
-                fontSize: 9.5, 
-                cellPadding: { top: 4, bottom: 4, right: 3, left: 3 }, 
-                fillColor: [244, 247, 252], 
-                textColor: [0, 32, 128],
-                isClosingTotalRow: true
-            } 
-        }
-    ]);
-
     autoTable(doc, {
-      head: [['N.Ord', 'TARIFFA', 'DESIGNAZIONE DEI LAVORI', 'PAR.UG', 'LUNG.', 'LARG.', 'H/PESO', 'QUANTITÀ', 'PREZZO OFF. €', 'IMPORTO OFF. €']],
+      head: [['N.Ord', 'CODICE', 'DESIGNAZIONE DEI LAVORI', 'PAR.UG', 'LUNG.', 'LARG.', 'H/PESO', 'QUANTITÀ', 'PREZZO OFF. €', 'IMPORTO OFF. €']],
       body: tableBody,
       startY: 18,
-      margin: { left: 10, right: 10, top: 18, bottom: 22 },
+      margin: { left: 10, right: 10, top: 18, bottom: 20 },
       theme: 'plain',
       styles: { fontSize: 8, cellPadding: 1, overflow: 'linebreak' },
       columnStyles: {
@@ -1624,6 +1814,80 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
                   return false;
               }
           }
+
+          // Inserimento campi interattivi AcroForm
+          if (data.section === 'body') {
+              const page = doc.internal.getCurrentPageInfo().pageNumber;
+              const rawStyles = data.cell.raw?.styles;
+              if (rawStyles?.isPriceField) {
+                  addAcroFormField(doc, {
+                      fieldName: rawStyles.fieldName,
+                      x: data.cell.x + 0.6,
+                      y: data.cell.y + 0.6,
+                      width: data.cell.width - 1.2,
+                      height: data.cell.height - 1.2,
+                      page,
+                      readOnly: false,
+                      isPriceInput: true,
+                      nextFieldName: rawStyles.nextFieldName || nextPriceFieldMap.get(rawStyles.fieldName),
+                      isTotal: false,
+                      textAlign: 'right'
+                  });
+              } else if (rawStyles?.isImportField) {
+                  const { fieldName, priceField, qty } = rawStyles;
+                  const qVal = Number(qty) || 0;
+                  const jsCalc = `if(typeof _calcRow==="function"){event.value=_calcRow.call(this,"${priceField}",${qVal.toFixed(4)});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var f=this.getField("${priceField}");var p=f?_p(f.value):0;event.value=p>0?_f(p*${qVal.toFixed(4)}):"";}catch(e){event.value="";}}`;
+                  const tf = addAcroFormField(doc, {
+                      fieldName,
+                      x: data.cell.x + 0.6,
+                      y: data.cell.y + 0.6,
+                      width: data.cell.width - 1.2,
+                      height: data.cell.height - 1.2,
+                      page,
+                      readOnly: true,
+                      jsCalc,
+                      isTotal: false,
+                      textAlign: 'right'
+                  });
+                  if (tf) calculatedFieldObjects.push(tf);
+                  pageImportFieldsMap[page] = pageImportFieldsMap[page] || [];
+                  pageImportFieldsMap[page].push(fieldName);
+              } else if (rawStyles?.isWbsSubtotalField) {
+                  const { fieldName, importFields } = rawStyles;
+                  const fListStr = JSON.stringify(importFields || []);
+                  const jsCalc = `if(typeof _calcSum==="function"){event.value=_calcSum.call(this,${fListStr});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var fList=${fListStr};var sum=0;for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}}`;
+                  const tf = addAcroFormField(doc, {
+                      fieldName,
+                      x: data.cell.x + 0.6,
+                      y: data.cell.y + 0.6,
+                      width: data.cell.width - 1.2,
+                      height: data.cell.height - 1.2,
+                      page,
+                      readOnly: true,
+                      jsCalc,
+                      isTotal: true,
+                      textAlign: 'right'
+                  });
+                  if (tf) calculatedFieldObjects.push(tf);
+              } else if (rawStyles?.isGrandTotalField) {
+                  const { fieldName, allImportFields } = rawStyles;
+                  const fListStr = JSON.stringify(allImportFields || []);
+                  const jsCalc = `if(typeof _calcSum==="function"){event.value=_calcSum.call(this,${fListStr});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var fList=${fListStr};var sum=0;for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}}`;
+                  const tf = addAcroFormField(doc, {
+                      fieldName,
+                      x: data.cell.x + 0.6,
+                      y: data.cell.y + 0.6,
+                      width: data.cell.width - 1.2,
+                      height: data.cell.height - 1.2,
+                      page,
+                      readOnly: true,
+                      jsCalc,
+                      isTotal: true,
+                      textAlign: 'right'
+                  });
+                  if (tf) calculatedFieldObjects.push(tf);
+              }
+          }
       },
       didParseCell: (data: any) => {
           if (data.column.index === 0 && data.section === 'body' && data.cell.raw?.styles?.isArt) {
@@ -1633,33 +1897,406 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
       didDrawPage: (data: any) => {
           const currentTableStartY = 18;
           const defaultTableEndY = pageHeight - 16;
-          drawHeader(doc, projectInfo, "COMPUTO SUBAPPALTO", data.pageNumber, 0, doc.internal.pageSize.width, doc.internal.pageSize.height);
+          drawHeaderSimple(doc, projectInfo, "COMPUTO SUBAPPALTO", data.pageNumber);
           drawGridLines(doc, currentTableStartY, defaultTableEndY); 
           drawTableFrame(doc, currentTableStartY, defaultTableEndY);
-          drawFooter(doc, data.pageNumber, 0, 0, doc.internal.pageSize.width, doc.internal.pageSize.height, false, true);
       }
     });
 
-    // Sezione firme e validazione offerta
-    const finalY = (doc as any).lastAutoTable.finalY || (pageHeight - 50);
-    if (finalY + 40 > pageHeight - 20) {
-        doc.addPage();
-        drawHeader(doc, projectInfo, "COMPUTO METRICO", doc.getNumberOfPages(), 0, doc.internal.pageSize.width, doc.internal.pageSize.height);
-    }
-    const signY = finalY + 40 > pageHeight - 20 ? 45 : finalY + 10;
-    
-    doc.setDrawColor(44, 62, 80);
-    doc.setLineWidth(0.4);
-    doc.line(10, signY, 200, signY);
-    doc.setLineWidth(0.15);
-    doc.line(10, signY + 0.8, 200, signY + 0.8);
+    // 3. GENERAZIONE AUTOMATICA DEI CAMPI ATTIVI DI RIPORTO A RIPORTO DI PAGINA (SUL COMPUTO METRICO)
+    const computoLastPage = doc.getNumberOfPages();
+    for (let p = 2; p <= computoLastPage; p++) {
+        doc.setPage(p);
 
-    doc.setFontSize(8.5); doc.setFont("helvetica", "bold"); doc.setTextColor(40, 50, 70);
-    doc.text(`Il Progettista / D.L.`, 30, signY + 8, { align: 'center' });
-    doc.text(`L'Impresa Concorrente / Subappaltatrice`, 160, signY + 8, { align: 'center' });
-    doc.setFontSize(7.5); doc.setFont("helvetica", "italic"); doc.setTextColor(120, 130, 145);
-    doc.text(`(Timbro e Firma per Consegna)`, 30, signY + 12, { align: 'center' });
-    doc.text(`(Timbro e Firma per Offerta Economica)`, 160, signY + 12, { align: 'center' });
+        // Header: "R I P O R T O" in alto (dalla pagina successiva alla prima del computo)
+        if (p > 2) {
+            doc.setFontSize(8.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(0, 0, 0);
+            doc.text("R I P O R T O", 105, 14, { align: 'center' });
+            doc.text("€", 168, 14, { align: 'right' });
+
+            const jsTopCalc = `var f=this.getField("RIPORTO_BOTTOM_${p - 1}");event.value=(f&&f.value)?f.value:"";`;
+            const tfTop = addAcroFormField(doc, {
+                fieldName: `RIPORTO_TOP_${p}`,
+                x: 171,
+                y: 10.5,
+                width: 28,
+                height: 5.2,
+                page: p,
+                readOnly: true,
+                jsCalc: jsTopCalc,
+                isTotal: true,
+                textAlign: 'right'
+            });
+            if (tfTop) calculatedFieldObjects.push(tfTop);
+        }
+
+        // Footer: "A RIPORTARE" a fondo pagina (per tutte le pagine tranne l'ultima del computo)
+        if (p < computoLastPage) {
+            const footerY = pageHeight - 11;
+            doc.setFontSize(8.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(0, 0, 0);
+            doc.text("A RIPORTARE", 145, footerY, { align: 'right' });
+            doc.text("€", 168, footerY, { align: 'right' });
+
+            const curPageFields = pageImportFieldsMap[p] || [];
+            const curFieldsStr = JSON.stringify(curPageFields);
+            let jsBottomCalc = "";
+            if (p === 2) {
+                jsBottomCalc = `if(typeof _calcSum==="function"){event.value=_calcSum.call(this,${curFieldsStr});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var fList=${curFieldsStr};var sum=0;for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}}`;
+            } else {
+                jsBottomCalc = `try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var prevF=this.getField("RIPORTO_BOTTOM_${p - 1}");var sum=prevF?_p(prevF.value):0;var fList=${curFieldsStr};for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}`;
+            }
+
+            const tfBottom = addAcroFormField(doc, {
+                fieldName: `RIPORTO_BOTTOM_${p}`,
+                x: 171,
+                y: footerY - 3.8,
+                width: 28,
+                height: 5.2,
+                page: p,
+                readOnly: true,
+                jsCalc: jsBottomCalc,
+                isTotal: true,
+                textAlign: 'right'
+            });
+            if (tfBottom) calculatedFieldObjects.push(tfBottom);
+        }
+    }
+
+    // 4. PAGINA DEDICATA: RIEPILOGO DEI LAVORI IN SUBAPPALTO PER GRUPPI DI LAVORAZIONE (WBS) E TOTALE
+    doc.addPage();
+    const summaryPageNum = doc.getNumberOfPages();
+
+    const summaryTableBody: any[] = [];
+    activeCategories.forEach((cat) => {
+        const catCode = cat.code;
+        const cleanCat = cleanCode(cat.code);
+        const sourceSubtotalField = `SUBTOT_${cleanCat}`;
+        const riepiImportFieldName = `RIEPI_IMP_${cleanCat}`;
+        const riepiPercFieldName = `RIEPI_PERC_${cleanCat}`;
+
+        summaryTableBody.push([
+            { content: catCode, styles: { fontStyle: 'bold', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5 } } },
+            { content: cat.name.toUpperCase(), styles: { fontStyle: 'bold', halign: 'left', cellPadding: { left: 2.5, right: 2, top: 2.5, bottom: 2.5 } } },
+            { 
+                content: '', 
+                styles: { 
+                    isRiepiImportField: true, 
+                    fieldName: riepiImportFieldName, 
+                    sourceSubtotalField,
+                    halign: 'right' 
+                } 
+            },
+            { 
+                content: '', 
+                styles: { 
+                    isRiepiPercField: true, 
+                    fieldName: riepiPercFieldName, 
+                    sourceSubtotalField,
+                    grandTotalField: grandTotalFieldName,
+                    halign: 'right' 
+                } 
+            }
+        ]);
+    });
+
+    const riepiGrandTotalFieldName = "RIEPI_TOTALE_GENERALE";
+    summaryTableBody.push([
+        { 
+            content: 'TOTALE GENERALE DEI LAVORI IN SUBAPPALTO', 
+            colSpan: 2, 
+            styles: { 
+                fillColor: [225, 238, 255], 
+                fontStyle: 'bold', 
+                halign: 'right', 
+                fontSize: 9.5, 
+                cellPadding: { top: 3.5, bottom: 3.5, right: 3, left: 3 }, 
+                textColor: [10, 25, 60] 
+            } 
+        },
+        { 
+            content: '', 
+            styles: { 
+                isRiepiGrandTotalField: true, 
+                fieldName: riepiGrandTotalFieldName, 
+                sourceGrandTotalField: grandTotalFieldName,
+                fillColor: [225, 238, 255],
+                halign: 'right' 
+            } 
+        },
+        { 
+            content: '100,00 %', 
+            styles: { 
+                fillColor: [225, 238, 255], 
+                fontStyle: 'bold', 
+                halign: 'center', 
+                fontSize: 9, 
+                textColor: [10, 25, 60],
+                cellPadding: { top: 3.5, bottom: 3.5 } 
+            } 
+        }
+    ]);
+
+    autoTable(doc, {
+        head: [['COD.', 'CATEGORIA / CAPITOLO DI SPESA (WBS)', 'IMPORTO OFFERTO €', 'INCIDENZA %']],
+        body: summaryTableBody,
+        startY: 22,
+        margin: { left: 10, right: 10, top: 18, bottom: 20 },
+        theme: 'grid',
+        styles: { fontSize: 8.5, cellPadding: 2, overflow: 'linebreak' },
+        columnStyles: {
+            0: { cellWidth: 20, halign: 'center' },
+            1: { cellWidth: 95 },
+            2: { cellWidth: 50, halign: 'right' },
+            3: { cellWidth: 25, halign: 'center' }
+        },
+        headStyles: { 
+            fillColor: [44, 62, 80], 
+            textColor: [255, 255, 255], 
+            fontStyle: 'bold', 
+            fontSize: 7.5, 
+            cellPadding: { top: 2, bottom: 2, left: 1, right: 1 }, 
+            halign: 'center' 
+        },
+        didDrawCell: (data: any) => {
+            if (data.section === 'body') {
+                const rawStyles = data.cell.raw?.styles;
+                const page = doc.internal.getCurrentPageInfo().pageNumber;
+                if (rawStyles?.isRiepiImportField) {
+                    const jsCalc = `var f=this.getField("${rawStyles.sourceSubtotalField}");event.value=(f&&f.value)?f.value:"";`;
+                    const tf = addAcroFormField(doc, {
+                        fieldName: rawStyles.fieldName,
+                        x: data.cell.x + 0.6,
+                        y: data.cell.y + 0.6,
+                        width: data.cell.width - 1.2,
+                        height: data.cell.height - 1.2,
+                        page,
+                        readOnly: true,
+                        jsCalc,
+                        isTotal: true,
+                        textAlign: 'right'
+                    });
+                    if (tf) calculatedFieldObjects.push(tf);
+                } else if (rawStyles?.isRiepiPercField) {
+                    const jsCalc = `if(typeof _calcPerc==="function"){event.value=_calcPerc.call(this,"${rawStyles.sourceSubtotalField}","${rawStyles.grandTotalField}");}else{try{var _p=${ACRO_PARSE_SNIPPET};var sf=this.getField("${rawStyles.sourceSubtotalField}");var gf=this.getField("${rawStyles.grandTotalField}");var sVal=sf?_p(sf.value):0;var gVal=gf?_p(gf.value):0;if(gVal>0&&sVal>0){var perc=(sVal/gVal)*100;event.value=perc.toFixed(2).replace(".",",")+" %";}else{event.value="";}}catch(e){event.value="";}}`;
+                    const tf = addAcroFormField(doc, {
+                        fieldName: rawStyles.fieldName,
+                        x: data.cell.x + 0.6,
+                        y: data.cell.y + 0.6,
+                        width: data.cell.width - 1.2,
+                        height: data.cell.height - 1.2,
+                        page,
+                        readOnly: true,
+                        jsCalc,
+                        isTotal: false,
+                        textAlign: 'right'
+                    });
+                    if (tf) calculatedFieldObjects.push(tf);
+                } else if (rawStyles?.isRiepiGrandTotalField) {
+                    const jsCalc = `var f=this.getField("${rawStyles.sourceGrandTotalField}");event.value=(f&&f.value)?f.value:"";`;
+                    const tf = addAcroFormField(doc, {
+                        fieldName: rawStyles.fieldName,
+                        x: data.cell.x + 0.6,
+                        y: data.cell.y + 0.6,
+                        width: data.cell.width - 1.2,
+                        height: data.cell.height - 1.2,
+                        page,
+                        readOnly: true,
+                        jsCalc,
+                        isTotal: true,
+                        textAlign: 'right'
+                    });
+                    if (tf) calculatedFieldObjects.push(tf);
+                }
+            }
+        },
+        didDrawPage: (data: any) => {
+            drawHeaderSimple(doc, projectInfo, "COMPUTO SUBAPPALTO", data.pageNumber);
+            drawTableFrame(doc, 18, pageHeight - 16);
+            doc.setFontSize(10.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(20, 30, 50);
+            doc.text("RIEPILOGO DEI LAVORI IN SUBAPPALTO PER GRUPPI DI LAVORAZIONE", 105, 14, { align: 'center' });
+        }
+    });
+
+    let summaryFinalY = (doc as any).lastAutoTable?.finalY || 100;
+    let targetPage = doc.getNumberOfPages();
+
+    if (summaryFinalY + 55 > pageHeight - 16) {
+        doc.addPage();
+        targetPage = doc.getNumberOfPages();
+        drawHeaderSimple(doc, projectInfo, "COMPUTO SUBAPPALTO", targetPage);
+        drawTableFrame(doc, 18, pageHeight - 16);
+        summaryFinalY = 22;
+    } else {
+        doc.setDrawColor(44, 62, 80);
+        doc.setLineWidth(0.4);
+        doc.line(10, summaryFinalY + 2, 200, summaryFinalY + 2);
+        doc.setLineWidth(0.15);
+        doc.line(10, summaryFinalY + 2.8, 200, summaryFinalY + 2.8);
+    }
+
+    // 5. PULSANTE RICALCOLO E GRUPPO FIRME PERSONALIZZABILE EDITABILE
+    const actionY = summaryFinalY + 4;
+    try {
+        const btn = new doc.AcroFormPushButton();
+        btn.fieldName = "BTN_CALCOLA_OFFERTA";
+        btn.caption = "AGGIORNA TOTALI";
+        btn.x = 156;
+        btn.y = actionY;
+        btn.width = 44;
+        btn.height = 7.5;
+        btn.page = targetPage;
+        const origBtnGet = btn.getKeyValueListForStream.bind(btn);
+        btn.getKeyValueListForStream = function() {
+            const list = origBtnGet();
+            list.push({ key: 'DA', value: '(/Helv 7.5 Tf 1 1 1 rg)' });
+            list.push({ key: 'MK', value: '<< /BC [0.15 0.35 0.7] /BG [0.08 0.35 0.75] /CA (AGGIORNA TOTALI) >>' });
+            list.push({ key: 'BS', value: '<< /W 1 /S /B >>' });
+            list.push({
+                key: 'A',
+                value: '<< /S /JavaScript /JS (try { this.calculateNow(); } catch(e){}) >>'
+            });
+            return list;
+        };
+        doc.addField(btn);
+    } catch (btnErr) {
+        console.warn("Error adding recalc button:", btnErr);
+    }
+
+    let signY = actionY + 11;
+    if (signY + 45 > pageHeight - 16) {
+        doc.addPage();
+        targetPage = doc.getNumberOfPages();
+        drawHeaderSimple(doc, projectInfo, "COMPUTO SUBAPPALTO", targetPage);
+        drawTableFrame(doc, 18, pageHeight - 16);
+        signY = 24;
+    }
+
+    doc.setDrawColor(44, 62, 80);
+    doc.setLineWidth(0.35);
+    doc.line(10, signY, 200, signY);
+
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    doc.text("L'IMPRESA APPALTATRICE (AFFIDANTE)", 55, signY + 5.5, { align: 'center' });
+    doc.text("L'IMPRESA SUBAPPALTATRICE CONCORRENTE", 155, signY + 5.5, { align: 'center' });
+
+    // Campi editabili interattivi per la personalizzazione completa delle firme
+    // Sinistra: Impresa Appaltatrice Affidante
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_AFFIDANTE_RAGIONE_SOCIALE",
+        defaultValue: projectInfo.client ? `Appaltatore: ${projectInfo.client}` : "Ragione Sociale Impresa Affidante",
+        x: 12,
+        y: signY + 7.5,
+        width: 86,
+        height: 6,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'left'
+    });
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_AFFIDANTE_DATI",
+        defaultValue: "Sede Legale / P.IVA / C.F.: ___________________________",
+        x: 12,
+        y: signY + 14.5,
+        width: 86,
+        height: 6,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'left'
+    });
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_AFFIDANTE_DATA_LUOGO",
+        defaultValue: `${projectInfo.location || 'Cantiere'}, lì ${projectInfo.date || '...' }`,
+        x: 12,
+        y: signY + 21.5,
+        width: 86,
+        height: 6,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'left'
+    });
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_AFFIDANTE_SOTTOSCRIZIONE",
+        defaultValue: "Timbro e Firma per Consegna Lavorazioni",
+        x: 12,
+        y: signY + 28.5,
+        width: 86,
+        height: 7,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'center'
+    });
+
+    // Destra: Impresa Subappaltatrice Concorrente
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_SUB_RAGIONE_SOCIALE",
+        defaultValue: "Ragione Sociale Impresa Subappaltatrice",
+        x: 112,
+        y: signY + 7.5,
+        width: 86,
+        height: 6,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'left'
+    });
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_SUB_DATI",
+        defaultValue: "Sede Legale / P.IVA / C.F.: ___________________________",
+        x: 112,
+        y: signY + 14.5,
+        width: 86,
+        height: 6,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'left'
+    });
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_SUB_DATA_LUOGO",
+        defaultValue: `${projectInfo.location || 'Data e Luogo'}, lì ${projectInfo.date || '...' }`,
+        x: 112,
+        y: signY + 21.5,
+        width: 86,
+        height: 6,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'left'
+    });
+    addAcroFormField(doc, {
+        fieldName: "FIRMA_SUB_SOTTOSCRIZIONE",
+        defaultValue: "Timbro, Data e Firma per Offerta e Accettazione",
+        x: 112,
+        y: signY + 28.5,
+        width: 86,
+        height: 7,
+        page: targetPage,
+        readOnly: false,
+        textAlign: 'center'
+    });
+
+    // Configurazione del catalogo AcroForm con Calculation Order (/CO) e /NeedAppearances
+    const root = doc.internal.acroformPlugin?.acroFormDictionaryRoot;
+    if (root) {
+        const origRootGetKV = root.getKeyValueListForStream.bind(root);
+        root.getKeyValueListForStream = function() {
+            const list = origRootGetKV();
+            const coRefs = calculatedFieldObjects
+                .filter(f => f && f.objId)
+                .map(f => `${f.objId} 0 R`)
+                .join(' ');
+            if (coRefs.length > 0) {
+                list.push({ key: 'CO', value: `[ ${coRefs} ]` });
+            }
+            list.push({ key: 'NeedAppearances', value: 'true' });
+            return list;
+        };
+    }
 
     applyDocumentFootersAndSecurity(doc, integrityHash);
     window.open(URL.createObjectURL(doc.output('blob')), '_blank');
