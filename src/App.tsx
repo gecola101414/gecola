@@ -1577,6 +1577,11 @@ const App: React.FC = () => {
   };
   const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
+  const isDomainPrivileged = typeof window !== 'undefined' && (
+    window.location.hostname === 'www.gecolabim.duckdns.org' ||
+    window.location.hostname === 'gecolabim.duckdns.org' ||
+    window.location.hostname.includes('gecolabim.duckdns.org')
+  );
 
   const initializedCategories = useMemo(() => {
       return CATEGORIES.map((c, i) => ({
@@ -1862,14 +1867,15 @@ const App: React.FC = () => {
   }, []);
 
   const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
-    if (!isVisitor) return true;
+    // Se siamo sul dominio speciale certificato DuckDNS o con utente autenticato, sblocca le funzionalità complete senza limiti
+    if (isDomainPrivileged || !isVisitor) return true;
     const currentTotal = articles.length;
     if (currentTotal + newCountToAdd > 15) {
-      alert(`LITE: Limite 15 voci raggiunto.`);
+      alert("Versione dimostrativa: limite massimo di 15 voci raggiunto sul dominio standard.");
       return false;
     }
     return true;
-  }, [isVisitor, articles.length]);
+  }, [isVisitor, articles.length, isDomainPrivileged]);
 
   useEffect(() => { document.title = projectInfo.title ? `${projectInfo.title} - GeCoLa Cloud` : 'GeCoLa - Computo Metrico'; }, [projectInfo.title]);
 
@@ -3030,10 +3036,21 @@ const App: React.FC = () => {
                     <button onClick={() => setIsManualOpen(true)} className="ml-2 p-1.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg shadow-sm transition-all hover:scale-105 active:scale-95 group relative"><HelpCircle className="w-4 h-4" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[9999]">Manuale</span></button>
                 </div>
                 <div className="flex-1 px-6 flex justify-center items-center gap-6">
-                    {isVisitor && (
+                    {isVisitor && !isDomainPrivileged && (
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-bold uppercase tracking-wider animate-pulse"><Sparkles className="w-3 h-3" /> Demo Mode</div>
                             <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all ${articles.length >= 15 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>Voci: {articles.length} / 15</div>
+                        </div>
+                    )}
+                    {isVisitor && isDomainPrivileged && (
+                        <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/60 px-3 py-1 rounded-full text-emerald-300 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>DuckDNS Certificato • Voci Illimitate</span>
+                            </div>
+                            <div className="bg-slate-800 border border-emerald-500/40 text-emerald-200 px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider">
+                                Voci: {articles.length}
+                            </div>
                         </div>
                     )}
                     <div className="flex items-center gap-3 bg-slate-800/80 px-5 py-1.5 rounded-xl border border-slate-700/80 text-white cursor-pointer hover:bg-slate-800 hover:border-slate-600 transition-all shadow-sm group" onClick={() => setIsSettingsModalOpen(true)}>
@@ -3042,7 +3059,7 @@ const App: React.FC = () => {
                         )}
                         <div className="flex flex-col items-start leading-tight">
                           <span className="truncate max-w-[320px] text-base tracking-tight font-bold uppercase">{projectInfo.title}</span>
-                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : 'VISITATORE'}</span>
+                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isDomainPrivileged ? 'VISITATORE (DuckDNS Certificato)' : 'VISITATORE')}</span>
                         </div>
                         <Settings className="w-5 h-5 text-slate-400 group-hover:text-blue-400 group-hover:rotate-90 transition-all duration-300 ml-1" />
                     </div>
