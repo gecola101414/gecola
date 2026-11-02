@@ -1577,11 +1577,101 @@ const App: React.FC = () => {
   };
   const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
+  const TARGET_AUTHORIZED_IP = '213.45.236.138';
+  const [clientIp, setClientIp] = useState<string | null>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const queryIp = new URLSearchParams(window.location.search).get('ip');
+        if (queryIp) return queryIp.trim();
+        return sessionStorage.getItem('gecola_client_ip') || localStorage.getItem('gecola_client_ip');
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (clientIp) return;
+    let isMounted = true;
+    const resolveClientIp = async () => {
+      // 1. Primary: api.ipify.org
+      try {
+        const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const data = await res.json();
+          const ip = (data?.ip || '').trim();
+          if (ip && isMounted) {
+            setClientIp(ip);
+            try {
+              sessionStorage.setItem('gecola_client_ip', ip);
+              localStorage.setItem('gecola_client_ip', ip);
+            } catch {}
+            return;
+          }
+        }
+      } catch {}
+
+      // 2. Secondary fallback: icanhazip.com
+      try {
+        const res2 = await fetch('https://icanhazip.com', { signal: AbortSignal.timeout(3000) });
+        if (res2.ok) {
+          const text = (await res2.text()).trim();
+          if (text && isMounted) {
+            setClientIp(text);
+            try {
+              sessionStorage.setItem('gecola_client_ip', text);
+              localStorage.setItem('gecola_client_ip', text);
+            } catch {}
+            return;
+          }
+        }
+      } catch {}
+
+      // 3. Tertiary fallback: api.seeip.org
+      try {
+        const res3 = await fetch('https://api.seeip.org/jsonip', { signal: AbortSignal.timeout(3000) });
+        if (res3.ok) {
+          const data3 = await res3.json();
+          const ip3 = (data3?.ip || '').trim();
+          if (ip3 && isMounted) {
+            setClientIp(ip3);
+            try {
+              sessionStorage.setItem('gecola_client_ip', ip3);
+              localStorage.setItem('gecola_client_ip', ip3);
+            } catch {}
+            return;
+          }
+        }
+      } catch {}
+
+      // 4. Intranet fallback if all external public IP APIs are filtered/blocked
+      if (isMounted) {
+        if (typeof window !== 'undefined' && window.location.hostname && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+          setClientIp(window.location.hostname);
+        } else {
+          setClientIp('Rete Intranet (Firewall)');
+        }
+      }
+    };
+
+    resolveClientIp();
+    return () => { isMounted = false; };
+  }, [clientIp]);
+
   const isDomainPrivileged = typeof window !== 'undefined' && (
     window.location.hostname === 'www.gecolabim.duckdns.org' ||
     window.location.hostname === 'gecolabim.duckdns.org' ||
     window.location.hostname.includes('gecolabim.duckdns.org')
   );
+  const isIpPrivileged = Boolean(
+    (clientIp && clientIp.trim() === TARGET_AUTHORIZED_IP) ||
+    (typeof window !== 'undefined' && (
+      window.location.hostname === TARGET_AUTHORIZED_IP ||
+      new URLSearchParams(window.location.search).get('ip') === TARGET_AUTHORIZED_IP
+    ))
+  );
+  const isPrivileged = isDomainPrivileged || isIpPrivileged;
 
   const initializedCategories = useMemo(() => {
       return CATEGORIES.map((c, i) => ({
@@ -1867,15 +1957,15 @@ const App: React.FC = () => {
   }, []);
 
   const canAddArticle = useCallback((newCountToAdd: number = 1): boolean => {
-    // Se siamo sul dominio speciale certificato DuckDNS o con utente autenticato, sblocca le funzionalità complete senza limiti
-    if (isDomainPrivileged || !isVisitor) return true;
+    // Se siamo sul dominio speciale DuckDNS, su IP autorizzato (213.45.236.138) o con utente autenticato, sblocca le funzionalità complete senza limiti
+    if (isPrivileged || !isVisitor) return true;
     const currentTotal = articles.length;
     if (currentTotal + newCountToAdd > 15) {
       alert("Versione dimostrativa: limite massimo di 15 voci raggiunto sul dominio standard.");
       return false;
     }
     return true;
-  }, [isVisitor, articles.length, isDomainPrivileged]);
+  }, [isVisitor, articles.length, isPrivileged]);
 
   useEffect(() => { document.title = projectInfo.title ? `${projectInfo.title} - GeCoLa Cloud` : 'GeCoLa - Computo Metrico'; }, [projectInfo.title]);
 
@@ -3030,23 +3120,41 @@ const App: React.FC = () => {
         <>
           {!isFocusMode && (
             <div className="bg-slate-900 shadow-md z-[100] h-14 flex items-center justify-between px-6 border-b border-slate-800 flex-shrink-0">
-                <div className="flex items-center space-x-3 w-72">
+                <div className="flex items-center space-x-3 min-w-[19rem]">
                     <div className="bg-gradient-to-br from-orange-500 to-amber-600 p-2 rounded-xl shadow-md"><Calculator className="w-6 h-6 text-white" /></div>
-                    <span className="font-extrabold text-lg text-white tracking-tight">GeCoLa <span className="font-normal text-slate-400 text-xs ml-1 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">v12.0</span></span>
+                    <div className="flex flex-col justify-center">
+                        <div className="flex items-center gap-1.5">
+                            <span className="font-extrabold text-base text-white tracking-tight leading-tight">GeCoLa</span>
+                            <span className="font-normal text-slate-400 text-[10px] bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700 leading-none">v12.0</span>
+                        </div>
+                        <div 
+                          className="flex items-center gap-1.5 mt-0.5 cursor-pointer group" 
+                          onClick={() => { 
+                            try { sessionStorage.removeItem('gecola_client_ip'); localStorage.removeItem('gecola_client_ip'); } catch {}
+                            setClientIp(null); 
+                          }} 
+                          title="Clicca per aggiornare la rilevazione IP"
+                        >
+                            <span className={`w-1.5 h-1.5 rounded-full ${clientIp === TARGET_AUTHORIZED_IP ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : (clientIp ? 'bg-amber-400' : 'bg-blue-400 animate-pulse')}`}></span>
+                            <span className="font-mono text-[10px] text-slate-400 group-hover:text-slate-200 transition-colors">
+                              IP: <span className={clientIp === TARGET_AUTHORIZED_IP ? "text-emerald-400 font-bold" : (clientIp ? "text-amber-300 font-semibold" : "text-slate-400 italic")}>{clientIp || 'Rilevamento...'}</span>
+                            </span>
+                        </div>
+                    </div>
                     <button onClick={() => setIsManualOpen(true)} className="ml-2 p-1.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg shadow-sm transition-all hover:scale-105 active:scale-95 group relative"><HelpCircle className="w-4 h-4" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[9999]">Manuale</span></button>
                 </div>
                 <div className="flex-1 px-6 flex justify-center items-center gap-6">
-                    {isVisitor && !isDomainPrivileged && (
+                    {isVisitor && !isPrivileged && (
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-1.5 bg-blue-600/20 border border-blue-500/50 px-3 py-1 rounded-full text-blue-200 text-[10px] font-bold uppercase tracking-wider animate-pulse"><Sparkles className="w-3 h-3" /> Demo Mode</div>
                             <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all ${articles.length >= 15 ? 'bg-red-600 border-red-500 text-white animate-bounce' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>Voci: {articles.length} / 15</div>
                         </div>
                     )}
-                    {isVisitor && isDomainPrivileged && (
+                    {isVisitor && isPrivileged && (
                         <div className="flex items-center gap-3">
                             <div className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/60 px-3 py-1 rounded-full text-emerald-300 text-[10px] font-bold uppercase tracking-wider shadow-sm">
                                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>DuckDNS Certificato • Voci Illimitate</span>
+                                <span>{isIpPrivileged ? `IP Autorizzato (${TARGET_AUTHORIZED_IP}) • Voci Illimitate` : 'DuckDNS Certificato • Voci Illimitate'}</span>
                             </div>
                             <div className="bg-slate-800 border border-emerald-500/40 text-emerald-200 px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider">
                                 Voci: {articles.length}
@@ -3059,7 +3167,7 @@ const App: React.FC = () => {
                         )}
                         <div className="flex flex-col items-start leading-tight">
                           <span className="truncate max-w-[320px] text-base tracking-tight font-bold uppercase">{projectInfo.title}</span>
-                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isDomainPrivileged ? 'VISITATORE (DuckDNS Certificato)' : 'VISITATORE')}</span>
+                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isPrivileged ? (isIpPrivileged ? `VISITATORE (IP ${TARGET_AUTHORIZED_IP})` : 'VISITATORE (DuckDNS Certificato)') : 'VISITATORE')}</span>
                         </div>
                         <Settings className="w-5 h-5 text-slate-400 group-hover:text-blue-400 group-hover:rotate-90 transition-all duration-300 ml-1" />
                     </div>
