@@ -1424,6 +1424,20 @@ const App: React.FC = () => {
     setSelectedCategoryCode('WBS.01');
     playUISound('confirm');
   };
+  const handleArmedForcesLogin = () => { 
+    setUser('visitor'); 
+    setArticles([]);
+    setAnalyses([]);
+    setProjectInfo(prev => ({
+      ...prev,
+      title: 'Nuovo Computo Metrico - Licenza Forze Armate',
+      designer: 'Operatore Forze Armate (Licenza Free)',
+      client: 'Ministero della Difesa / Forze Armate'
+    }));
+    setViewMode('COMPUTO');
+    setSelectedCategoryCode('WBS.01');
+    playUISound('confirm');
+  };
   const handleMilanoDemoLogin = () => {
     setUser('visitor');
     setProjectInfo(prev => ({
@@ -3135,7 +3149,13 @@ const App: React.FC = () => {
       {authLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 text-white"><Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" /><p className="font-black uppercase tracking-widest text-xs">Sistema in Avvio...</p></div>
       ) : !user ? (
-        <Login onVisitorLogin={handleVisitorLogin} onMilanoDemoLogin={handleMilanoDemoLogin} />
+        <Login 
+          onVisitorLogin={handleVisitorLogin} 
+          onMilanoDemoLogin={handleMilanoDemoLogin}
+          onArmedForcesLogin={handleArmedForcesLogin}
+          isArmedForcesIp={isArmedForcesIp}
+          clientIp={clientIp}
+        />
       ) : (
         <>
           {!isFocusMode && (

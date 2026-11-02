@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
   onMilanoDemoLogin: () => void;
+  onArmedForcesLogin?: () => void;
+  isArmedForcesIp?: boolean;
+  clientIp?: string | null;
 }
 
-const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
+const Login: React.FC<LoginProps> = ({ 
+  onVisitorLogin, 
+  onMilanoDemoLogin, 
+  onArmedForcesLogin, 
+  isArmedForcesIp = false, 
+  clientIp 
+}) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -237,18 +246,32 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
           </div>
         </div>
 
-        {/* LATO DESTRO: SIDEBAR (INFO + VISITATORE) - COMPRESSA PER PAGINA SINGOLA */}
-        <div className="w-full md:w-80 bg-slate-50 border-l border-slate-200 flex flex-col shadow-inner">
+        {/* LATO DESTRO: SIDEBAR (INFO + VISITATORE) - COMPRESSA CON SCROLLBAR ELEGANTE */}
+        <div className="w-full md:w-88 lg:w-96 bg-slate-50 border-l border-slate-200 flex flex-col shadow-inner">
             
-            <div className="p-6 flex-1 flex flex-col space-y-6 overflow-hidden">
+            <div className="p-5 flex-1 flex flex-col space-y-4 overflow-y-auto">
                 
+                {/* Rilevazione IP trasparente */}
+                {clientIp && (
+                  <div className="flex items-center justify-between text-[9px] font-mono bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs shrink-0">
+                    <span className="text-slate-500">IP: <strong className={isArmedForcesIp ? "text-amber-700" : "text-slate-700"}>{clientIp}</strong></span>
+                    {isArmedForcesIp ? (
+                      <span className="text-[8px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                        FORZE ARMATE (FREE)
+                      </span>
+                    ) : (
+                      <span className="text-[8px] font-medium text-slate-400">Rete Standard</span>
+                    )}
+                  </div>
+                )}
+
                 {/* Qualità Certificata */}
-                <div className="space-y-4 shrink-0">
+                <div className="space-y-3 shrink-0">
                     <div className="flex items-center gap-2 text-blue-700 font-black text-[10px] uppercase tracking-[0.2em]">
                         <ShieldAlert className="w-4 h-4" /> Qualità Certificata
                     </div>
                     
-                    <ul className="space-y-3">
+                    <ul className="space-y-2">
                         <li className="flex items-center gap-3">
                             <div className="bg-blue-100 p-2 rounded-xl text-blue-600"><CheckCircle2 className="w-4 h-4" /></div>
                             <span className="text-[9px] font-black text-slate-700 uppercase tracking-tighter">prezzari regionali</span>
@@ -261,14 +284,14 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
                 </div>
 
                 {/* Box Contatto Commerciale - Più compatto */}
-                <div className="bg-[#2c3e50] p-5 rounded-[2rem] text-white shadow-xl relative overflow-hidden group border border-slate-600 shrink-0">
-                    <h4 className="font-black text-[9px] uppercase tracking-widest text-orange-400 mb-3 flex items-center gap-2">
+                <div className="bg-[#2c3e50] p-4 rounded-[2rem] text-white shadow-xl relative overflow-hidden group border border-slate-600 shrink-0">
+                    <h4 className="font-black text-[9px] uppercase tracking-widest text-orange-400 mb-2 flex items-center gap-2">
                         <Mail className="w-3.5 h-3.5" /> Assistenza Diretta
                     </h4>
-                    <div className="space-y-3 relative z-10">
+                    <div className="space-y-2 relative z-10">
                         <div className="flex items-center gap-3">
                             <Phone className="w-4 h-4 text-orange-400" />
-                            <span className="text-[14.5px] font-mono font-bold text-slate-100 tracking-tighter">351 9822401</span>
+                            <span className="text-[14px] font-mono font-bold text-slate-100 tracking-tighter">351 9822401</span>
                         </div>
                         <div className="flex items-center gap-3">
                             <Mail className="w-4 h-4 text-orange-400" />
@@ -277,44 +300,81 @@ const Login: React.FC<LoginProps> = ({ onVisitorLogin, onMilanoDemoLogin }) => {
                     </div>
                 </div>
 
-                {/* PULSANTE VISITATORE - POSIZIONATO PER EVITARE SCROLL */}
-                <div className="mt-auto pt-4 flex flex-col items-center">
+                {/* PULSANTI DI ACCESSO */}
+                <div className="mt-auto pt-2 flex flex-col items-center shrink-0">
                     <button
                         type="button"
                         onClick={() => setShowVideo(true)}
-                        className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 px-4 rounded-[1.8rem] shadow-lg transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 mb-3 group"
+                        className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-2.5 px-4 rounded-[1.6rem] shadow-md transform transition-all active:scale-95 flex items-center justify-center gap-2 mb-2.5 group"
                     >
-                        <div className="flex items-center gap-2">
-                            <PlayCircle className="w-5 h-5 text-white" /> 
-                            <span className="text-[11px] uppercase tracking-widest">Guarda Spot 2026</span>
-                        </div>
+                        <PlayCircle className="w-4 h-4 text-white" /> 
+                        <span className="text-[10px] uppercase tracking-widest">Guarda Spot 2026</span>
                     </button>
 
+                    {/* PULSANTE ENTRA COME VISITATORE */}
                     <button
                         type="button"
                         onClick={onVisitorLogin}
-                        className="w-full bg-white border-2 border-slate-200 hover:border-orange-500 hover:bg-orange-50 text-slate-700 font-black py-4 px-4 rounded-[1.8rem] shadow-lg transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
+                        className="w-full bg-white border-2 border-slate-200 hover:border-orange-500 hover:bg-orange-50 text-slate-700 font-black py-3 px-4 rounded-[1.6rem] shadow-md transform transition-all active:scale-95 flex flex-col items-center justify-center gap-0.5 group"
                     >
                         <div className="flex items-center gap-2">
-                            <UserCircle className="w-5 h-5 text-slate-300 group-hover:text-orange-500 transition-colors" /> 
-                            <span className="text-[11px] uppercase tracking-widest">Entra come Visitatore</span>
+                            <UserCircle className="w-4 h-4 text-slate-400 group-hover:text-orange-500 transition-colors" /> 
+                            <span className="text-[10.5px] uppercase tracking-widest">Entra come Visitatore</span>
                         </div>
                         <span className="text-[8px] text-slate-400 font-bold uppercase group-hover:text-orange-600 transition-colors">Ambiente Test • Computo Vuoto</span>
                     </button>
 
-                    <button
+                    {/* SOTTO IL PULSANTE ENTRA COME VISITATORE: SE IP FORZE ARMATE (151.90.*) */}
+                    {isArmedForcesIp && (
+                      <button
+                        type="button"
+                        onClick={onArmedForcesLogin || onVisitorLogin}
+                        className="w-full mt-2.5 bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-black py-3.5 px-3.5 rounded-[1.6rem] shadow-[0_6px_20px_rgba(217,119,6,0.45)] border-2 border-yellow-300 transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group ring-2 ring-amber-400/40 animate-in fade-in duration-300"
+                      >
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-yellow-200 group-hover:scale-110 transition-transform shrink-0" />
+                          <span className="text-[9.5px] uppercase tracking-wider font-black text-center text-white drop-shadow">
+                            ENTRA COME OPERATORE FORZE ARMATE LICENZA FREE
+                          </span>
+                        </div>
+                        <span className="text-[7.5px] text-yellow-100 font-extrabold uppercase text-center tracking-wide">
+                          IP 151.90.* Riconosciuto • Donazione Licenza Senza Limiti
+                        </span>
+                      </button>
+                    )}
+
+                    {/* POI PIU IN BASSO STACCATO COLLOCA IL PULSANTE PER LANCIARE ESEMPIO COMPLETO DELLA RISTRUTTURAZIONE A MILANO */}
+                    <div className="w-full mt-4 pt-3.5 border-t-2 border-dashed border-slate-300 flex flex-col items-center">
+                      <div className="flex items-center gap-1.5 mb-2 px-3 py-0.5 rounded-full bg-blue-100/90 text-blue-900 border border-blue-300 shadow-xs">
+                        <Sparkles className="w-3 h-3 text-blue-600" />
+                        <span className="text-[8px] font-black uppercase tracking-widest">PROGETTO DIMOSTRATIVO DI ESEMPIO</span>
+                      </div>
+
+                      <button
                         type="button"
                         onClick={onMilanoDemoLogin}
-                        className="w-full mt-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-4 rounded-[1.8rem] shadow-lg transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
-                    >
+                        className="w-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 hover:from-blue-700 hover:to-indigo-900 text-white font-black py-3.5 px-3.5 rounded-[1.6rem] shadow-lg hover:shadow-xl border-2 border-blue-300/60 transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
+                      >
                         <div className="flex items-center gap-2">
-                            <Building className="w-5 h-5 text-blue-200 group-hover:scale-110 transition-transform shrink-0" /> 
-                            <span className="text-[10px] uppercase tracking-widest text-center leading-tight">Ristrutturazione Fabbricato Via Garibaldi, 12 - Milano</span>
+                          <Building className="w-4 h-4 text-blue-200 group-hover:scale-110 transition-transform shrink-0" /> 
+                          <span className="text-[10px] uppercase tracking-wider text-center leading-tight font-black text-white">
+                            LANCIA ESEMPIO COMPLETO: RISTRUTTURAZIONE A MILANO
+                          </span>
                         </div>
-                        <span className="text-[8px] text-blue-200 font-bold uppercase text-center">Comune di Milano • Ing. Ciccillo CACACE</span>
-                    </button>
+                        <span className="text-[7.5px] text-blue-100 font-bold uppercase text-center bg-blue-950/40 px-2 py-0.5 rounded-full border border-blue-400/30">
+                          [ESEMPIO GUIDATO] • Voci, Analisi e Cronoprogramma
+                        </span>
+                        <span className="text-[7px] text-blue-200/90 font-medium text-center">
+                          Via Garibaldi, 12 - Milano • Ing. Ciccillo CACACE
+                        </span>
+                      </button>
+                      
+                      <p className="text-[7.5px] text-slate-400 font-bold uppercase text-center mt-1.5 italic">
+                        * Computo metrico e cronoprogramma reale completo a scopo dimostrativo
+                      </p>
+                    </div>
                     
-                    <div className="mt-6 text-center">
+                    <div className="mt-3 text-center">
                          <p className="text-[8px] text-slate-400 font-black uppercase tracking-[0.2em]">
                            © 2026 GeCoLa WEB Professional
                          </p>
