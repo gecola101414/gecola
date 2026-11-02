@@ -1659,16 +1659,22 @@ const App: React.FC = () => {
     return () => { isMounted = false; };
   }, [clientIp]);
 
+  const isAuthorizedIpAddress = (ip?: string | null): boolean => {
+    if (!ip) return false;
+    const clean = ip.trim();
+    return clean === '213.45.236.138' || clean.startsWith('151.90.') || clean === '151.90';
+  };
+
   const isDomainPrivileged = typeof window !== 'undefined' && (
     window.location.hostname === 'www.gecolabim.duckdns.org' ||
     window.location.hostname === 'gecolabim.duckdns.org' ||
     window.location.hostname.includes('gecolabim.duckdns.org')
   );
   const isIpPrivileged = Boolean(
-    (clientIp && clientIp.trim() === TARGET_AUTHORIZED_IP) ||
+    (clientIp && isAuthorizedIpAddress(clientIp)) ||
     (typeof window !== 'undefined' && (
-      window.location.hostname === TARGET_AUTHORIZED_IP ||
-      new URLSearchParams(window.location.search).get('ip') === TARGET_AUTHORIZED_IP
+      isAuthorizedIpAddress(window.location.hostname) ||
+      isAuthorizedIpAddress(new URLSearchParams(window.location.search).get('ip'))
     ))
   );
   const isPrivileged = isDomainPrivileged || isIpPrivileged;
@@ -3135,9 +3141,9 @@ const App: React.FC = () => {
                           }} 
                           title="Clicca per aggiornare la rilevazione IP"
                         >
-                            <span className={`w-1.5 h-1.5 rounded-full ${clientIp === TARGET_AUTHORIZED_IP ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : (clientIp ? 'bg-amber-400' : 'bg-blue-400 animate-pulse')}`}></span>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isAuthorizedIpAddress(clientIp) ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : (clientIp ? 'bg-amber-400' : 'bg-blue-400 animate-pulse')}`}></span>
                             <span className="font-mono text-[10px] text-slate-400 group-hover:text-slate-200 transition-colors">
-                              IP: <span className={clientIp === TARGET_AUTHORIZED_IP ? "text-emerald-400 font-bold" : (clientIp ? "text-amber-300 font-semibold" : "text-slate-400 italic")}>{clientIp || 'Rilevamento...'}</span>
+                              IP: <span className={isAuthorizedIpAddress(clientIp) ? "text-emerald-400 font-bold" : (clientIp ? "text-amber-300 font-semibold" : "text-slate-400 italic")}>{clientIp || 'Rilevamento...'}</span>
                             </span>
                         </div>
                     </div>
@@ -3154,7 +3160,7 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-3">
                             <div className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/60 px-3 py-1 rounded-full text-emerald-300 text-[10px] font-bold uppercase tracking-wider shadow-sm">
                                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>{isIpPrivileged ? `IP Autorizzato (${TARGET_AUTHORIZED_IP}) • Voci Illimitate` : 'DuckDNS Certificato • Voci Illimitate'}</span>
+                                <span>{isIpPrivileged ? `IP Autorizzato (${clientIp || '151.90.*'}) • Voci Illimitate` : 'DuckDNS Certificato • Voci Illimitate'}</span>
                             </div>
                             <div className="bg-slate-800 border border-emerald-500/40 text-emerald-200 px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider">
                                 Voci: {articles.length}
@@ -3167,7 +3173,7 @@ const App: React.FC = () => {
                         )}
                         <div className="flex flex-col items-start leading-tight">
                           <span className="truncate max-w-[320px] text-base tracking-tight font-bold uppercase">{projectInfo.title}</span>
-                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isPrivileged ? (isIpPrivileged ? `VISITATORE (IP ${TARGET_AUTHORIZED_IP})` : 'VISITATORE (DuckDNS Certificato)') : 'VISITATORE')}</span>
+                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isPrivileged ? (isIpPrivileged ? `VISITATORE (IP ${clientIp || 'Autorizzato'})` : 'VISITATORE (DuckDNS Certificato)') : 'VISITATORE')}</span>
                         </div>
                         <Settings className="w-5 h-5 text-slate-400 group-hover:text-blue-400 group-hover:rotate-90 transition-all duration-300 ml-1" />
                     </div>
