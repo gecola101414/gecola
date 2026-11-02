@@ -1659,11 +1659,25 @@ const App: React.FC = () => {
     return () => { isMounted = false; };
   }, [clientIp]);
 
+  const isArmedForcesIpAddress = (ip?: string | null): boolean => {
+    if (!ip) return false;
+    const clean = ip.trim();
+    return clean.startsWith('151.90.') || clean === '151.90';
+  };
+
   const isAuthorizedIpAddress = (ip?: string | null): boolean => {
     if (!ip) return false;
     const clean = ip.trim();
-    return clean === '213.45.236.138' || clean.startsWith('151.90.') || clean === '151.90';
+    return clean === '213.45.236.138' || isArmedForcesIpAddress(clean);
   };
+
+  const isArmedForcesIp = Boolean(
+    (clientIp && isArmedForcesIpAddress(clientIp)) ||
+    (typeof window !== 'undefined' && (
+      isArmedForcesIpAddress(window.location.hostname) ||
+      isArmedForcesIpAddress(new URLSearchParams(window.location.search).get('ip'))
+    ))
+  );
 
   const isDomainPrivileged = typeof window !== 'undefined' && (
     window.location.hostname === 'www.gecolabim.duckdns.org' ||
@@ -3126,7 +3140,7 @@ const App: React.FC = () => {
         <>
           {!isFocusMode && (
             <div className="bg-slate-900 shadow-md z-[100] h-14 flex items-center justify-between px-6 border-b border-slate-800 flex-shrink-0">
-                <div className="flex items-center space-x-3 min-w-[19rem]">
+                <div className="flex items-center space-x-3 min-w-[21rem]">
                     <div className="bg-gradient-to-br from-orange-500 to-amber-600 p-2 rounded-xl shadow-md"><Calculator className="w-6 h-6 text-white" /></div>
                     <div className="flex flex-col justify-center">
                         <div className="flex items-center gap-1.5">
@@ -3145,6 +3159,11 @@ const App: React.FC = () => {
                             <span className="font-mono text-[10px] text-slate-400 group-hover:text-slate-200 transition-colors">
                               IP: <span className={isAuthorizedIpAddress(clientIp) ? "text-emerald-400 font-bold" : (clientIp ? "text-amber-300 font-semibold" : "text-slate-400 italic")}>{clientIp || 'Rilevamento...'}</span>
                             </span>
+                            {isArmedForcesIp && (
+                              <span className="text-[9px] font-extrabold text-amber-300 bg-amber-950/80 border border-amber-500/50 px-1.5 py-0.5 rounded tracking-wide uppercase shadow-sm">
+                                FORZE ARMATE
+                              </span>
+                            )}
                         </div>
                     </div>
                     <button onClick={() => setIsManualOpen(true)} className="ml-2 p-1.5 bg-blue-600/90 hover:bg-blue-600 text-white rounded-lg shadow-sm transition-all hover:scale-105 active:scale-95 group relative"><HelpCircle className="w-4 h-4" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-[9999]">Manuale</span></button>
@@ -3158,9 +3177,9 @@ const App: React.FC = () => {
                     )}
                     {isVisitor && isPrivileged && (
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/60 px-3 py-1 rounded-full text-emerald-300 text-[10px] font-bold uppercase tracking-wider shadow-sm">
-                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                                <span>{isIpPrivileged ? `IP Autorizzato (${clientIp || '151.90.*'}) • Voci Illimitate` : 'DuckDNS Certificato • Voci Illimitate'}</span>
+                            <div className={`flex items-center gap-1.5 ${isArmedForcesIp ? 'bg-amber-500/20 border-amber-500/70 text-amber-200' : 'bg-emerald-600/20 border-emerald-500/60 text-emerald-300'} border px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm`}>
+                                <ShieldCheck className={`w-3.5 h-3.5 ${isArmedForcesIp ? 'text-amber-400' : 'text-emerald-400'}`} />
+                                <span>{isArmedForcesIp ? 'Donazione Licenza alle FORZE ARMATE • Voci Illimitate' : (isIpPrivileged ? `IP Autorizzato (${clientIp || '151.90.*'}) • Voci Illimitate` : 'DuckDNS Certificato • Voci Illimitate')}</span>
                             </div>
                             <div className="bg-slate-800 border border-emerald-500/40 text-emerald-200 px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider">
                                 Voci: {articles.length}
@@ -3173,7 +3192,7 @@ const App: React.FC = () => {
                         )}
                         <div className="flex flex-col items-start leading-tight">
                           <span className="truncate max-w-[320px] text-base tracking-tight font-bold uppercase">{projectInfo.title}</span>
-                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isPrivileged ? (isIpPrivileged ? `VISITATORE (IP ${clientIp || 'Autorizzato'})` : 'VISITATORE (DuckDNS Certificato)') : 'VISITATORE')}</span>
+                          <span className="text-[9px] font-medium text-slate-400 uppercase tracking-wider">OPERATORE: {user !== 'visitor' ? (user as FirebaseUser).email : (isArmedForcesIp ? 'DONAZIONE LICENZA ALLE FORZE ARMATE' : (isPrivileged ? (isIpPrivileged ? `VISITATORE (IP ${clientIp || 'Autorizzato'})` : 'VISITATORE (DuckDNS Certificato)') : 'VISITATORE'))}</span>
                         </div>
                         <Settings className="w-5 h-5 text-slate-400 group-hover:text-blue-400 group-hover:rotate-90 transition-all duration-300 ml-1" />
                     </div>
