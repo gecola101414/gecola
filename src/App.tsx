@@ -38,6 +38,8 @@ import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems, cleanDes
 import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateComputoMetricoSubappaltoPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf, generateDistintaFerriPdf } from './services/pdfGenerator';
 import { generateComputoExcel, generateComputoMetricoSubappaltoExcel } from './services/excelGenerator';
 import { VoiceField, MEASUREMENT_FIELDS, analyzeVoiceTranscript } from './services/voiceDictationService';
+import { PdfConverterModal } from './components/PdfConverterModal';
+import { ConvertedComputoResult } from './utils/pdfComputoConverter';
 
 const MIME_ARTICLE = 'application/gecola-article';
 const MIME_MEASUREMENT = 'application/gecola-measurement';
@@ -163,34 +165,50 @@ const getRank = (unit: string) => {
   return 0;
 };
 
-const calculateRowValueWithContext = (m: Measurement, targetUnit: string, linkedValue: number = 0, sourceUnit: string = ''): number => {
+const calculateRowValueWithContext = (m: Measurement, _targetUnit: string, linkedValue: number = 0, _sourceUnit: string = ''): number => {
   if (m.type === 'subtotal') return 0;
-  
-  const hasLocalDimensions = m.length !== undefined || m.width !== undefined || m.height !== undefined;
-  const hasMultiplier = m.multiplier !== undefined;
-  
-  if (!hasLocalDimensions && !hasMultiplier && !m.linkedArticleId) return 0;
 
-  const mult = hasMultiplier ? m.multiplier! : (hasLocalDimensions || m.linkedArticleId ? 1 : 0);
   const sign = m.type === 'deduction' ? -1 : 1;
 
-  if (m.linkedArticleId && sourceUnit) {
-    const sRank = getRank(sourceUnit);
+  if (m.linkedArticleId) {
     let localPhysicalFactor = 1;
-    if (sRank < 1) localPhysicalFactor *= (m.length || 1);
-    if (sRank < 2) localPhysicalFactor *= (m.width || 1);
-    if (sRank < 3) localPhysicalFactor *= (m.height || 1);
+    if (m.length !== undefined && m.length !== 0) localPhysicalFactor *= m.length;
+    if (m.width !== undefined && m.width !== 0) localPhysicalFactor *= m.width;
+    if (m.height !== undefined && m.height !== 0) localPhysicalFactor *= m.height;
+    const mult = m.multiplier !== undefined ? m.multiplier : 1;
     return linkedValue * localPhysicalFactor * mult * sign;
   }
 
+  // Se nella descrizione c'è "vedi voce", prevale sempre il valore Quantità letto nel PDF senza creare formula coi dati interni
+  const isVediVoceDesc = m.description ? m.description.toLowerCase().includes('vedi voce') : false;
+  if (isVediVoceDesc) {
+    return (m.pdfQuantity ?? 0) * sign;
+  }
+
+  const hasLocalDimensions = m.length !== undefined || m.width !== undefined || m.height !== undefined;
+  const hasMultiplier = m.multiplier !== undefined;
+
+  if (!hasLocalDimensions && !hasMultiplier && m.pdfQuantity === undefined) return 0;
+
+  const mult = hasMultiplier ? m.multiplier! : (hasLocalDimensions ? 1 : 0);
   const l = m.length === undefined ? 1 : m.length;
   const w = m.width === undefined ? 1 : m.width;
   const h = m.height === undefined ? 1 : m.height;
-  
+
   const base = hasLocalDimensions ? (l * w * h) : 0;
-  
   const effectiveBase = (!hasLocalDimensions && mult !== 0) ? 1 : base;
-  return effectiveBase * mult * sign;
+  const rawFormulaVal = effectiveBase * mult;
+  const roundedFormulaVal = roundTwoDecimals(rawFormulaVal);
+
+  // Se il rigo proviene da un PDF: se c'è corrispondenza coi dati interni usa la formula attiva, altrimenti prevale il dato Quantità del PDF
+  if (m.pdfQuantity !== undefined) {
+    if ((hasLocalDimensions || hasMultiplier) && Math.abs(roundedFormulaVal - m.pdfQuantity) <= 0.02) {
+      return roundedFormulaVal * sign;
+    }
+    return m.pdfQuantity * sign;
+  }
+
+  return rawFormulaVal * sign;
 };
 
 const resolveArticleQuantity = (
@@ -202,7 +220,7 @@ const resolveArticleQuantity = (
   visited.add(articleId);
   const article = allArticlesMap.get(articleId);
   if (!article) return 0;
-  return article.measurements.reduce((sum, m) => {
+  const sum = article.measurements.reduce((acc, m) => {
     let rowVal = 0;
     if (m.linkedArticleId) {
        const sourceQty = resolveArticleQuantity(m.linkedArticleId, allArticlesMap, new Set(visited));
@@ -215,8 +233,12 @@ const resolveArticleQuantity = (
     } else {
        rowVal = calculateRowValueWithContext(m, article.unit);
     }
-    return sum + rowVal;
+    return acc + rowVal;
   }, 0);
+  if (article.measurements.length === 0 || (sum === 0 && article.quantity > 0)) {
+    return article.quantity;
+  }
+  return sum;
 };
 
 const isBlankMeasurement = (m: Measurement) => {
@@ -233,7 +255,7 @@ const recalculateAllArticles = (articles: Article[]): Article[] => {
   const articleMap = new Map(articles.map(a => [a.id, a]));
   return articles.map(art => {
     const calculatedQty = resolveArticleQuantity(art.id, articleMap);
-    return { ...art, quantity: calculatedQty };
+    return { ...art, quantity: roundTwoDecimals(calculatedQty) };
   });
 };
 
@@ -569,6 +591,7 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
 
    const getSurveyorWarning = (m: Measurement): { msg: string, severity: 'error' | 'warning', isVisible: boolean, isExcess: boolean, missingFields: string[] } | null => {
       if (!isSurveyorGuardActive || m.type === 'subtotal') return null;
+      if (m.pdfQuantity !== undefined || (m.description && m.description.toLowerCase().includes('vedi voce'))) return null;
       
       const targetRank = getRank(article.unit);
       if (targetRank === 0) return null; 
@@ -614,16 +637,10 @@ const ArticleGroup: React.FC<ArticleGroupProps> = (props) => {
       return null;
    };
 
-   const getInheritedFields = (m: Measurement): string[] => {
-       if (!m.linkedArticleId) return [];
-       const src = allArticles.find(a => a.id === m.linkedArticleId);
-       if (!src) return [];
-       const sourceRank = getRank(src.unit);
-       const fields = [];
-       if (sourceRank >= 1) fields.push('length');
-       if (sourceRank >= 2) fields.push('width');
-       if (sourceRank >= 3) fields.push('height');
-       return fields;
+   const getInheritedFields = (_m: Measurement): string[] => {
+       // Mantieni aperti ed editabili tutti i campi (parti uguali, lunghezza, larghezza, altezza)
+       // anche quando c'è un collegamento "Vedi voce", per consentire ad esempio di moltiplicare mq per altezza o inserire altre dimensioni
+       return [];
    };
 
    useEffect(() => {
@@ -1313,6 +1330,7 @@ const App: React.FC = () => {
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
   const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const [isOpenMenuOpen, setIsOpenMenuOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false); 
   const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 50 }); 
   const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
@@ -1322,6 +1340,7 @@ const App: React.FC = () => {
   const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
   const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
   const [recordingArticleId, setRecordingArticleId] = useState<string | null>(null);
   const [voiceActiveRowId, setVoiceActiveRowId] = useState<string | null>(null);
@@ -1589,6 +1608,19 @@ const App: React.FC = () => {
 
     updateState(milanoArticles, categories, [...analyses, ...designerAnalyses]);
   };
+
+  const handlePdfComputoImport = (result: ConvertedComputoResult) => {
+    setProjectInfo(result.projectInfo);
+    updateState(result.articles, result.categories, []);
+    setCurrentFileHandle(null);
+    setViewMode('COMPUTO');
+    if (result.categories.length > 0) {
+      const firstNonSuper = result.categories.find(c => !c.isSuperCategory) || result.categories[0];
+      setSelectedCategoryCode(firstNonSuper ? firstNonSuper.code : result.categories[0].code);
+    }
+    playUISound('confirm');
+  };
+
   const handleLogout = async () => { setAuthLoading(true); try { if (user !== 'visitor' && auth) { await signOut(auth); } } catch (err) { console.error("Logout error:", err); } finally { setUser(null); setAuthLoading(false); } };
   const isVisitor = user === 'visitor';
   const TARGET_AUTHORIZED_IP = '213.45.236.138';
@@ -2517,12 +2549,19 @@ const App: React.FC = () => {
         }
       }
 
+      const isDimField = field === 'multiplier' || field === 'length' || field === 'width' || field === 'height';
+
       // Aggiorna immediatamente articlesRef.current in modo che qualsiasi callback vocale veda i dati aggiornati
       articlesRef.current = articlesRef.current.map(art => {
         if (art.id !== articleId) return art;
         const newMeasurements = art.measurements.map(m => {
           if (m.id !== mId) return m;
-          return { ...m, [field]: finalValue };
+          const isVediVoceDesc = (field === 'description' ? String(finalValue || '') : (m.description || '')).toLowerCase().includes('vedi voce');
+          const nextM: Measurement = { ...m, [field]: finalValue };
+          if (isDimField && !isVediVoceDesc) {
+            nextM.pdfQuantity = undefined;
+          }
+          return nextM;
         });
         return { ...art, measurements: newMeasurements };
       });
@@ -2532,11 +2571,15 @@ const App: React.FC = () => {
               if (art.id !== articleId) return art; 
               const newMeasurements = art.measurements.map(m => { 
                   if (m.id !== mId) return m; 
-                  return { ...m, [field]: finalValue }; 
+                  const isVediVoceDesc = (field === 'description' ? String(finalValue || '') : (m.description || '')).toLowerCase().includes('vedi voce');
+                  const nextM: Measurement = { ...m, [field]: finalValue };
+                  if (isDimField && !isVediVoceDesc) {
+                    nextM.pdfQuantity = undefined;
+                  }
+                  return nextM; 
               }); 
               return { ...art, measurements: newMeasurements }; 
           }); 
-          if (field === 'description') return updated; // Skip recalculation for description changes to improve performance
           return recalculateAllArticles(updated); 
       });
   };
@@ -2615,7 +2658,25 @@ const App: React.FC = () => {
   const onArticleDragEnd = () => { setIsDraggingArticle(false); setWbsDropTarget(null); };
   const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => { setIsDraggingArticle(false); setWbsDropTarget(null); const articleId = e.dataTransfer.getData('articleId'); if (!articleId) return; const targetArticle = articles.find(a => a.id === articleId); if (!targetArticle) return; const currentCategoryArticles = articles.filter(a => a.categoryCode === targetArticle.categoryCode); const startIndex = currentCategoryArticles.findIndex(a => a.id === articleId); let targetIndex = currentCategoryArticles.findIndex(a => a.id === targetArticleId); if (startIndex === -1 || targetIndex === -1) return; if (position === 'bottom' && startIndex > targetIndex) targetIndex++; else if (position === 'top' && startIndex < targetIndex) targetIndex--; const otherArticles = articles.filter(a => a.categoryCode !== targetArticle.categoryCode); const newSubset = [...currentCategoryArticles]; const [movedItem] = newSubset.splice(startIndex, 1); newSubset.splice(targetIndex, 0, movedItem); const newGlobalArticles = [...otherArticles, ...newSubset]; updateState(newGlobalArticles); setLastMovedItemId(articleId); setTimeout(() => setLastMovedItemId(null), 3000); };
   const handleOpenLinkModal = (articleId: string, measurementId: string) => { setLinkTarget({ articleId, measurementId }); setIsLinkModalOpen(true); };
-  const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { if (!linkTarget) return; const updated = articles.map(art => { if (art.id !== linkTarget.articleId) return art; const newMeasurements = art.measurements.map(m => { if (m.id !== linkTarget.measurementId) return m; return { ...m, linkedArticleId: sourceArticle.id, linkedType: type, length: undefined, width: undefined, height: undefined, description: '', multiplier: undefined, type: 'positive' as const }; }); return { ...art, measurements: newMeasurements }; }); updateState(updated); setIsLinkModalOpen(false); setLinkTarget(null); };
+  const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => { 
+    if (!linkTarget) return; 
+    const updated = articles.map(art => { 
+      if (art.id !== linkTarget.articleId) return art; 
+      const newMeasurements = art.measurements.map(m => { 
+        if (m.id !== linkTarget.measurementId) return m; 
+        return { 
+          ...m, 
+          linkedArticleId: sourceArticle.id, 
+          linkedType: type, 
+          type: 'positive' as const 
+        }; 
+      }); 
+      return { ...art, measurements: newMeasurements }; 
+    }); 
+    updateState(updated); 
+    setIsLinkModalOpen(false); 
+    setLinkTarget(null); 
+  };
   const handleScrollToArticle = (id: string, fromId?: string, categoryCodeOverride?: string) => { 
     if (fromId) setReturnPath(fromId); 
     const targetArt = articles.find(a => a.id === id); 
@@ -3050,6 +3111,14 @@ const App: React.FC = () => {
     e.preventDefault(); e.stopPropagation(); 
     if (draggedCategoryCode) { setIsWorkspaceDragOver(false); return; }
     setIsWorkspaceDragOver(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const droppedFile = e.dataTransfer.files[0];
+      if (droppedFile.name.toLowerCase().endsWith('.pdf')) {
+        setIsPdfModalOpen(true);
+        playUISound('toggle');
+        return;
+      }
+    }
     const analysisId = e.dataTransfer.getData(MIME_ANALYSIS_DRAG);
     if (analysisId) {
         const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
@@ -3135,7 +3204,7 @@ const App: React.FC = () => {
   const topLevelCategories = useMemo(() => filteredCategories.filter(c => !c.parentId), [filteredCategories]);
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={() => { if(!globalAudioCtx) globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); globalAudioCtx.resume(); setIsSaveMenuOpen(false); setIsPrintMenuOpen(false); }}>
+    <div className="h-screen flex flex-col bg-slate-900 font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={() => { if(!globalAudioCtx) globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); globalAudioCtx.resume(); setIsOpenMenuOpen(false); setIsSaveMenuOpen(false); setIsPrintMenuOpen(false); }}>
       <input type="file" ref={fileInputRef} onChange={handleLoadProjectLegacy} className="hidden" accept=".json" />
       {!isOnline && user && user !== 'visitor' && (
         <div className="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-500">
@@ -3152,6 +3221,7 @@ const App: React.FC = () => {
         <Login 
           onVisitorLogin={handleVisitorLogin} 
           onMilanoDemoLogin={handleMilanoDemoLogin}
+          onOpenPdfConverter={() => setIsPdfModalOpen(true)}
           onArmedForcesLogin={handleArmedForcesLogin}
           isArmedForcesIp={isArmedForcesIp}
           clientIp={clientIp}
@@ -3224,7 +3294,53 @@ const App: React.FC = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Computo (apre in una nuova scheda)"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Computo (Nuova Scheda)</span></button>
-                    <button onClick={handleOpenProject} className="p-2 transition-colors text-slate-300 hover:text-orange-400" title="Apri (.json)"><FolderOpen className="w-5 h-5" /></button>
+                    {/* MENU APRI / IMPORTA NON INVASIVO DENTRO LA CARTELLA */}
+                    <div className="relative">
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setIsOpenMenuOpen(!isOpenMenuOpen); 
+                            setIsPrintMenuOpen(false); 
+                            setIsSaveMenuOpen(false); 
+                          }} 
+                          className="p-2 transition-colors text-slate-300 hover:text-orange-400 flex items-center gap-1 group relative cursor-pointer" 
+                          title="Apri Progetto o Importa da PDF"
+                        >
+                          <FolderOpen className="w-5 h-5 text-slate-300 group-hover:text-orange-400 transition-colors" />
+                          <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isOpenMenuOpen ? 'rotate-180 text-orange-400' : ''}`} />
+                          <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Apri / Importa</span>
+                        </button>
+
+                        {isOpenMenuOpen && (
+                          <div className="absolute left-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-2xl py-2 z-[150] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                            <button 
+                              onClick={() => { setIsOpenMenuOpen(false); handleOpenProject(); }} 
+                              className="w-full text-left px-4 py-2.5 text-xs text-slate-700 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
+                            >
+                              <FolderOpen className="w-4 h-4 text-orange-500 shrink-0" />
+                              <div>
+                                <div className="text-slate-800">Apri Progetto GeCoLa (.json)</div>
+                                <div className="text-[10px] text-slate-400 font-medium">Carica computo salvato in precedenza</div>
+                              </div>
+                            </button>
+
+                            <button 
+                              onClick={() => { setIsOpenMenuOpen(false); setIsPdfModalOpen(true); playUISound('toggle'); }} 
+                              className="w-full text-left px-4 py-2.5 text-xs text-blue-900 hover:bg-blue-50 flex items-center gap-3 font-bold transition-colors cursor-pointer"
+                            >
+                              <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-slate-900">Importa Computo da PDF</span>
+                                  <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-black uppercase">ACCA / Universale</span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-medium">Converte PDF di software concorrenti in GeCoLa</div>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                    </div>
+
                     <button 
                       onClick={() => { setIsSaveModalOpen(true); playUISound('confirm'); }} 
                       className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-slate-200 hover:text-white bg-blue-600/80 hover:bg-blue-600 border border-blue-500 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer"
@@ -3808,6 +3924,13 @@ const App: React.FC = () => {
               </button>
             </div>
           )}
+
+          <PdfConverterModal 
+            isOpen={isPdfModalOpen} 
+            onClose={() => setIsPdfModalOpen(false)} 
+            onImportComplete={handlePdfComputoImport} 
+            playUISound={playUISound} 
+          />
         </>
       )}
     </div>

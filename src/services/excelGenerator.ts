@@ -154,7 +154,18 @@ export const buildComputoExcelXml = (projectInfo: ProjectInfo, categories: Categ
    </Row>`;
         } else {
             const sign = m.type === 'deduction' ? -1 : 1;
+            const isVediVoce = m.description ? m.description.toLowerCase().includes('vedi voce') : false;
+            const hasDims = m.length !== undefined || m.width !== undefined || m.height !== undefined;
+            const hasMult = m.multiplier !== undefined;
+            const mult = hasMult ? m.multiplier! : (hasDims ? 1 : 0);
+            const base = hasDims ? ((m.length ?? 1) * (m.width ?? 1) * (m.height ?? 1)) : (mult !== 0 ? 1 : 0);
+            const roundedInternal = Math.round(((base * mult) + Number.EPSILON) * 100) / 100;
+            const usePdfQtyLiteral = m.pdfQuantity !== undefined && (isVediVoce || !(hasDims || hasMult) || Math.abs(roundedInternal - m.pdfQuantity) > 0.02);
+            const rowVal = usePdfQtyLiteral ? (m.pdfQuantity! * sign) : (roundedInternal * sign);
             const prodFormula = `=${sign}*IF(COUNT(RC[-4]:RC[-1])=0,0,PRODUCT(IF(RC[-4]=0,1,RC[-4]),IF(RC[-3]=0,1,RC[-3]),IF(RC[-2]=0,1,RC[-2]),IF(RC[-1]=0,1,RC[-1])))`;
+            const qtyCellXml = usePdfQtyLiteral
+              ? `<Cell ss:StyleID="QtyValue"><Data ss:Type="Number">${rowVal}</Data></Cell>`
+              : `<Cell ss:StyleID="QtyValue" ss:Formula="${prodFormula}"><Data ss:Type="Number">${rowVal}</Data></Cell>`;
             
             xml += `
    <Row ss:AutoFitHeight="1">
@@ -164,7 +175,7 @@ export const buildComputoExcelXml = (projectInfo: ProjectInfo, categories: Categ
     <Cell ss:StyleID="MeasValue">${m.length !== undefined ? `<Data ss:Type="Number">${m.length}</Data>` : ''}</Cell>
     <Cell ss:StyleID="MeasValue">${m.width !== undefined ? `<Data ss:Type="Number">${m.width}</Data>` : ''}</Cell>
     <Cell ss:StyleID="MeasValue">${m.height !== undefined ? `<Data ss:Type="Number">${m.height}</Data>` : ''}</Cell>
-    <Cell ss:StyleID="QtyValue" ss:Formula="${prodFormula}"><Data ss:Type="Number">0</Data></Cell>
+    ${qtyCellXml}
     <Cell/><Cell/>
    </Row>`;
         }
@@ -382,7 +393,18 @@ export const buildComputoMetricoSubappaltoExcelXml = (projectInfo: ProjectInfo, 
    </Row>`;
         } else {
             const sign = m.type === 'deduction' ? -1 : 1;
+            const isVediVoce = m.description ? m.description.toLowerCase().includes('vedi voce') : false;
+            const hasDims = m.length !== undefined || m.width !== undefined || m.height !== undefined;
+            const hasMult = m.multiplier !== undefined;
+            const mult = hasMult ? m.multiplier! : (hasDims ? 1 : 0);
+            const base = hasDims ? ((m.length ?? 1) * (m.width ?? 1) * (m.height ?? 1)) : (mult !== 0 ? 1 : 0);
+            const roundedInternal = Math.round(((base * mult) + Number.EPSILON) * 100) / 100;
+            const usePdfQtyLiteral = m.pdfQuantity !== undefined && (isVediVoce || !(hasDims || hasMult) || Math.abs(roundedInternal - m.pdfQuantity) > 0.02);
+            const rowVal = usePdfQtyLiteral ? (m.pdfQuantity! * sign) : (roundedInternal * sign);
             const prodFormula = `=${sign}*IF(COUNT(RC[-4]:RC[-1])=0,0,PRODUCT(IF(RC[-4]=0,1,RC[-4]),IF(RC[-3]=0,1,RC[-3]),IF(RC[-2]=0,1,RC[-2]),IF(RC[-1]=0,1,RC[-1])))`;
+            const qtyCellXml = usePdfQtyLiteral
+              ? `<Cell ss:StyleID="QtyValue"><Data ss:Type="Number">${rowVal}</Data></Cell>`
+              : `<Cell ss:StyleID="QtyValue" ss:Formula="${prodFormula}"><Data ss:Type="Number">${rowVal}</Data></Cell>`;
             
             xml += `
    <Row ss:AutoFitHeight="1">
@@ -392,7 +414,7 @@ export const buildComputoMetricoSubappaltoExcelXml = (projectInfo: ProjectInfo, 
     <Cell ss:StyleID="MeasValue">${m.length !== undefined ? `<Data ss:Type="Number">${m.length}</Data>` : ''}</Cell>
     <Cell ss:StyleID="MeasValue">${m.width !== undefined ? `<Data ss:Type="Number">${m.width}</Data>` : ''}</Cell>
     <Cell ss:StyleID="MeasValue">${m.height !== undefined ? `<Data ss:Type="Number">${m.height}</Data>` : ''}</Cell>
-    <Cell ss:StyleID="QtyValue" ss:Formula="${prodFormula}"><Data ss:Type="Number">0</Data></Cell>
+    ${qtyCellXml}
     <Cell/><Cell/>
    </Row>`;
         }

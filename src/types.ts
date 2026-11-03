@@ -21,6 +21,7 @@ export interface Measurement {
   width?: number;
   height?: number;
   multiplier?: number;
+  pdfQuantity?: number;
   linkedArticleId?: string;
   linkedType?: 'quantity' | 'amount';
 }

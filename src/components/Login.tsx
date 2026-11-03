@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building, Upload } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
   onMilanoDemoLogin: () => void;
+  onOpenPdfConverter?: () => void;
   onArmedForcesLogin?: () => void;
   isArmedForcesIp?: boolean;
   clientIp?: string | null;
@@ -14,6 +15,7 @@ interface LoginProps {
 const Login: React.FC<LoginProps> = ({ 
   onVisitorLogin, 
   onMilanoDemoLogin, 
+  onOpenPdfConverter,
   onArmedForcesLogin, 
   isArmedForcesIp = false, 
   clientIp 
@@ -353,23 +355,35 @@ const Login: React.FC<LoginProps> = ({
                       <button
                         type="button"
                         onClick={onMilanoDemoLogin}
-                        className="w-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 hover:from-blue-700 hover:to-indigo-900 text-white font-black py-3.5 px-3.5 rounded-[1.6rem] shadow-lg hover:shadow-xl border-2 border-blue-300/60 transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
+                        className="w-full bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 hover:from-blue-700 hover:to-indigo-900 text-white font-black py-3 px-3.5 rounded-[1.6rem] shadow-lg hover:shadow-xl border-2 border-blue-300/60 transform transition-all active:scale-95 flex flex-col items-center justify-center gap-1 group"
                       >
                         <div className="flex items-center gap-2">
                           <Building className="w-4 h-4 text-blue-200 group-hover:scale-110 transition-transform shrink-0" /> 
                           <span className="text-[10px] uppercase tracking-wider text-center leading-tight font-black text-white">
-                            LANCIA ESEMPIO COMPLETO: RISTRUTTURAZIONE A MILANO
+                            ESEMPIO: RISTRUTTURAZIONE A MILANO
                           </span>
                         </div>
                         <span className="text-[7.5px] text-blue-100 font-bold uppercase text-center bg-blue-950/40 px-2 py-0.5 rounded-full border border-blue-400/30">
-                          [ESEMPIO GUIDATO] • Voci, Analisi e Cronoprogramma
+                          [GUIDATO] • Voci, Analisi e Cronoprogramma
                         </span>
                         <span className="text-[7px] text-blue-200/90 font-medium text-center">
                           Via Garibaldi, 12 - Milano • Ing. Ciccillo CACACE
                         </span>
                       </button>
+
+                      {/* PULSANTE UPLOAD PDF SOFTWARE CONCORRENTI */}
+                      {onOpenPdfConverter && (
+                        <button
+                          type="button"
+                          onClick={onOpenPdfConverter}
+                          className="w-full mt-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold py-2.5 px-3 rounded-[1.4rem] border border-slate-600 shadow-sm flex items-center justify-center gap-2 text-[9px] uppercase tracking-wider transition-all"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Importa Computo da PDF (PriMus / Altri Software)</span>
+                        </button>
+                      )}
                       
-                      <p className="text-[7.5px] text-slate-400 font-bold uppercase text-center mt-1.5 italic">
+                      <p className="text-[7.5px] text-slate-400 font-bold uppercase text-center mt-2 italic">
                         * Computo metrico e cronoprogramma reale completo a scopo dimostrativo
                       </p>
                     </div>

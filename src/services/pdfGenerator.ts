@@ -254,10 +254,18 @@ const formatNumber = (val: number | undefined | null) => {
 
 const calculateMeasurementValue = (m: Measurement, linkedVal: number = 0) => {
     if (m.type === 'subtotal') return 0;
+    const sign = m.type === 'deduction' ? -1 : 1;
     if (m.linkedArticleId) {
+        let localPhysicalFactor = 1;
+        if (m.length !== undefined && m.length !== 0) localPhysicalFactor *= m.length;
+        if (m.width !== undefined && m.width !== 0) localPhysicalFactor *= m.width;
+        if (m.height !== undefined && m.height !== 0) localPhysicalFactor *= m.height;
         const mult = m.multiplier === undefined ? 1 : m.multiplier;
-        const sign = m.type === 'deduction' ? -1 : 1;
-        return linkedVal * mult * sign;
+        return linkedVal * localPhysicalFactor * mult * sign;
+    }
+    const isVediVoce = m.description ? m.description.toLowerCase().includes('vedi voce') : false;
+    if (isVediVoce) {
+        return (m.pdfQuantity ?? 0) * sign;
     }
     const factors = [m.length, m.width, m.height].filter(v => v !== undefined && v !== 0 && v !== null);
     const base = factors.length > 0 ? factors.reduce((a, b) => (a || 1) * (b || 1), 1) : 0;
@@ -268,8 +276,16 @@ const calculateMeasurementValue = (m: Measurement, linkedVal: number = 0) => {
         if (factors.length > 0) effectiveMultiplier = 1;
     }
     const effectiveBase = (factors.length === 0 && effectiveMultiplier !== 0) ? 1 : base;
-    const val = effectiveBase * effectiveMultiplier;
-    return m.type === 'deduction' ? -val : val;
+    const rawVal = effectiveBase * effectiveMultiplier;
+    const roundedVal = Math.round((rawVal + Number.EPSILON) * 100) / 100;
+    if (m.pdfQuantity !== undefined) {
+        const hasAnyInternal = factors.length > 0 || m.multiplier !== undefined;
+        if (hasAnyInternal && Math.abs(roundedVal - m.pdfQuantity) <= 0.02) {
+            return roundedVal * sign;
+        }
+        return m.pdfQuantity * sign;
+    }
+    return rawVal * sign;
 };
 
 /**
