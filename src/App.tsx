@@ -35,7 +35,7 @@ import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { parseDroppedContent, parseVoiceMeasurement, generateBulkItems, cleanDescription } from './services/geminiService';
-import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateComputoMetricoSubappaltoPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf, generateDistintaFerriPdf } from './services/pdfGenerator';
+import { generateComputoMetricPdf, generateComputoSicurezzaPdf, generateComputoMetricoSubappaltoPdf, generateElencoPrezziPdf, generateManodoperaPdf, generateAnalisiPrezziPdf, generateDistintaFerriPdf, preloadPdfLibs } from './services/pdfGenerator';
 import { generateComputoExcel, generateComputoMetricoSubappaltoExcel } from './services/excelGenerator';
 import { VoiceField, MEASUREMENT_FIELDS, analyzeVoiceTranscript } from './services/voiceDictationService';
 import { PdfConverterModal } from './components/PdfConverterModal';
@@ -1378,6 +1378,14 @@ const App: React.FC = () => {
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
+
+  // Pre-caricamento parallelo in memoria del motore PDF per generazioni immediate
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      preloadPdfLibs().catch(() => {});
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!auth) { setAuthLoading(false); return; }

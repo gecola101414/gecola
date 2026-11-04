@@ -24,6 +24,10 @@ export default defineConfig({
         chunkFileNames: 'assets/[hash].js',
         assetFileNames: 'assets/[hash].[ext]',
         compact: true,
+        manualChunks: {
+          'pdf-engine': ['jspdf', 'jspdf-autotable'],
+          'react-vendor': ['react', 'react-dom']
+        }
       }
     },
     chunkSizeWarningLimit: 1000

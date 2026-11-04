@@ -346,7 +346,7 @@ const computeProjectIntegrityHash = async (
         projectInfo.date || '',
         totalAmount.toFixed(2),
         categories.filter(c => c.isEnabled !== false).map(c => `${c.code}:${c.name}`).join(';'),
-        articles.map(a => `${a.code}:${a.quantity}:${a.unitPrice.toFixed(2)}`).join(';')
+        articles.map(a => `${a.code}:${a.quantity}:${(Number(a.unitPrice) || 0).toFixed(2)}`).join(';')
     ].join('||');
     return computeSha256(rawData);
 };
@@ -1354,8 +1354,8 @@ const addAcroFormField = (doc: any, config: InteractiveFieldConfig) => {
 
             if (config.isPriceInput) {
                 const nextJump = config.nextFieldName ? `var k=event.commitKey;if((k===1||k===2||k===0)&&!event.shift){_navNext.call(this,"${config.nextFieldName}");}` : '';
-                const priceCommitJs = nextJump ? `try{if(event.willCommit){${nextJump}}}catch(e){}` : '';
-                const blurJs = `try{var v=event.target.value;if(v){var n=_p(v);if(n>0)event.target.value=_fmt(n);}}catch(e){}`;
+                const priceCommitJs = `try{if(event.willCommit){_calcDoc.call(this);${nextJump}}}catch(e){}`;
+                const blurJs = `try{var v=event.target.value;if(v){var n=_p(v);if(n>0)event.target.value=_fmt(n);}_calcDoc.call(this);}catch(e){}`;
                 const escPrice = priceCommitJs.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
                 const escBlur = blurJs.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
                 const aaItems: string[] = [];
@@ -1392,99 +1392,10 @@ export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectIn
     const tableBody: any[] = [];
     const pageHeight = doc.internal.pageSize.height;
 
-    // Registrazione funzioni JavaScript globali ad alta velocità a livello di documento PDF
-    doc.addJS(`
-var _fc = {};
-function _gf(name) {
-    var f = _fc[name];
-    if (!f) {
-        f = this.getField(name);
-        if (f) _fc[name] = f;
-    }
-    return f;
-}
-function _p(v) {
-    if (!v) return 0;
-    if (typeof v === "number") return v;
-    var s = "" + v;
-    var c = s.lastIndexOf(",");
-    var d = s.lastIndexOf(".");
-    if (c > -1 && d > -1) {
-        s = (c > d) ? s.replace(/\\./g, "").replace(",", ".") : s.replace(/,/g, "");
-    } else if (c > -1) {
-        s = s.replace(",", ".");
-    } else {
-        s = s.replace(/[^0-9.-]/g, "");
-    }
-    var n = parseFloat(s);
-    return (n && !isNaN(n)) ? n : 0;
-}
-function _fmt(v) {
-    if (v === null || v === undefined || v === "") return "";
-    var n = (typeof v === "number") ? v : _p(v);
-    if (!n || isNaN(n)) return "";
-    var isNeg = n < 0;
-    var absVal = Math.abs(n);
-    var parts = absVal.toFixed(2).split(".");
-    var ip = parts[0];
-    var dp = parts[1];
-    var res = "";
-    while (ip.length > 3) {
-        res = "." + ip.slice(ip.length - 3) + res;
-        ip = ip.slice(0, ip.length - 3);
-    }
-    return (isNeg ? "-" : "") + ip + res + "," + dp;
-}
-function _calcRow(priceField, qty) {
-    var f = _gf.call(this, priceField);
-    if (!f) return "";
-    var p = _p(f.value);
-    return p > 0 ? _fmt(p * qty) : "";
-}
-function _calcSum(fList) {
-    var sum = 0;
-    for (var i = 0; i < fList.length; i++) {
-        var f = _gf.call(this, fList[i]);
-        if (f && f.value) {
-            sum += (typeof f.value === "number") ? f.value : _p(f.value);
-        }
-    }
-    return sum > 0 ? _fmt(sum) : "";
-}
-function _calcPageRiporto(prevRiportoField, fList) {
-    var sum = 0;
-    if (prevRiportoField) {
-        var pf = _gf.call(this, prevRiportoField);
-        if (pf && pf.value) {
-            sum += (typeof pf.value === "number") ? pf.value : _p(pf.value);
-        }
-    }
-    for (var i = 0; i < fList.length; i++) {
-        var f = _gf.call(this, fList[i]);
-        if (f && f.value) {
-            sum += (typeof f.value === "number") ? f.value : _p(f.value);
-        }
-    }
-    return sum > 0 ? _fmt(sum) : "";
-}
-function _calcPerc(subField, grandField) {
-    var sf = _gf.call(this, subField);
-    var gf = _gf.call(this, grandField);
-    var sVal = sf ? _p(sf.value) : 0;
-    var gVal = gf ? _p(gf.value) : 0;
-    if (gVal > 0 && sVal > 0) {
-        return ((sVal / gVal) * 100).toFixed(2).replace(".", ",") + " %";
-    }
-    return "";
-}
-function _navNext(nextName) {
-    if (!nextName) return;
-    try {
-        var nf = _gf.call(this, nextName);
-        if (nf) nf.setFocus();
-    } catch(e) {}
-}
-`);
+    // Metadati strutturati per motore di calcolo unificato ad altissima prestazione
+    const docItemsMeta: { p: string; imp: string; q: number; cat: string; page: number }[] = [];
+    const docCatsMeta: { code: string; subtot: string; riepiImp: string; riepiPerc: string }[] = [];
+    const docPagesMeta: number[] = [];
 
     // 1. FRONTESPIZIO UFFICIALE ("TESTALINO") GECOLA CON BANDANA CELESTINO
     // Esclusione totale del prezzario: solo Titolo, Committente, Indirizzo originario cantiere e Progettista
@@ -1701,7 +1612,7 @@ function _navNext(nextName) {
                 '', '', '', '', 
                 { content: formatNumber(art.quantity), styles: { fontStyle: 'bold', halign: 'right', cellPadding: { top: 3, left: 1.5 }, isTotalRow: true, fontSize: 8 } }, 
                 { content: '', styles: { isPriceField: true, fieldName: priceFieldName, nextFieldName: nextPriceFieldMap.get(priceFieldName), artId: art.id, isTotalRow: true } }, 
-                { content: '', styles: { isImportField: true, fieldName: importFieldName, priceField: priceFieldName, qty: art.quantity || 0, artId: art.id, isTotalRow: true } } 
+                { content: '', styles: { isImportField: true, fieldName: importFieldName, priceField: priceFieldName, qty: art.quantity || 0, catCode: cleanCode(cat.code), artId: art.id, isTotalRow: true } } 
             ]);
             tableBody.push([{ content: '', colSpan: 10, styles: { cellPadding: 1.5 } }]);
         });
@@ -1895,10 +1806,16 @@ function _navNext(nextName) {
                       textAlign: 'right'
                   });
               } else if (rawStyles?.isImportField) {
-                  const { fieldName, priceField, qty } = rawStyles;
+                  const { fieldName, priceField, qty, catCode } = rawStyles;
                   const qVal = Number(qty) || 0;
-                  const jsCalc = `event.value=_calcRow.call(this,"${priceField}",${qVal.toFixed(4)});`;
-                  const tf = addAcroFormField(doc, {
+                  docItemsMeta.push({
+                      p: priceField,
+                      imp: fieldName,
+                      q: qVal,
+                      cat: catCode || '',
+                      page
+                  });
+                  addAcroFormField(doc, {
                       fieldName,
                       x: data.cell.x + 0.6,
                       y: data.cell.y + 0.6,
@@ -1906,18 +1823,12 @@ function _navNext(nextName) {
                       height: data.cell.height - 1.2,
                       page,
                       readOnly: true,
-                      jsCalc,
                       isTotal: false,
                       textAlign: 'right'
                   });
-                  if (tf) importCalculatedFields.push(tf);
-                  pageImportFieldsMap[page] = pageImportFieldsMap[page] || [];
-                  pageImportFieldsMap[page].push(fieldName);
               } else if (rawStyles?.isWbsSubtotalField) {
-                  const { fieldName, importFields } = rawStyles;
-                  const fListStr = JSON.stringify(importFields || []);
-                  const jsCalc = `event.value=_calcSum.call(this,${fListStr});`;
-                  const tf = addAcroFormField(doc, {
+                  const { fieldName } = rawStyles;
+                  addAcroFormField(doc, {
                       fieldName,
                       x: data.cell.x + 0.6,
                       y: data.cell.y + 0.6,
@@ -1925,15 +1836,11 @@ function _navNext(nextName) {
                       height: data.cell.height - 1.2,
                       page,
                       readOnly: true,
-                      jsCalc,
                       isTotal: true,
                       textAlign: 'right'
                   });
-                  if (tf) wbsSubtotalCalculatedFields.push(tf);
               } else if (rawStyles?.isGrandTotalField) {
-                  const { fieldName, wbsSubtotalFields } = rawStyles;
-                  const fListStr = JSON.stringify(wbsSubtotalFields || []);
-                  const jsCalc = `event.value=_calcSum.call(this,${fListStr});`;
+                  const { fieldName } = rawStyles;
                   const tf = addAcroFormField(doc, {
                       fieldName,
                       x: data.cell.x + 0.6,
@@ -1942,7 +1849,7 @@ function _navNext(nextName) {
                       height: data.cell.height - 1.2,
                       page,
                       readOnly: true,
-                      jsCalc,
+                      jsCalc: 'try{_calcDoc.call(this);}catch(e){}',
                       isTotal: true,
                       textAlign: 'right'
                   });
@@ -1967,6 +1874,7 @@ function _navNext(nextName) {
     // 3. GENERAZIONE AUTOMATICA DEI CAMPI ATTIVI DI RIPORTO A RIPORTO DI PAGINA (SUL COMPUTO METRICO)
     const computoLastPage = doc.getNumberOfPages();
     for (let p = 2; p <= computoLastPage; p++) {
+        docPagesMeta.push(p);
         doc.setPage(p);
 
         // Header: "R I P O R T O" in alto (dalla pagina successiva alla prima del computo)
@@ -1977,8 +1885,7 @@ function _navNext(nextName) {
             doc.text("R I P O R T O", 105, 14, { align: 'center' });
             doc.text("€", 168, 14, { align: 'right' });
 
-            const jsTopCalc = `var f=_gf.call(this,"RIPORTO_BOTTOM_${p - 1}");event.value=(f&&f.value)?f.value:"";`;
-            const tfTop = addAcroFormField(doc, {
+            addAcroFormField(doc, {
                 fieldName: `RIPORTO_TOP_${p}`,
                 x: 171,
                 y: 10.5,
@@ -1986,11 +1893,9 @@ function _navNext(nextName) {
                 height: 5.2,
                 page: p,
                 readOnly: true,
-                jsCalc: jsTopCalc,
                 isTotal: true,
                 textAlign: 'right'
             });
-            if (tfTop) riportoCalculatedFields.push(tfTop);
         }
 
         // Footer: "A RIPORTARE" a fondo pagina (per tutte le pagine tranne l'ultima del computo)
@@ -2002,12 +1907,7 @@ function _navNext(nextName) {
             doc.text("A RIPORTARE", 145, footerY, { align: 'right' });
             doc.text("€", 168, footerY, { align: 'right' });
 
-            const curPageFields = pageImportFieldsMap[p] || [];
-            const curFieldsStr = JSON.stringify(curPageFields);
-            const prevRef = p === 2 ? '""' : `"RIPORTO_BOTTOM_${p - 1}"`;
-            const jsBottomCalc = `event.value=_calcPageRiporto.call(this,${prevRef},${curFieldsStr});`;
-
-            const tfBottom = addAcroFormField(doc, {
+            addAcroFormField(doc, {
                 fieldName: `RIPORTO_BOTTOM_${p}`,
                 x: 171,
                 y: footerY - 3.8,
@@ -2015,11 +1915,9 @@ function _navNext(nextName) {
                 height: 5.2,
                 page: p,
                 readOnly: true,
-                jsCalc: jsBottomCalc,
                 isTotal: true,
                 textAlign: 'right'
             });
-            if (tfBottom) riportoCalculatedFields.push(tfBottom);
         }
     }
 
@@ -2034,6 +1932,13 @@ function _navNext(nextName) {
         const sourceSubtotalField = `SUBTOT_${cleanCat}`;
         const riepiImportFieldName = `RIEPI_IMP_${cleanCat}`;
         const riepiPercFieldName = `RIEPI_PERC_${cleanCat}`;
+
+        docCatsMeta.push({
+            code: cleanCat,
+            subtot: sourceSubtotalField,
+            riepiImp: riepiImportFieldName,
+            riepiPerc: riepiPercFieldName
+        });
 
         summaryTableBody.push([
             { content: catCode, styles: { fontStyle: 'bold', halign: 'center', cellPadding: { top: 2.5, bottom: 2.5 } } },
@@ -2123,8 +2028,7 @@ function _navNext(nextName) {
                 const rawStyles = data.cell.raw?.styles;
                 const page = doc.internal.getCurrentPageInfo().pageNumber;
                 if (rawStyles?.isRiepiImportField) {
-                    const jsCalc = `var f=_gf.call(this,"${rawStyles.sourceSubtotalField}");event.value=(f&&f.value)?f.value:"";`;
-                    const tf = addAcroFormField(doc, {
+                    addAcroFormField(doc, {
                         fieldName: rawStyles.fieldName,
                         x: data.cell.x + 0.6,
                         y: data.cell.y + 0.6,
@@ -2132,14 +2036,11 @@ function _navNext(nextName) {
                         height: data.cell.height - 1.2,
                         page,
                         readOnly: true,
-                        jsCalc,
                         isTotal: true,
                         textAlign: 'right'
                     });
-                    if (tf) summaryCalculatedFields.push(tf);
                 } else if (rawStyles?.isRiepiPercField) {
-                    const jsCalc = `event.value=_calcPerc.call(this,"${rawStyles.sourceSubtotalField}","${rawStyles.grandTotalField}");`;
-                    const tf = addAcroFormField(doc, {
+                    addAcroFormField(doc, {
                         fieldName: rawStyles.fieldName,
                         x: data.cell.x + 0.6,
                         y: data.cell.y + 0.6,
@@ -2147,14 +2048,11 @@ function _navNext(nextName) {
                         height: data.cell.height - 1.2,
                         page,
                         readOnly: true,
-                        jsCalc,
                         isTotal: false,
                         textAlign: 'right'
                     });
-                    if (tf) summaryCalculatedFields.push(tf);
                 } else if (rawStyles?.isRiepiGrandTotalField) {
-                    const jsCalc = `var f=_gf.call(this,"${rawStyles.sourceGrandTotalField}");event.value=(f&&f.value)?f.value:"";`;
-                    const tf = addAcroFormField(doc, {
+                    addAcroFormField(doc, {
                         fieldName: rawStyles.fieldName,
                         x: data.cell.x + 0.6,
                         y: data.cell.y + 0.6,
@@ -2162,11 +2060,9 @@ function _navNext(nextName) {
                         height: data.cell.height - 1.2,
                         page,
                         readOnly: true,
-                        jsCalc,
                         isTotal: true,
                         textAlign: 'right'
                     });
-                    if (tf) summaryCalculatedFields.push(tf);
                 }
             }
         },
@@ -2216,7 +2112,7 @@ function _navNext(nextName) {
             list.push({ key: 'BS', value: '<< /W 1 /S /B >>' });
             list.push({
                 key: 'A',
-                value: '<< /S /JavaScript /JS (try { this.calculateNow(); } catch(e){}) >>'
+                value: '<< /S /JavaScript /JS (try { _calcDoc.call(this); } catch(e){}) >>'
             });
             return list;
         };
@@ -2337,20 +2233,140 @@ function _navNext(nextName) {
         textAlign: 'center'
     });
 
-    // Configurazione del catalogo AcroForm con Calculation Order (/CO) rigorosamente ordinato per dipendenze
+    // Iniezione motore di calcolo JavaScript master unificato a livello documento (single-pass ad altissima velocità)
+    const serializedItems = JSON.stringify(docItemsMeta);
+    const serializedCats = JSON.stringify(docCatsMeta);
+    const serializedPages = JSON.stringify(docPagesMeta);
+
+    doc.addJS(`
+var _fc = {};
+function _gf(name) {
+    var f = _fc[name];
+    if (!f) {
+        f = this.getField(name);
+        if (f) _fc[name] = f;
+    }
+    return f;
+}
+function _p(v) {
+    if (!v) return 0;
+    if (typeof v === "number") return v;
+    var s = ("" + v).replace(/^\\s+|\\s+$/g, "");
+    if (!s) return 0;
+    var c = s.lastIndexOf(",");
+    var d = s.lastIndexOf(".");
+    if (c > -1 && d > -1) {
+        s = (c > d) ? s.split(".").join("").replace(",", ".") : s.split(",").join("");
+    } else if (c > -1) {
+        s = s.replace(",", ".");
+    } else {
+        s = s.replace(/[^0-9.-]/g, "");
+    }
+    var n = parseFloat(s);
+    return (n && !isNaN(n)) ? n : 0;
+}
+function _fmt(v) {
+    if (v === null || v === undefined || v === "") return "";
+    var n = (typeof v === "number") ? v : _p(v);
+    if (!n || isNaN(n)) return "";
+    var isNeg = n < 0;
+    var absVal = Math.abs(n);
+    var parts = absVal.toFixed(2).split(".");
+    var ip = parts[0];
+    var dp = parts[1];
+    var res = "";
+    while (ip.length > 3) {
+        res = "." + ip.slice(ip.length - 3) + res;
+        ip = ip.slice(0, ip.length - 3);
+    }
+    return (isNeg ? "-" : "") + ip + res + "," + dp;
+}
+function _navNext(nextName) {
+    if (!nextName) return;
+    try {
+        var nf = _gf.call(this, nextName);
+        if (nf) nf.setFocus();
+    } catch(e) {}
+}
+var _ITEMS = ${serializedItems};
+var _CATS = ${serializedCats};
+var _PAGES = ${serializedPages};
+var _isCalculating = false;
+function _calcDoc() {
+    if (_isCalculating) return;
+    _isCalculating = true;
+    try {
+        var grandTotal = 0;
+        var catTotals = {};
+        var pageTotals = {};
+        for (var c = 0; c < _CATS.length; c++) {
+            catTotals[_CATS[c].code] = 0;
+        }
+        for (var p = 0; p < _PAGES.length; p++) {
+            pageTotals[_PAGES[p]] = 0;
+        }
+        for (var i = 0; i < _ITEMS.length; i++) {
+            var item = _ITEMS[i];
+            var pf = _gf.call(this, item.p);
+            var pVal = pf ? _p(pf.value) : 0;
+            var impVal = pVal > 0 ? (pVal * item.q) : 0;
+            var impF = _gf.call(this, item.imp);
+            if (impF) {
+                impF.value = impVal > 0 ? _fmt(impVal) : "";
+            }
+            if (item.cat && catTotals[item.cat] !== undefined) {
+                catTotals[item.cat] += impVal;
+            }
+            if (item.page && pageTotals[item.page] !== undefined) {
+                pageTotals[item.page] += impVal;
+            }
+            grandTotal += impVal;
+        }
+        for (var c = 0; c < _CATS.length; c++) {
+            var cat = _CATS[c];
+            var cVal = catTotals[cat.code] || 0;
+            var stF = _gf.call(this, cat.subtot);
+            if (stF) stF.value = cVal > 0 ? _fmt(cVal) : "";
+            var rImpF = _gf.call(this, cat.riepiImp);
+            if (rImpF) rImpF.value = cVal > 0 ? _fmt(cVal) : "";
+            var rPercF = _gf.call(this, cat.riepiPerc);
+            if (rPercF) {
+                rPercF.value = (grandTotal > 0 && cVal > 0) ? (((cVal / grandTotal) * 100).toFixed(2).replace(".", ",") + " %") : "";
+            }
+        }
+        var runningRiporto = 0;
+        for (var pIdx = 0; pIdx < _PAGES.length; pIdx++) {
+            var pg = _PAGES[pIdx];
+            var topF = _gf.call(this, "RIPORTO_TOP_" + pg);
+            if (topF) {
+                topF.value = runningRiporto > 0 ? _fmt(runningRiporto) : "";
+            }
+            runningRiporto += (pageTotals[pg] || 0);
+            var botF = _gf.call(this, "RIPORTO_BOTTOM_" + pg);
+            if (botF) {
+                botF.value = runningRiporto > 0 ? _fmt(runningRiporto) : "";
+            }
+        }
+        var gtF = _gf.call(this, "TOTALE_GENERALE_SUBAPPALTO");
+        if (gtF) gtF.value = grandTotal > 0 ? _fmt(grandTotal) : "";
+        var rgtF = _gf.call(this, "RIEPI_TOTALE_GENERALE");
+        if (rgtF) rgtF.value = grandTotal > 0 ? _fmt(grandTotal) : "";
+    } finally {
+        _isCalculating = false;
+    }
+}
+try {
+    _calcDoc.call(this);
+} catch(e) {}
+`);
+
+    // Configurazione del catalogo AcroForm con Calculation Order (/CO) limitato al solo master field
     const root = doc.internal.acroformPlugin?.acroFormDictionaryRoot;
     if (root) {
         const origRootGetKV = root.getKeyValueListForStream.bind(root);
         root.getKeyValueListForStream = function() {
             const list = origRootGetKV();
-            const orderedCalculatedFields = [
-                ...importCalculatedFields,
-                ...riportoCalculatedFields,
-                ...wbsSubtotalCalculatedFields,
-                ...grandTotalCalculatedFields,
-                ...summaryCalculatedFields
-            ];
-            const coRefs = orderedCalculatedFields
+            const coRefs = grandTotalCalculatedFields
                 .filter(f => f && f.objId)
                 .map(f => `${f.objId} 0 R`)
                 .join(' ');
