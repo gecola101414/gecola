@@ -359,6 +359,10 @@ const getLibs = async () => {
     return { jsPDF, autoTable };
 };
 
+export const preloadPdfLibs = async () => {
+    return getLibs();
+};
+
 /**
  * Genera il Frontespizio Ufficiale di Copertina ("Testalino") Standard GeCoLa,
  * con la bandana verticale in Celestino GeCoLa (#bae6fd / #38bdf8),
