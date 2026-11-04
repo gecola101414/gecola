@@ -4,6 +4,12 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    port: 3000,
+    host: '0.0.0.0',
+    strictPort: true,
+    allowedHosts: true,
+  },
   build: {
     // DISABILITA LE MAPPE (Nasconde il codice originale)
     sourcemap: false,

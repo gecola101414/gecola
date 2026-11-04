@@ -169,12 +169,28 @@ const formatTariffCode = (
     return lines.join('\n');
 };
 
+// Cache per misurazione larghezza parole: evita centinaia di migliaia di calcoli lenti di jsPDF
+const pdfWordWidthCache = new Map<string, number>();
+export const clearPdfTextWidthCache = () => {
+    pdfWordWidthCache.clear();
+};
+
+const getCachedWordWidth = (doc: any, word: string): number => {
+    let w = pdfWordWidthCache.get(word);
+    if (w === undefined) {
+        w = doc.getTextWidth(word);
+        pdfWordWidthCache.set(word, w);
+    }
+    return w;
+};
+
 /**
- * Motore di Giustificazione Tipografica Professionale per jsPDF:
+ * Motore di Giustificazione Tipografica Professionale per jsPDF ad alte prestazioni:
  * Distribuisce equamente lo spazio residuo tra le parole della riga
  * fino a raggiungere l'esatta larghezza della colonna, senza sbordare,
  * garantendo che l'ultima parola rimanga rigorosamente entro il margine destro
  * e preservando l'allineamento naturale a sinistra per l'ultima riga del paragrafo.
+ * Utilizza una cache delle larghezze delle parole per generare documenti estesi in millisecondi.
  */
 const drawJustifiedLine = (
     doc: any,
@@ -194,22 +210,21 @@ const drawJustifiedLine = (
         return;
     }
     
-    // Calcola la larghezza esatta di ogni parola con il font e la dimensione correnti di jsPDF
+    // Calcola la larghezza esatta di ogni parola sfruttando la cache ad accesso O(1)
     let totalWordsWidth = 0;
     const wordWidths = words.map(w => {
-        const wWidth = doc.getTextWidth(w);
+        const wWidth = getCachedWordWidth(doc, w);
         totalWordsWidth += wWidth;
         return wWidth;
     });
     
     const numGaps = words.length - 1;
     const availableGapSpace = contentWidth - totalWordsWidth;
-    const standardSpaceWidth = doc.getTextWidth(' ');
+    const standardSpaceWidth = getCachedWordWidth(doc, ' ');
     const calculatedGap = numGaps > 0 ? availableGapSpace / numGaps : standardSpaceWidth;
     
     // Se lo spazio per i gap è insufficiente o se il gap risulterebbe innaturale/eccessivo,
     // disegna il testo con spaziatura standard senza forzare la giustificazione per evitare sbordature.
-    // Abbiamo allentato le tolleranze per favorire la giustificazione anche in contesti compatti.
     if (availableGapSpace <= 0 || calculatedGap > standardSpaceWidth * 4 || calculatedGap < standardSpaceWidth * 0.1) {
         doc.text(trimmed, x, y);
         return;
@@ -219,7 +234,6 @@ const drawJustifiedLine = (
     let curX = x;
     for (let i = 0; i < words.length; i++) {
         if (i === words.length - 1) {
-            // Garanzia matematica anti-sbordatura: l'ultima parola termina esattamente su x + contentWidth
             const lastWordX = x + contentWidth - wordWidths[i];
             doc.text(words[i], Math.max(curX, lastWordX), y);
         } else {
@@ -1290,10 +1304,6 @@ export const generateComputoSicurezzaPdf = async (projectInfo: ProjectInfo, cate
     return generateComputoMetricPdf(projectInfo, categories, articles, 'safety');
 };
 
-const ACRO_PARSE_SNIPPET = `function(v){if(v===null||v===undefined||v==="")return 0;if(typeof v==="number")return v;var s=String(v).replace(/[^0-9,-]/g,"");if(s.indexOf(",")>-1&&s.indexOf(".")>-1){if(s.lastIndexOf(",")>s.lastIndexOf(".")){s=s.replace(/\\./g,"").replace(",",".");}else{s=s.replace(/,/g,"");}}else if(s.indexOf(",")>-1){s=s.replace(",",".");}var n=parseFloat(s);return isNaN(n)?0:n;}`;
-
-const ACRO_FMT_SNIPPET = `function(v){if(v===null||v===undefined||v==="")return"";var n=(typeof v==="number")?v:parseFloat(String(v).replace(/[^0-9,-]/g,"").replace(",","."));if(isNaN(n)||n===0)return"";var isNeg=n<0;var abs=Math.abs(n);var parts=abs.toFixed(2).split(".");var ip=parts[0];var dp=parts[1];var res="";while(ip.length>3){res="."+ip.slice(ip.length-3)+res;ip=ip.slice(0,ip.length-3);}res=ip+res;return(isNeg?"-":"")+res+","+dp;}`;
-
 interface InteractiveFieldConfig {
     fieldName: string;
     x: number;
@@ -1343,14 +1353,19 @@ const addAcroFormField = (doc: any, config: InteractiveFieldConfig) => {
             }
 
             if (config.isPriceInput) {
-                const nextJump = config.nextFieldName ? `var isNav=(event.commitKey===1||event.commitKey===0||event.commitKey===2);if(isNav&&!event.shift){try{var nf=this.getField("${config.nextFieldName}");if(nf){var p=(typeof nf.page==="number")?nf.page:(nf.page&&typeof nf.page[0]==="number"?nf.page[0]:-1);if(p===this.pageNum){nf.setFocus();}}}catch(e){}}` : '';
-                const priceCommitJs = `try{if(event.willCommit){this.calculateNow();${nextJump}}}catch(e){}`;
-                const blurJs = `try{var v=event.target.value;if(v){var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var num=_p(v);if(num>0){event.target.value=_f(num);}}this.calculateNow();}catch(e){}`;
+                const nextJump = config.nextFieldName ? `var k=event.commitKey;if((k===1||k===2||k===0)&&!event.shift){_navNext.call(this,"${config.nextFieldName}");}` : '';
+                const priceCommitJs = nextJump ? `try{if(event.willCommit){${nextJump}}}catch(e){}` : '';
+                const blurJs = `try{var v=event.target.value;if(v){var n=_p(v);if(n>0)event.target.value=_fmt(n);}}catch(e){}`;
                 const escPrice = priceCommitJs.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
                 const escBlur = blurJs.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+                const aaItems: string[] = [];
+                if (priceCommitJs) {
+                    aaItems.push(`/K << /S /JavaScript /JS (${escPrice}) >>`);
+                }
+                aaItems.push(`/Bl << /S /JavaScript /JS (${escBlur}) >>`);
                 list.push({
                     key: 'AA',
-                    value: `<< /K << /S /JavaScript /JS (${escPrice}) >> /Bl << /S /JavaScript /JS (${escBlur}) >> >>`
+                    value: `<< ${aaItems.join(' ')} >>`
                 });
             } else if (config.jsCalc) {
                 const escapedJs = config.jsCalc.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
@@ -1371,33 +1386,43 @@ const addAcroFormField = (doc: any, config: InteractiveFieldConfig) => {
 
 export const generateComputoMetricoSubappaltoPdf = async (projectInfo: ProjectInfo, categories: Category[], articles: Article[]) => {
   try {
+    clearPdfTextWidthCache();
     const { jsPDF, autoTable } = await getLibs();
     const doc = new jsPDF();
     const tableBody: any[] = [];
     const pageHeight = doc.internal.pageSize.height;
 
-    // Registrazione funzioni JavaScript globali a livello di documento PDF
+    // Registrazione funzioni JavaScript globali ad alta velocità a livello di documento PDF
     doc.addJS(`
+var _fc = {};
+function _gf(name) {
+    var f = _fc[name];
+    if (!f) {
+        f = this.getField(name);
+        if (f) _fc[name] = f;
+    }
+    return f;
+}
 function _p(v) {
-    if (v === null || v === undefined || v === "") return 0;
+    if (!v) return 0;
     if (typeof v === "number") return v;
-    var s = String(v).replace(/[^0-9,-]/g, "");
-    if (s.indexOf(",") > -1 && s.indexOf(".") > -1) {
-        if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
-            s = s.replace(/\\./g, "").replace(",", ".");
-        } else {
-            s = s.replace(/,/g, "");
-        }
-    } else if (s.indexOf(",") > -1) {
+    var s = "" + v;
+    var c = s.lastIndexOf(",");
+    var d = s.lastIndexOf(".");
+    if (c > -1 && d > -1) {
+        s = (c > d) ? s.replace(/\\./g, "").replace(",", ".") : s.replace(/,/g, "");
+    } else if (c > -1) {
         s = s.replace(",", ".");
+    } else {
+        s = s.replace(/[^0-9.-]/g, "");
     }
     var n = parseFloat(s);
-    return isNaN(n) ? 0 : n;
+    return (n && !isNaN(n)) ? n : 0;
 }
 function _fmt(v) {
     if (v === null || v === undefined || v === "") return "";
-    var n = (typeof v === "number") ? v : parseFloat(String(v).replace(/[^0-9,-]/g, "").replace(",", "."));
-    if (isNaN(n) || n === 0) return "";
+    var n = (typeof v === "number") ? v : _p(v);
+    if (!n || isNaN(n)) return "";
     var isNeg = n < 0;
     var absVal = Math.abs(n);
     var parts = absVal.toFixed(2).split(".");
@@ -1408,40 +1433,56 @@ function _fmt(v) {
         res = "." + ip.slice(ip.length - 3) + res;
         ip = ip.slice(0, ip.length - 3);
     }
-    res = ip + res;
-    return (isNeg ? "-" : "") + res + "," + dp;
+    return (isNeg ? "-" : "") + ip + res + "," + dp;
 }
 function _calcRow(priceField, qty) {
-    try {
-        var f = this.getField(priceField);
-        var p = f ? _p(f.value) : 0;
-        if (p > 0) return _fmt(p * qty);
-    } catch(e) {}
-    return "";
+    var f = _gf.call(this, priceField);
+    if (!f) return "";
+    var p = _p(f.value);
+    return p > 0 ? _fmt(p * qty) : "";
 }
 function _calcSum(fList) {
-    try {
-        var sum = 0;
-        for (var i = 0; i < fList.length; i++) {
-            var f = this.getField(fList[i]);
-            if (f) sum += _p(f.value);
+    var sum = 0;
+    for (var i = 0; i < fList.length; i++) {
+        var f = _gf.call(this, fList[i]);
+        if (f && f.value) {
+            sum += (typeof f.value === "number") ? f.value : _p(f.value);
         }
-        if (sum > 0) return _fmt(sum);
-    } catch(e) {}
-    return "";
+    }
+    return sum > 0 ? _fmt(sum) : "";
+}
+function _calcPageRiporto(prevRiportoField, fList) {
+    var sum = 0;
+    if (prevRiportoField) {
+        var pf = _gf.call(this, prevRiportoField);
+        if (pf && pf.value) {
+            sum += (typeof pf.value === "number") ? pf.value : _p(pf.value);
+        }
+    }
+    for (var i = 0; i < fList.length; i++) {
+        var f = _gf.call(this, fList[i]);
+        if (f && f.value) {
+            sum += (typeof f.value === "number") ? f.value : _p(f.value);
+        }
+    }
+    return sum > 0 ? _fmt(sum) : "";
 }
 function _calcPerc(subField, grandField) {
-    try {
-        var sf = this.getField(subField);
-        var gf = this.getField(grandField);
-        var sVal = sf ? _p(sf.value) : 0;
-        var gVal = gf ? _p(gf.value) : 0;
-        if (gVal > 0 && sVal > 0) {
-            var perc = (sVal / gVal) * 100;
-            return perc.toFixed(2).replace(".", ",") + " %";
-        }
-    } catch(e) {}
+    var sf = _gf.call(this, subField);
+    var gf = _gf.call(this, grandField);
+    var sVal = sf ? _p(sf.value) : 0;
+    var gVal = gf ? _p(gf.value) : 0;
+    if (gVal > 0 && sVal > 0) {
+        return ((sVal / gVal) * 100).toFixed(2).replace(".", ",") + " %";
+    }
     return "";
+}
+function _navNext(nextName) {
+    if (!nextName) return;
+    try {
+        var nf = _gf.call(this, nextName);
+        if (nf) nf.setFocus();
+    } catch(e) {}
 }
 `);
 
@@ -1483,7 +1524,11 @@ function _calcPerc(subField, grandField) {
 
     const allImportFieldNames: string[] = [];
     const pageImportFieldsMap: Record<number, string[]> = {};
-    const calculatedFieldObjects: any[] = [];
+    const importCalculatedFields: any[] = [];
+    const wbsSubtotalCalculatedFields: any[] = [];
+    const riportoCalculatedFields: any[] = [];
+    const grandTotalCalculatedFields: any[] = [];
+    const summaryCalculatedFields: any[] = [];
     let totalActiveArticles = 0;
 
     // Rilevamento preventivo ordinato delle categorie attive e delle voci per navigazione automatica con Invio/Tab
@@ -1751,7 +1796,7 @@ function _calcPerc(subField, grandField) {
             styles: { 
                 isGrandTotalField: true, 
                 fieldName: grandTotalFieldName, 
-                allImportFields: [...allImportFieldNames],
+                wbsSubtotalFields: activeCategories.map(c => `SUBTOT_${cleanCode(c.code)}`),
                 fillColor: [225, 238, 255],
                 isClosingTotalRow: true
             } 
@@ -1831,7 +1876,7 @@ function _calcPerc(subField, grandField) {
               }
           }
 
-          // Inserimento campi interattivi AcroForm
+          // Inserimento campi interattivi AcroForm ottimizzati ad altissima velocità
           if (data.section === 'body') {
               const page = doc.internal.getCurrentPageInfo().pageNumber;
               const rawStyles = data.cell.raw?.styles;
@@ -1852,7 +1897,7 @@ function _calcPerc(subField, grandField) {
               } else if (rawStyles?.isImportField) {
                   const { fieldName, priceField, qty } = rawStyles;
                   const qVal = Number(qty) || 0;
-                  const jsCalc = `if(typeof _calcRow==="function"){event.value=_calcRow.call(this,"${priceField}",${qVal.toFixed(4)});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var f=this.getField("${priceField}");var p=f?_p(f.value):0;event.value=p>0?_f(p*${qVal.toFixed(4)}):"";}catch(e){event.value="";}}`;
+                  const jsCalc = `event.value=_calcRow.call(this,"${priceField}",${qVal.toFixed(4)});`;
                   const tf = addAcroFormField(doc, {
                       fieldName,
                       x: data.cell.x + 0.6,
@@ -1865,13 +1910,13 @@ function _calcPerc(subField, grandField) {
                       isTotal: false,
                       textAlign: 'right'
                   });
-                  if (tf) calculatedFieldObjects.push(tf);
+                  if (tf) importCalculatedFields.push(tf);
                   pageImportFieldsMap[page] = pageImportFieldsMap[page] || [];
                   pageImportFieldsMap[page].push(fieldName);
               } else if (rawStyles?.isWbsSubtotalField) {
                   const { fieldName, importFields } = rawStyles;
                   const fListStr = JSON.stringify(importFields || []);
-                  const jsCalc = `if(typeof _calcSum==="function"){event.value=_calcSum.call(this,${fListStr});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var fList=${fListStr};var sum=0;for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}}`;
+                  const jsCalc = `event.value=_calcSum.call(this,${fListStr});`;
                   const tf = addAcroFormField(doc, {
                       fieldName,
                       x: data.cell.x + 0.6,
@@ -1884,11 +1929,11 @@ function _calcPerc(subField, grandField) {
                       isTotal: true,
                       textAlign: 'right'
                   });
-                  if (tf) calculatedFieldObjects.push(tf);
+                  if (tf) wbsSubtotalCalculatedFields.push(tf);
               } else if (rawStyles?.isGrandTotalField) {
-                  const { fieldName, allImportFields } = rawStyles;
-                  const fListStr = JSON.stringify(allImportFields || []);
-                  const jsCalc = `if(typeof _calcSum==="function"){event.value=_calcSum.call(this,${fListStr});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var fList=${fListStr};var sum=0;for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}}`;
+                  const { fieldName, wbsSubtotalFields } = rawStyles;
+                  const fListStr = JSON.stringify(wbsSubtotalFields || []);
+                  const jsCalc = `event.value=_calcSum.call(this,${fListStr});`;
                   const tf = addAcroFormField(doc, {
                       fieldName,
                       x: data.cell.x + 0.6,
@@ -1901,7 +1946,7 @@ function _calcPerc(subField, grandField) {
                       isTotal: true,
                       textAlign: 'right'
                   });
-                  if (tf) calculatedFieldObjects.push(tf);
+                  if (tf) grandTotalCalculatedFields.push(tf);
               }
           }
       },
@@ -1932,7 +1977,7 @@ function _calcPerc(subField, grandField) {
             doc.text("R I P O R T O", 105, 14, { align: 'center' });
             doc.text("€", 168, 14, { align: 'right' });
 
-            const jsTopCalc = `var f=this.getField("RIPORTO_BOTTOM_${p - 1}");event.value=(f&&f.value)?f.value:"";`;
+            const jsTopCalc = `var f=_gf.call(this,"RIPORTO_BOTTOM_${p - 1}");event.value=(f&&f.value)?f.value:"";`;
             const tfTop = addAcroFormField(doc, {
                 fieldName: `RIPORTO_TOP_${p}`,
                 x: 171,
@@ -1945,7 +1990,7 @@ function _calcPerc(subField, grandField) {
                 isTotal: true,
                 textAlign: 'right'
             });
-            if (tfTop) calculatedFieldObjects.push(tfTop);
+            if (tfTop) riportoCalculatedFields.push(tfTop);
         }
 
         // Footer: "A RIPORTARE" a fondo pagina (per tutte le pagine tranne l'ultima del computo)
@@ -1959,12 +2004,8 @@ function _calcPerc(subField, grandField) {
 
             const curPageFields = pageImportFieldsMap[p] || [];
             const curFieldsStr = JSON.stringify(curPageFields);
-            let jsBottomCalc = "";
-            if (p === 2) {
-                jsBottomCalc = `if(typeof _calcSum==="function"){event.value=_calcSum.call(this,${curFieldsStr});}else{try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var fList=${curFieldsStr};var sum=0;for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}}`;
-            } else {
-                jsBottomCalc = `try{var _p=${ACRO_PARSE_SNIPPET};var _f=${ACRO_FMT_SNIPPET};var prevF=this.getField("RIPORTO_BOTTOM_${p - 1}");var sum=prevF?_p(prevF.value):0;var fList=${curFieldsStr};for(var i=0;i<fList.length;i++){var f=this.getField(fList[i]);if(f)sum+=_p(f.value);}event.value=sum>0?_f(sum):"";}catch(e){event.value="";}`;
-            }
+            const prevRef = p === 2 ? '""' : `"RIPORTO_BOTTOM_${p - 1}"`;
+            const jsBottomCalc = `event.value=_calcPageRiporto.call(this,${prevRef},${curFieldsStr});`;
 
             const tfBottom = addAcroFormField(doc, {
                 fieldName: `RIPORTO_BOTTOM_${p}`,
@@ -1978,7 +2019,7 @@ function _calcPerc(subField, grandField) {
                 isTotal: true,
                 textAlign: 'right'
             });
-            if (tfBottom) calculatedFieldObjects.push(tfBottom);
+            if (tfBottom) riportoCalculatedFields.push(tfBottom);
         }
     }
 
@@ -2082,7 +2123,7 @@ function _calcPerc(subField, grandField) {
                 const rawStyles = data.cell.raw?.styles;
                 const page = doc.internal.getCurrentPageInfo().pageNumber;
                 if (rawStyles?.isRiepiImportField) {
-                    const jsCalc = `var f=this.getField("${rawStyles.sourceSubtotalField}");event.value=(f&&f.value)?f.value:"";`;
+                    const jsCalc = `var f=_gf.call(this,"${rawStyles.sourceSubtotalField}");event.value=(f&&f.value)?f.value:"";`;
                     const tf = addAcroFormField(doc, {
                         fieldName: rawStyles.fieldName,
                         x: data.cell.x + 0.6,
@@ -2095,9 +2136,9 @@ function _calcPerc(subField, grandField) {
                         isTotal: true,
                         textAlign: 'right'
                     });
-                    if (tf) calculatedFieldObjects.push(tf);
+                    if (tf) summaryCalculatedFields.push(tf);
                 } else if (rawStyles?.isRiepiPercField) {
-                    const jsCalc = `if(typeof _calcPerc==="function"){event.value=_calcPerc.call(this,"${rawStyles.sourceSubtotalField}","${rawStyles.grandTotalField}");}else{try{var _p=${ACRO_PARSE_SNIPPET};var sf=this.getField("${rawStyles.sourceSubtotalField}");var gf=this.getField("${rawStyles.grandTotalField}");var sVal=sf?_p(sf.value):0;var gVal=gf?_p(gf.value):0;if(gVal>0&&sVal>0){var perc=(sVal/gVal)*100;event.value=perc.toFixed(2).replace(".",",")+" %";}else{event.value="";}}catch(e){event.value="";}}`;
+                    const jsCalc = `event.value=_calcPerc.call(this,"${rawStyles.sourceSubtotalField}","${rawStyles.grandTotalField}");`;
                     const tf = addAcroFormField(doc, {
                         fieldName: rawStyles.fieldName,
                         x: data.cell.x + 0.6,
@@ -2110,9 +2151,9 @@ function _calcPerc(subField, grandField) {
                         isTotal: false,
                         textAlign: 'right'
                     });
-                    if (tf) calculatedFieldObjects.push(tf);
+                    if (tf) summaryCalculatedFields.push(tf);
                 } else if (rawStyles?.isRiepiGrandTotalField) {
-                    const jsCalc = `var f=this.getField("${rawStyles.sourceGrandTotalField}");event.value=(f&&f.value)?f.value:"";`;
+                    const jsCalc = `var f=_gf.call(this,"${rawStyles.sourceGrandTotalField}");event.value=(f&&f.value)?f.value:"";`;
                     const tf = addAcroFormField(doc, {
                         fieldName: rawStyles.fieldName,
                         x: data.cell.x + 0.6,
@@ -2125,7 +2166,7 @@ function _calcPerc(subField, grandField) {
                         isTotal: true,
                         textAlign: 'right'
                     });
-                    if (tf) calculatedFieldObjects.push(tf);
+                    if (tf) summaryCalculatedFields.push(tf);
                 }
             }
         },
@@ -2296,13 +2337,20 @@ function _calcPerc(subField, grandField) {
         textAlign: 'center'
     });
 
-    // Configurazione del catalogo AcroForm con Calculation Order (/CO) e /NeedAppearances
+    // Configurazione del catalogo AcroForm con Calculation Order (/CO) rigorosamente ordinato per dipendenze
     const root = doc.internal.acroformPlugin?.acroFormDictionaryRoot;
     if (root) {
         const origRootGetKV = root.getKeyValueListForStream.bind(root);
         root.getKeyValueListForStream = function() {
             const list = origRootGetKV();
-            const coRefs = calculatedFieldObjects
+            const orderedCalculatedFields = [
+                ...importCalculatedFields,
+                ...riportoCalculatedFields,
+                ...wbsSubtotalCalculatedFields,
+                ...grandTotalCalculatedFields,
+                ...summaryCalculatedFields
+            ];
+            const coRefs = orderedCalculatedFields
                 .filter(f => f && f.objId)
                 .map(f => `${f.objId} 0 R`)
                 .join(' ');

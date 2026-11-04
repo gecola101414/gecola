@@ -1330,7 +1330,6 @@ const App: React.FC = () => {
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
   const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
-  const [isOpenMenuOpen, setIsOpenMenuOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false); 
   const [toolbarPos, setToolbarPos] = useState({ x: 0, y: 50 }); 
   const [isDraggingToolbar, setIsDraggingToolbar] = useState(false);
@@ -1361,6 +1360,8 @@ const App: React.FC = () => {
   const [creatingForcedIsSuper, setCreatingForcedIsSuper] = useState<boolean | undefined>(undefined);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfGeneratingTitle, setPdfGeneratingTitle] = useState('');
   const [activeCategoryForAi, setActiveCategoryForAi] = useState<string | null>(null);
   const [draggedAnalysisId, setDraggedAnalysisId] = useState<string | null>(null);
   const [isDraggingAnalysis, setIsDraggingAnalysis] = useState(false);
@@ -1428,6 +1429,20 @@ const App: React.FC = () => {
   }, [user]);
 
   useEffect(() => { setToolbarPos({ x: (window.innerWidth / 2) - 100, y: 30 }); }, []);
+
+  const handleGeneratePdfWithProgress = async (title: string, generatorFn: () => Promise<void>) => {
+    setIsPrintMenuOpen(false);
+    setIsGeneratingPdf(true);
+    setPdfGeneratingTitle(title);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 60));
+      await generatorFn();
+    } catch (err) {
+      console.error(`Errore generazione ${title}:`, err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   const handleVisitorLogin = () => { 
     setUser('visitor'); 
@@ -3204,7 +3219,7 @@ const App: React.FC = () => {
   const topLevelCategories = useMemo(() => filteredCategories.filter(c => !c.parentId), [filteredCategories]);
 
   return (
-    <div className="h-screen flex flex-col bg-slate-900 font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={() => { if(!globalAudioCtx) globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); globalAudioCtx.resume(); setIsOpenMenuOpen(false); setIsSaveMenuOpen(false); setIsPrintMenuOpen(false); }}>
+    <div className="h-screen flex flex-col bg-slate-900 font-sans overflow-hidden text-slate-800" onDragOver={(e) => { e.preventDefault(); }} onDragEnter={(e) => { e.preventDefault(); }} onClick={() => { if(!globalAudioCtx) globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); globalAudioCtx.resume(); setIsSaveMenuOpen(false); setIsPrintMenuOpen(false); }}>
       <input type="file" ref={fileInputRef} onChange={handleLoadProjectLegacy} className="hidden" accept=".json" />
       {!isOnline && user && user !== 'visitor' && (
         <div className="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 animate-in fade-in duration-500">
@@ -3221,7 +3236,6 @@ const App: React.FC = () => {
         <Login 
           onVisitorLogin={handleVisitorLogin} 
           onMilanoDemoLogin={handleMilanoDemoLogin}
-          onOpenPdfConverter={() => setIsPdfModalOpen(true)}
           onArmedForcesLogin={handleArmedForcesLogin}
           isArmedForcesIp={isArmedForcesIp}
           clientIp={clientIp}
@@ -3294,52 +3308,14 @@ const App: React.FC = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Computo (apre in una nuova scheda)"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Computo (Nuova Scheda)</span></button>
-                    {/* MENU APRI / IMPORTA NON INVASIVO DENTRO LA CARTELLA */}
-                    <div className="relative">
-                        <button 
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            setIsOpenMenuOpen(!isOpenMenuOpen); 
-                            setIsPrintMenuOpen(false); 
-                            setIsSaveMenuOpen(false); 
-                          }} 
-                          className="p-2 transition-colors text-slate-300 hover:text-orange-400 flex items-center gap-1 group relative cursor-pointer" 
-                          title="Apri Progetto o Importa da PDF"
-                        >
-                          <FolderOpen className="w-5 h-5 text-slate-300 group-hover:text-orange-400 transition-colors" />
-                          <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isOpenMenuOpen ? 'rotate-180 text-orange-400' : ''}`} />
-                          <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Apri / Importa</span>
-                        </button>
-
-                        {isOpenMenuOpen && (
-                          <div className="absolute left-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-2xl py-2 z-[150] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                            <button 
-                              onClick={() => { setIsOpenMenuOpen(false); handleOpenProject(); }} 
-                              className="w-full text-left px-4 py-2.5 text-xs text-slate-700 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
-                            >
-                              <FolderOpen className="w-4 h-4 text-orange-500 shrink-0" />
-                              <div>
-                                <div className="text-slate-800">Apri Progetto GeCoLa (.json)</div>
-                                <div className="text-[10px] text-slate-400 font-medium">Carica computo salvato in precedenza</div>
-                              </div>
-                            </button>
-
-                            <button 
-                              onClick={() => { setIsOpenMenuOpen(false); setIsPdfModalOpen(true); playUISound('toggle'); }} 
-                              className="w-full text-left px-4 py-2.5 text-xs text-blue-900 hover:bg-blue-50 flex items-center gap-3 font-bold transition-colors cursor-pointer"
-                            >
-                              <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
-                              <div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-slate-900">Importa Computo da PDF</span>
-                                  <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-black uppercase">ACCA / Universale</span>
-                                </div>
-                                <div className="text-[10px] text-slate-500 font-medium">Converte PDF di software concorrenti in GeCoLa</div>
-                              </div>
-                            </button>
-                          </div>
-                        )}
-                    </div>
+                    <button 
+                      onClick={handleOpenProject} 
+                      className="p-2 transition-colors text-slate-300 hover:text-orange-400 group relative cursor-pointer" 
+                      title="Apri Progetto (.json)"
+                    >
+                      <FolderOpen className="w-5 h-5 text-slate-300 group-hover:text-orange-400 transition-colors" />
+                      <span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Apri Progetto</span>
+                    </button>
 
                     <button 
                       onClick={() => { setIsSaveModalOpen(true); playUISound('confirm'); }} 
@@ -3353,19 +3329,19 @@ const App: React.FC = () => {
                         <button onClick={(e) => { e.stopPropagation(); setIsPrintMenuOpen(!isPrintMenuOpen); setIsSaveMenuOpen(false); }} className="p-2 transition-colors text-slate-300 hover:text-white flex items-center gap-1"><FileText className="w-5 h-5" /><ChevronDown className={`w-3 h-3 transition-transform ${isPrintMenuOpen ? 'rotate-180' : ''}`} /></button>
                         {isPrintMenuOpen && (
                             <div className="absolute right-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-xl py-2 z-[100] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3 font-bold"><FileText className="w-4 h-4 text-blue-500" />Computo Estimativo (.pdf)</button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoMetricoSubappaltoPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-emerald-800 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100">
+                                <button onClick={() => handleGeneratePdfWithProgress("Computo Estimativo", () => generateComputoMetricPdf(projectInfo, categories, articles))} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 flex items-center gap-3 font-bold cursor-pointer"><FileText className="w-4 h-4 text-blue-500" />Computo Estimativo (.pdf)</button>
+                                <button onClick={() => handleGeneratePdfWithProgress("Computo Metrico Subappalto", () => generateComputoMetricoSubappaltoPdf(projectInfo, categories, articles))} className="w-full text-left px-4 py-2.5 text-sm text-emerald-800 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100 cursor-pointer">
                                     <Briefcase className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                                     <div>
                                         <div>Computo Metrico Subappalto (.pdf)</div>
                                         <div className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wider">PDF Attivo con Prezzi Offerti Compilabili</div>
                                     </div>
                                 </button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateDistintaFerriPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2.5 text-sm text-amber-800 hover:bg-amber-50 flex items-center gap-3 font-bold border-b border-slate-100"><RebarCagePillarIcon className="w-4 h-4" />Distinta Ferri e Sagomario (.pdf)</button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateComputoSicurezzaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-orange-50 flex items-center gap-3 font-bold"><ShieldAlert className="w-3.5 h-3.5 text-orange-500" />Computo Oneri Sicurezza</button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateElencoPrezziPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3"><AlignLeft className="w-3.5 h-3.5 text-slate-500" />Elenco Prezzi Unitari</button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateManodoperaPdf(projectInfo, categories, articles); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3"><User className="w-3.5 h-3.5 text-cyan-600" />Stima Manodopera</button>
-                                <button onClick={() => { setIsPrintMenuOpen(false); generateAnalisiPrezziPdf(projectInfo, analyses); }} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3"><TestTubes className="w-3.5 h-3.5 text-purple-600" />Analisi Nuovi Prezzi</button>
+                                <button onClick={() => handleGeneratePdfWithProgress("Distinta Ferri e Sagomario", () => generateDistintaFerriPdf(projectInfo, categories, articles))} className="w-full text-left px-4 py-2.5 text-sm text-amber-800 hover:bg-amber-50 flex items-center gap-3 font-bold border-b border-slate-100 cursor-pointer"><RebarCagePillarIcon className="w-4 h-4" />Distinta Ferri e Sagomario (.pdf)</button>
+                                <button onClick={() => handleGeneratePdfWithProgress("Computo Oneri Sicurezza", () => generateComputoSicurezzaPdf(projectInfo, categories, articles))} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-orange-50 flex items-center gap-3 font-bold cursor-pointer"><ShieldAlert className="w-3.5 h-3.5 text-orange-500" />Computo Oneri Sicurezza</button>
+                                <button onClick={() => handleGeneratePdfWithProgress("Elenco Prezzi Unitari", () => generateElencoPrezziPdf(projectInfo, categories, articles))} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3 cursor-pointer"><AlignLeft className="w-3.5 h-3.5 text-slate-500" />Elenco Prezzi Unitari</button>
+                                <button onClick={() => handleGeneratePdfWithProgress("Stima Manodopera", () => generateManodoperaPdf(projectInfo, categories, articles))} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3 cursor-pointer"><User className="w-3.5 h-3.5 text-cyan-600" />Stima Manodopera</button>
+                                <button onClick={() => handleGeneratePdfWithProgress("Analisi Nuovi Prezzi", () => generateAnalisiPrezziPdf(projectInfo, analyses))} className="w-full text-left px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 flex items-center gap-3 cursor-pointer"><TestTubes className="w-3.5 h-3.5 text-purple-600" />Analisi Nuovi Prezzi</button>
                             </div>
                         )}
                     </div>
@@ -3864,6 +3840,23 @@ const App: React.FC = () => {
             onSelectTargetArticle={(id) => setRebarTargetArticleId(id)}
           />
           <PaintingCalculatorModal isOpen={isPaintingModalOpen} onClose={() => setIsPaintingModalOpen(false)} onAdd={handleAddPaintingMeasurements} />
+          {/* MODALE CON ROTELLINA CHE GIRA DURANTE LA GENERAZIONE PDF */}
+          {isGeneratingPdf && (
+            <div className="fixed inset-0 z-[9999] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+              <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full flex flex-col items-center text-center space-y-4 border border-slate-100 animate-in zoom-in-95 duration-200">
+                <div className="relative flex items-center justify-center">
+                  <div className="w-16 h-16 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
+                  <FileText className="w-7 h-7 text-emerald-600 absolute" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Generazione PDF in corso</h3>
+                  <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+                    Elaborazione rapida di <span className="font-bold text-emerald-700">{pdfGeneratingTitle}</span> con formule dinamiche e calcoli ottimizzati...
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           {contextMenuTarget && (
             <ComputoContextMenu
               x={contextMenuTarget.x}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building, Upload } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Handshake, Users, Sparkles, Cpu, Activity, Zap, Layers, PlayCircle, XCircle, Building } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
@@ -370,18 +370,6 @@ const Login: React.FC<LoginProps> = ({
                           Via Garibaldi, 12 - Milano • Ing. Ciccillo CACACE
                         </span>
                       </button>
-
-                      {/* PULSANTE UPLOAD PDF SOFTWARE CONCORRENTI */}
-                      {onOpenPdfConverter && (
-                        <button
-                          type="button"
-                          onClick={onOpenPdfConverter}
-                          className="w-full mt-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold py-2.5 px-3 rounded-[1.4rem] border border-slate-600 shadow-sm flex items-center justify-center gap-2 text-[9px] uppercase tracking-wider transition-all"
-                        >
-                          <Upload className="w-3.5 h-3.5 text-blue-400" />
-                          <span>Importa Computo da PDF (PriMus / Altri Software)</span>
-                        </button>
-                      )}
                       
                       <p className="text-[7.5px] text-slate-400 font-bold uppercase text-center mt-2 italic">
                         * Computo metrico e cronoprogramma reale completo a scopo dimostrativo
