@@ -1,19 +1,25 @@
 {
-  "name": "chronos_2026_10_10--mano-opera-ok-(11-febbraio-2026)",
+  "name": "gecola-ai_spw(s.u)_90_6-alcune-correzioni",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 3000",
-    "lint": "tsc --noEmit"
+    "lint": "tsc",
+    "preview": "vite preview"
   },
   "dependencies": {
+    "@google/genai": "^1.30.0",
+    "@types/three": "^0.186.0",
+    "firebase": "^12.6.0",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2",
+    "lucide-react": "^0.555.0",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "@google/genai": "^1.29.0",
-    "date-fns": "^4.1.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

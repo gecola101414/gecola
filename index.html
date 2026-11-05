@@ -1,179 +1,245 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <title>CHRONOS 2026: Cronoprogramma e Contabilità Lavori</title>
-    <meta name="description" content="Sistema professionale per la gestione del cronoprogramma e la contabilità lavori della Direzione Lavori." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>GeCoLa React - Computo Metrico Estimativo</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/2942/2942254.png" />
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    
-    <!-- Google API Scripts -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://apis.google.com/js/api.js" async defer></script>
-
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
-      @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #f3f4f6;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
       }
-      .animate-fade-in {
-        animation: fadeIn 0.5s ease-out forwards;
+      .font-mono {
+        font-family: 'JetBrains Mono', monospace;
+      }
+      input[type=number]::-webkit-inner-spin-button, 
+      input[type=number]::-webkit-outer-spin-button { 
+        -webkit-appearance: none; 
+        margin: 0; 
+      }
+      input[type=number] {
+        -moz-appearance: textfield;
       }
       
-      .line-clamp-8 {
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 8;
+      @keyframes flashing-border {
+        0% { border-color: rgba(147, 51, 234, 0.5); box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.5); }
+        50% { border-color: rgba(147, 51, 234, 1); box-shadow: 0 0 0 4px rgba(147, 51, 234, 0.3); }
+        100% { border-color: rgba(147, 51, 234, 0.5); box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.5); }
+      }
+      .recording-feedback {
+        animation: flashing-border 1s infinite;
+        border: 2px solid purple !important;
+        border-radius: 4px;
+        z-index: 50;
       }
 
-      .no-print {
-        display: block; /* Default state */
+      /* PATTO D'ACCIAIO: ELIMINAZIONE BARRE SCORRIMENTO */
+      .scrollbar-hide::-webkit-scrollbar {
+        display: none !important;
       }
-       
-       @page {
-          size: A4;
-          margin: 1.5cm;
-          @bottom-center {
-            content: "Pagina " counter(page);
-            font-size: 9pt;
-            color: #666;
-          }
+      .scrollbar-hide {
+        -ms-overflow-style: none !important;
+        scrollbar-width: none !important;
+      }
+
+      /* ANIMAZIONE HIGHLIGHT POTENZIATA PER NUOVA VOCE INSERITA (EVIDENZIAZIONE GIALLA/AMBRA INTENSA) */
+      @keyframes item-highlight {
+        0% { background-color: #fef08a !important; box-shadow: 0 0 30px rgba(245, 158, 11, 0.8), inset 0 0 15px rgba(245, 158, 11, 0.5); }
+        25% { background-color: #fde047 !important; box-shadow: 0 0 40px rgba(245, 158, 11, 0.9), inset 0 0 20px rgba(245, 158, 11, 0.6); }
+        60% { background-color: #fef08a !important; box-shadow: 0 0 20px rgba(245, 158, 11, 0.5); }
+        100% { background-color: transparent !important; box-shadow: none !important; }
+      }
+      .highlight-move,
+      .highlight-move tr,
+      .highlight-move td {
+        animation: item-highlight 3.5s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+        z-index: 50 !important;
+      }
+
+      /* Animazione Errore Real-Time (Balla di Rosso) */
+      @keyframes shake {
+        0% { transform: translateX(0); }
+        25% { transform: translateX(-2px) rotate(-1deg); }
+        50% { transform: translateX(2px) rotate(1deg); }
+        75% { transform: translateX(-2px) rotate(-1deg); }
+        100% { transform: translateX(0); }
+      }
+      .excess-error {
+        animation: shake 0.2s ease-in-out infinite;
+        color: #ef4444 !important;
+        background-color: #fef2f2 !important;
+        font-weight: 900 !important;
+      }
+      .excess-cell {
+        box-shadow: inset 0 0 12px rgba(239, 68, 68, 0.6) !important;
+        border: 2px solid #ef4444 !important;
+        z-index: 10;
+      }
+
+      /* Animazione Dato Mancante (Bagliore Azzurro Guida) */
+      @keyframes blue-glow {
+        0% { box-shadow: inset 0 0 5px rgba(59, 130, 246, 0.2); background-color: #ffffff; }
+        50% { box-shadow: inset 0 0 15px rgba(59, 130, 246, 0.5); background-color: #eff6ff; }
+        100% { box-shadow: inset 0 0 5px rgba(59, 130, 246, 0.2); background-color: #ffffff; }
+      }
+      .missing-field-glow {
+        animation: blue-glow 2s infinite ease-in-out;
+        border: 1.5px solid rgba(59, 130, 246, 0.4) !important;
+      }
+
+      /* ANIMAZIONE DRAG AND DROP HELP */
+      @keyframes drag-hand {
+        0% { transform: translate(0, 0); opacity: 0; }
+        10% { opacity: 1; }
+        40% { transform: translate(40px, -20px); }
+        60% { transform: translate(40px, -20px); }
+        90% { opacity: 1; }
+        100% { transform: translate(40px, -20px); opacity: 0; }
+      }
+      @keyframes drop-zone-pulse {
+        0%, 40% { border-color: rgba(59, 130, 246, 0.3); background: transparent; }
+        50%, 90% { border-color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+      }
+      .drag-icon-anim {
+        animation: drag-hand 3s infinite;
+      }
+      .drop-zone-anim {
+        animation: drop-zone-pulse 3s infinite;
+      }
+
+      /* DESIGN EVOLUTION: TECHNICAL REFINED GRID */
+      .article-block {
+        display: table-row-group;
+        background-color: white;
+      }
+      .article-block:hover {
+        background-color: #fafbfc;
+      }
+      .article-header-row {
+        background: linear-gradient(to right, #f8fafc, #ffffff);
+        border-top: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      /* NO MORE HARSH BLACK BOX: REFINED BLUE & ORANGE ENGINEERING BADGES */
+      .object-id-badge {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border: 1px solid #bfdbfe;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        font-weight: 700;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 26px;
+      }
+      .object-id-badge-safety {
+        background: #fff7ed;
+        color: #c2410c;
+        border: 1px solid #fed7aa;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        font-weight: 700;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 26px;
+      }
+
+      /* PATTO D'ACCIAIO: TABLE HEADER BAR FISSO & IMMOBILE - NON SI SPOSTA E NON SPARISCE MAI */
+      .computo-header-container {
+        user-select: none;
+      }
+      .computo-scroll-container {
+        overflow-y: scroll !important;
+      }
+      .computo-scroll-container::-webkit-scrollbar {
+        width: 8px;
+      }
+      .computo-scroll-container::-webkit-scrollbar-track {
+        background: #f1f5f9;
+      }
+      .computo-scroll-container::-webkit-scrollbar-thumb {
+        background: #94a3b8;
+        border-radius: 4px;
+      }
+      .computo-scroll-container::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+      }
+
+      /* SEPARATORE NETTO PIU' GRIGIO TRA LE VOCI */
+      .article-separator-row {
+        height: 18px !important;
+      }
+      .article-separator-cell {
+        background-color: #cbd5e1 !important;
+        border-top: 2px solid #94a3b8 !important;
+        border-bottom: 2px solid #94a3b8 !important;
+        height: 18px !important;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08);
+      }
+
+      @media print {
+        .no-print { display: none; }
+        .page-break { page-break-before: always; }
+        body { background-color: white; -webkit-user-select: text; user-select: text; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ccc; }
+        thead { display: table-header-group; }
+        tbody { display: table-row-group; }
+        /* AUTO-FIT STAMPA PER NUMERI: mai andare a capo, mantenere il font scalato e compatto */
+        .tabular-nums, .font-mono {
+          white-space: nowrap !important;
+          word-break: keep-all !important;
         }
-        
-        @media print {
-            body * {
-                visibility: hidden;
-            }
-            .printable-area, .printable-area * {
-                visibility: visible;
-            }
-            .printable-area {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-            }
-            .no-print {
-                display: none !important;
-            }
-            .print-block {
-                display: block !important;
-            }
-            .print-table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-            }
-            .print-table th, .print-table td {
-                border: 1px solid #000 !important;
-                padding: 4px !important;
-                font-size: 10pt !important;
-                color: #000 !important;
-            }
-            .print-table th {
-                background-color: #f0f0f0 !important;
-                font-weight: bold !important;
-            }
-            .print-row {
-                break-inside: avoid;
-            }
-        }
-        
-        /* Landscape Print Style for Gantt */
-        @media print and (orientation: landscape) {
-            @page {
-                size: landscape;
-                margin: 5mm;
-            }
-            /* Hide Sidebar & Header */
-            aside, header, .no-print {
-                display: none !important;
-            }
-            
-            /* Reset Layout for Full Width */
-            #root > div {
-                height: auto !important;
-                display: block !important;
-            }
-            #root > div > div {
-                margin-left: 0 !important;
-                width: 100% !important;
-                display: block !important;
-            }
-            main {
-                padding: 0 !important;
-                overflow: visible !important;
-            }
-            
-            /* Target Gantt Specifics */
-            .overflow-x-auto {
-                overflow: visible !important;
-            }
-            
-            /* Force chart to expand fully */
-            .printable-gantt {
-                width: 100% !important;
-                min-width: 100% !important;
-            }
-            
-            /* Hide Scrollbars visuals */
-            ::-webkit-scrollbar {
-                display: none;
-            }
-            
-            /* Improve text contrast for print */
-            * {
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-            }
-            
-            /* Ensure background colors print */
-            .bg-gray-50, .bg-white {
-                background-color: #ffffff !important;
-            }
-            
-            /* Hide UI elements inside chart */
-            button, .cursor-ew-resize, .sal-line {
-                display: none !important;
-            }
-            
-            /* Show Print Header */
-            .print-only-header {
-                display: block !important;
-                margin-bottom: 20px;
-                text-align: center;
-                border-bottom: 2px solid #000;
-                padding-bottom: 10px;
-            }
-        }
-        
-        .print-only-header {
-            display: none;
-        }
+      }
     </style>
   <script type="importmap">
 {
   "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.29.0",
-    "date-fns": "https://aistudiocdn.com/date-fns@^4.1.0",
-    "date-fns/": "https://aistudiocdn.com/date-fns@^4.1.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "jspdf": "https://aistudiocdn.com/jspdf@^2.5.1",
+    "jspdf-autotable": "https://aistudiocdn.com/jspdf-autotable@^3.8.2",
     "vite": "https://aistudiocdn.com/vite@^7.2.6",
-    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+    "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+    "firebase/database": "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js",
+    "firebase/": "https://esm.sh/firebase@^12.6.0/"
   }
 }
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-gray-100 dark:bg-gray-900">
+  <body>
+    <noscript>
+      <div style="padding: 50px; text-align: center; color: red; font-family: sans-serif;">
+        <h1>ATTENZIONE: JAVASCRIPT RICHIESTO</h1>
+        <p>Per motivi di sicurezza e funzionalità, questa applicazione richiede JavaScript abilitato.</p>
+        <p>GeCoLa Professional Protection System</p>
+      </div>
+    </noscript>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+    <script type="module" src="/src/main.tsx"></script>
+</body>
 </html>
