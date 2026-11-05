@@ -1,173 +1,157 @@
-
-import React, { useMemo, useState } from 'react';
-import { FundingIDV, WorkOrder, WorkStatus, AuditEntry } from '../types';
-import { 
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, LabelList
-} from 'recharts';
-// @ts-ignore
-import pptxgen from 'pptxgenjs';
-// @ts-ignore
-import { toPng } from 'html-to-image';
-// @ts-ignore
-import { jsPDF } from 'jspdf';
-// @ts-ignore
-import autoTable from 'jspdf-autotable';
-import { getChapterColor } from './ChaptersSummary';
+import React from 'react';
+import { View } from '../App';
 
 interface DashboardProps {
-  idvs: FundingIDV[];
-  orders: WorkOrder[];
-  auditLog: AuditEntry[];
-  commandName: string;
-  onChapterClick: (chapter: string) => void;
+  projectSummary: {
+    grandTotal: number;
+    earnedValue: number;
+    overallProgress: number;
+    totalCosts: number;
+  } | null;
+  onViewChange: (view: View) => void;
+  documentCount: number;
+  onImport: () => void;
+  isProjectLoaded: boolean;
+  isDemoMode: boolean;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ idvs, orders, auditLog = [], commandName, onChapterClick }) => {
-  const [isExporting, setIsExporting] = useState(false);
-  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+const currencyFormatter = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
+const numberFormatter = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-  const statsByChapter = useMemo(() => {
-    const stats: Record<string, {
-      capitolo: string;
-      totalBudget: number;
-      pds: number;        
-      committed: number;  
-      completed: number;  
-    }> = {};
-    
-    (idvs || []).forEach(idv => {
-      const cap = idv.capitolo || 'N/D';
-      if (!stats[cap]) stats[cap] = { capitolo: cap, totalBudget: 0, pds: 0, committed: 0, completed: 0 };
-      stats[cap].totalBudget += (idv.amount || 0);
-    });
+const StatCard: React.FC<{ title: string; value: string; icon: React.ReactNode; color: string; }> = ({ title, value, icon, color }) => (
+    <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md flex items-center space-x-4">
+        <div className={`p-3 rounded-full ${color}`}>
+            {icon}
+        </div>
+        <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">{title}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+        </div>
+    </div>
+);
 
-    (orders || []).forEach(o => {
-      const linkedIdvsForOrder = (idvs || []).filter(i => o.linkedIdvIds?.includes(i.id));
-      if (linkedIdvsForOrder.length > 0) {
-        const cap = linkedIdvsForOrder[0].capitolo;
-        if (stats[cap]) {
-          // COMANDANTE: Fasi distinte per evitare sovrascrittura valori
-          stats[cap].pds += (o.estimatedValue || 0); 
-          stats[cap].committed += (o.contractValue || 0);
-          stats[cap].completed += (o.paidValue || 0);
-        }
-      }
-    });
+const ProgressDonut: React.FC<{ progress: number }> = ({ progress }) => {
+    const sqSize = 120;
+    const strokeWidth = 10;
+    const radius = (sqSize - strokeWidth) / 2;
+    const viewBox = `0 0 ${sqSize} ${sqSize}`;
+    const dashArray = radius * Math.PI * 2;
+    const dashOffset = dashArray - dashArray * progress / 100;
 
-    return Object.values(stats).sort((a, b) => a.capitolo.localeCompare(b.capitolo));
-  }, [idvs, orders]);
+    return (
+        <div className="relative flex items-center justify-center" style={{ width: sqSize, height: sqSize }}>
+            <svg width={sqSize} height={sqSize} viewBox={viewBox}>
+                <circle
+                    className="text-gray-200 dark:text-gray-700"
+                    cx={sqSize / 2}
+                    cy={sqSize / 2}
+                    r={radius}
+                    strokeWidth={`${strokeWidth}px`}
+                    stroke="currentColor"
+                    fill="none"
+                />
+                <circle
+                    className="text-indigo-600 dark:text-indigo-400"
+                    cx={sqSize / 2}
+                    cy={sqSize / 2}
+                    r={radius}
+                    strokeWidth={`${strokeWidth}px`}
+                    stroke="currentColor"
+                    fill="none"
+                    strokeLinecap="round"
+                    style={{
+                        strokeDasharray: dashArray,
+                        strokeDashoffset: dashOffset,
+                        transition: 'stroke-dashoffset 0.5s ease-out'
+                    }}
+                    transform={`rotate(-90 ${sqSize / 2} ${sqSize / 2})`}
+                />
+            </svg>
+            <span className="absolute text-2xl font-bold text-indigo-700 dark:text-indigo-300">
+                {numberFormatter.format(progress)}%
+            </span>
+        </div>
+    );
+};
 
-  const global = useMemo(() => {
-    return statsByChapter.reduce((acc, curr) => ({
-      total: acc.total + curr.totalBudget,
-      pds: acc.pds + curr.pds,
-      committed: acc.committed + curr.committed,
-      completed: acc.completed + curr.completed
-    }), { total: 0, pds: 0, committed: 0, completed: 0 });
-  }, [statsByChapter]);
 
-  const mainChartData = [
-    { name: 'ASSEGNATO', valore: global.total, fill: '#f1f5f9', stroke: '#cbd5e1' },
-    { name: 'PREVISTO (PDS)', valore: global.pds, fill: '#fef3c7', stroke: '#f59e0b' },
-    { name: 'CONTRATTI', valore: global.committed, fill: '#e0e7ff', stroke: '#6366f1' },
-    { name: 'LIQUIDATO', valore: global.completed, fill: '#dcfce7', stroke: '#10b981' },
-  ];
+const QuickActionButton: React.FC<{ title: string; description: string; icon: React.ReactNode; onClick: () => void; }> = ({ title, description, icon, onClick }) => (
+    <button onClick={onClick} className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors flex items-start space-x-4">
+        <div className="flex-shrink-0 text-indigo-600 dark:text-indigo-400 mt-1">{icon}</div>
+        <div>
+            <p className="font-semibold text-gray-800 dark:text-gray-100">{title}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
+        </div>
+    </button>
+);
 
-  const formatEuro = (val: number) => `€ ${val.toLocaleString('it-IT')}`;
+const WelcomeScreen: React.FC<{ onImport: () => void; isDemoMode: boolean; }> = ({ onImport, isDemoMode }) => (
+    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+        <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-20 w-20 text-indigo-300 dark:text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12.083l-2.25 2.25m0 0l-2.25-2.25m2.25 2.25V13.5A2.25 2.25 0 018.25 11.25h-1.5a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-1.5a2.25 2.25 0 00-2.25 2.25v1.5A2.25 2.25 0 0017.25 10.5h1.5a2.25 2.25 0 002.25-2.25v-1.5m-3.75 4.5V13.5A2.25 2.25 0 0113.5 11.25h1.5a2.25 2.25 0 012.25 2.25v1.5" />
+        </svg>
+        <h3 className="mt-4 text-2xl font-bold text-gray-800 dark:text-gray-200">Benvenuto in Chronos INTRANET</h3>
+        <p className="mt-2 max-w-lg mx-auto text-gray-600 dark:text-gray-400">
+            Sistema di gestione cantiere locale. Per iniziare, importa un file di progetto esistente (.json).
+        </p>
+        <button
+            onClick={onImport}
+            disabled={isDemoMode}
+            className="mt-6 flex items-center space-x-2 px-6 py-3 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+            <span>Importa Progetto</span>
+        </button>
+    </div>
+);
 
-  const handleExportPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(14); doc.setFont("helvetica", "bold");
-    doc.text(commandName.toUpperCase(), 105, 15, { align: "center" });
-    doc.setFontSize(10);
-    doc.text(`RIEPILOGO ANALITICO FLUSSI FINANZIARI - FASI DISTINTE`, 105, 21, { align: "center" });
-    
-    autoTable(doc, {
-      startY: 30,
-      head: [['Capitolo', 'Budget', 'PDS (Stima)', 'Contratti', 'Liquidato', 'Disp. Residua']],
-      body: statsByChapter.map(c => [
-        c.capitolo,
-        formatEuro(c.totalBudget),
-        formatEuro(c.pds),
-        formatEuro(c.committed),
-        formatEuro(c.completed),
-        formatEuro(c.totalBudget - c.pds)
-      ]),
-      theme: 'grid',
-      headStyles: { fillColor: [15, 23, 42], fontSize: 8 },
-      foot: [['TOTALI', formatEuro(global.total), formatEuro(global.pds), formatEuro(global.committed), formatEuro(global.completed), formatEuro(global.total - global.pds)]],
-      footStyles: { fillColor: [241, 245, 249], textColor: [0, 0, 0], fontStyle: 'bold' }
-    });
-    // Fix: Convert URL object to string
-    setPdfPreviewUrl(doc.output('bloburl').toString());
-  };
+
+const Dashboard: React.FC<DashboardProps> = ({ projectSummary, onViewChange, documentCount, onImport, isProjectLoaded, isDemoMode }) => {
+  
+  if (!isProjectLoaded) {
+    return <WelcomeScreen onImport={onImport} isDemoMode={isDemoMode} />;
+  }
+  
+  const profitLoss = (projectSummary?.earnedValue || 0) - (projectSummary?.totalCosts || 0);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700 pb-20 bg-[#f8fafc] h-full flex flex-col overflow-x-hidden">
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 p-6 bg-white rounded-[2rem] shadow-sm border border-slate-100 flex-shrink-0">
-        <div className="flex items-center gap-4">
-           <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white text-xl shadow-lg font-black italic">A</div>
-           <div><h1 className="text-2xl font-black text-slate-800 tracking-tighter uppercase leading-none italic">Centro Analisi Flussi</h1><p className="text-slate-400 text-[9px] font-black uppercase tracking-[0.2em] mt-1">Operational Command & Control - {commandName}</p></div>
+    <div className="space-y-6 p-4 md:p-0">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <StatCard title="SAL Reale" value={currencyFormatter.format(projectSummary?.earnedValue || 0)} icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.201m5.94 2.201l-2.201 5.94" /></svg>} color="bg-green-100 dark:bg-green-900/40 text-green-600" />
+            <StatCard title="Valore Totale" value={currencyFormatter.format(projectSummary?.grandTotal || 0)} icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9A2.25 2.25 0 0018.75 6.75h-1.5a2.25 2.25 0 00-2.25 2.25v3.518c.24.08.45.19.64.314a1.5 1.5 0 01.86 1.354v1.13c0 .597-.333 1.11-.833 1.354-.15.072-.31.13-.48.175V18a2.25 2.25 0 002.25 2.25h1.5A2.25 2.25 0 0021 18v-6zm-9-3.75h.008v.008H12V8.25z" /></svg>} color="bg-blue-100 dark:bg-blue-900/40 text-blue-600" />
+            <StatCard title="Costi Totali" value={currencyFormatter.format(projectSummary?.totalCosts || 0)} icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>} color="bg-red-100 dark:bg-red-900/40 text-red-600" />
+            <StatCard title="Profitto/Perdita" value={currencyFormatter.format(profitLoss)} icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>} color={profitLoss >= 0 ? "bg-purple-100 dark:bg-purple-900/40 text-purple-600" : "bg-red-100 dark:bg-red-900/40 text-red-600"} />
         </div>
-        <div className="flex gap-3">
-          <button onClick={handleExportPDF} className="px-6 py-3 bg-white border-2 border-slate-200 text-slate-700 rounded-xl font-black uppercase text-[9px] shadow-sm hover:border-indigo-600 hover:text-indigo-600 transition-all active:scale-95">ANTEPRIMA PDF</button>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+             <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md">
+                 <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">Panoramica Avanzamento</h3>
+                 <div className="flex flex-col md:flex-row items-center gap-6">
+                    <div className="flex-shrink-0">
+                        <p className="text-center text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Avanzamento Progetto</p>
+                        <ProgressDonut progress={projectSummary?.overallProgress || 0} />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                        <QuickActionButton title="Timeline" description="Gestione cronoprogramma." icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>} onClick={() => onViewChange('timeline')} />
+                        <QuickActionButton title="Contabilità D.L." description="Registri, libretto e SAL." icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>} onClick={() => onViewChange('accounting')} />
+                        <QuickActionButton title="Brogliaccio SAL" description="Report misurazioni." icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>} onClick={() => onViewChange('measurements')} />
+                        <QuickActionButton title="Computo" description="Dettaglio articoli." icon={<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>} onClick={() => onViewChange('summary')} />
+                    </div>
+                 </div>
+             </div>
+             
+             <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-md">
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-4">Informazioni Progetto</h3>
+                <div className="space-y-3 text-sm">
+                    <div className="flex justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">Documenti Caricati:</span>
+                        <span className="font-semibold text-gray-800 dark:text-gray-100">{numberFormatter.format(documentCount)}</span>
+                    </div>
+                </div>
+             </div>
         </div>
-      </div>
-      <div className="flex flex-col gap-6 p-2 h-full min-h-0">
-        <div id="global-overview-section" className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-shrink-0">
-          <div className="lg:col-span-3 bg-white rounded-[2.5rem] p-10 shadow-sm border border-slate-100">
-             <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-8 italic">Massa Critica Risorse (Delta Progetto/Contratto)</h3>
-             <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={mainChartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#64748b' }} dy={10} />
-                  <YAxis hide domain={[0, global.total * 1.1]} />
-                  <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '12px', border: 'none', fontSize: '10px', fontWeight: 800 }} formatter={(v: number) => [formatEuro(v), '']} />
-                  <Bar dataKey="valore" radius={[15, 15, 0, 0]} barSize={80}>
-                    {mainChartData.map((entry, index) => ( <Cell key={`cell-${index}`} fill={entry.fill} stroke={entry.stroke} strokeWidth={2.5} /> ))}
-                    <LabelList dataKey="valore" position="top" formatter={formatEuro} style={{ fontSize: '11px', fontWeight: 900, fill: '#1e293b' }} offset={10} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 h-full">
-            {[
-              { label: 'ASSEGNATO', val: global.total, color: 'text-slate-600', bg: 'bg-white' },
-              { label: 'PDS (STIMA)', val: global.pds, color: 'text-amber-600', bg: 'bg-amber-50/50' },
-              { label: 'CONTRATTI', val: global.committed, color: 'text-indigo-600', bg: 'bg-indigo-50/50' },
-              { label: 'LIQUIDATO', val: global.completed, color: 'text-emerald-600', bg: 'bg-emerald-50/50' },
-            ].map((item, i) => (
-              <div key={i} className={`${item.bg} p-6 rounded-3xl border border-slate-100 flex flex-col justify-center shadow-sm`}>
-                <span className="text-[8px] font-black uppercase text-slate-400 tracking-widest mb-1 italic leading-none">{item.label}</span>
-                <p className={`text-xl font-black ${item.color} italic tracking-tighter`}>{formatEuro(item.val)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div id="chapters-table-section" className="flex-1 bg-white rounded-[3rem] border border-slate-200 shadow-xl overflow-hidden flex flex-col min-h-[400px]">
-          <div className="bg-slate-900 px-10 py-5 flex justify-between items-center flex-shrink-0"><h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-white italic">Bilancio Dettagliato Analisi Fasi</h3><span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">Protocollo PPB 10.1 Active Monitor</span></div>
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <table className="w-full border-separate border-spacing-0">
-              <thead className="sticky top-0 z-[30]"><tr className="bg-slate-100 shadow-sm"><th className="px-10 py-4 text-left border-b border-slate-200 bg-slate-100 text-[10px] font-black text-slate-500 uppercase italic tracking-widest">Capitolo / Codice</th><th className="px-10 py-4 text-right border-b border-slate-200 bg-slate-100 text-[10px] font-black text-slate-500 uppercase italic tracking-widest">Budget</th><th className="px-10 py-4 text-right border-b border-slate-200 bg-slate-100 text-[10px] font-black text-amber-600 uppercase italic tracking-widest">PDS (Stima)</th><th className="px-10 py-4 text-right border-b border-slate-200 bg-slate-100 text-[10px] font-black text-indigo-500 uppercase italic tracking-widest">Contratti</th><th className="px-10 py-4 text-right border-b border-slate-200 bg-slate-100 text-[10px] font-black text-emerald-600 uppercase italic tracking-widest">Liquidato</th></tr></thead>
-              <tbody className="divide-y divide-slate-50">
-                {statsByChapter.map((c) => (
-                  <tr key={c.capitolo} onClick={() => onChapterClick(c.capitolo)} className="hover:bg-indigo-50/50 cursor-pointer transition-colors group">
-                    <td className="px-10 py-5 border-b border-slate-50"><div className="flex items-center gap-5"><div className={`w-10 h-10 rounded-xl bg-${getChapterColor(c.capitolo)}-600 text-white flex items-center justify-center text-xs font-black shadow-md`}>{c.capitolo}</div><span className="text-xs font-black text-slate-800 italic uppercase tracking-tighter">CAPITOLO {c.capitolo}</span></div></td>
-                    <td className="px-10 py-5 text-right text-xs font-black text-slate-400 italic">{formatEuro(c.totalBudget)}</td>
-                    <td className="px-10 py-5 text-right text-xs font-black text-amber-600 italic">{formatEuro(c.pds)}</td>
-                    <td className="px-10 py-5 text-right text-xs font-black text-indigo-500 italic">{formatEuro(c.committed)}</td>
-                    <td className="px-10 py-5 text-right text-xs font-black text-emerald-600 italic">{formatEuro(c.completed)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      {pdfPreviewUrl && <div className="fixed inset-0 z-[200] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-sm"><div className="bg-white w-full max-w-6xl h-full rounded-[3rem] overflow-hidden flex flex-col shadow-2xl border border-slate-800"><div className="p-5 flex justify-between items-center bg-slate-900 border-b border-slate-800 flex-shrink-0"><span className="text-[10px] font-black uppercase italic text-indigo-400 tracking-[0.4em]">Official Operational Registry - PPB 10.1</span><button onClick={() => { URL.revokeObjectURL(pdfPreviewUrl!); setPdfPreviewUrl(null); }} className="px-6 py-2.5 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-rose-700 transition-all">✕ Chiudi Registro</button></div><iframe src={pdfPreviewUrl} className="flex-1 border-0" /></div></div>}
     </div>
   );
 };
+
 export default Dashboard;
