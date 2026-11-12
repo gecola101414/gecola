@@ -3317,7 +3317,7 @@ const App: React.FC = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                     <button onClick={handleResetProject} className="p-2 transition-all text-slate-300 hover:text-emerald-400 hover:scale-105 active:scale-95 group relative" title="Nuovo Computo (apre in una nuova scheda)"><FilePlus2 className="w-5 h-5" /><span className="absolute -bottom-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[9px] font-bold uppercase px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-[9999]">Nuovo Computo (Nuova Scheda)</span></button>
-                    {/* MENU CARTELLA APRI: APRI PROGETTO E APRI/IMPORTA PDF */}
+                    {/* MENU CARTELLA APRI: APRI PROGETTO, IMPORTA .DCF PRIMUS E APRI/IMPORTA PDF */}
                     <div className="relative">
                         <button 
                           onClick={(e) => { 
@@ -3327,7 +3327,7 @@ const App: React.FC = () => {
                             setIsSaveMenuOpen(false); 
                           }} 
                           className="p-2 transition-colors text-slate-300 hover:text-orange-400 flex items-center gap-1 group relative cursor-pointer" 
-                          title="Apri Progetto o Apri PDF"
+                          title="Apri Progetto, file .DCF PriMus o PDF"
                         >
                           <FolderOpen className="w-5 h-5 text-slate-300 group-hover:text-orange-400 transition-colors" />
                           <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isOpenMenuOpen ? 'rotate-180 text-orange-400' : ''}`} />
@@ -3335,7 +3335,7 @@ const App: React.FC = () => {
                         </button>
 
                         {isOpenMenuOpen && (
-                          <div className="absolute left-0 top-full mt-2 w-72 bg-white shadow-2xl rounded-2xl py-2 z-[150] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
+                          <div className="absolute left-0 top-full mt-2 w-80 bg-white shadow-2xl rounded-2xl py-2 z-[150] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
                             <button 
                               onClick={() => { setIsOpenMenuOpen(false); handleOpenProject(); }} 
                               className="w-full text-left px-4 py-2.5 text-xs text-slate-700 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
@@ -3344,6 +3344,20 @@ const App: React.FC = () => {
                               <div>
                                 <div className="text-slate-800">Apri Progetto GeCoLa (.json)</div>
                                 <div className="text-[10px] text-slate-400 font-medium">Carica computo salvato in precedenza</div>
+                              </div>
+                            </button>
+
+                            <button 
+                              onClick={() => { setIsOpenMenuOpen(false); setIsPdfModalOpen(true); playUISound('toggle'); }} 
+                              className="w-full text-left px-4 py-2.5 text-xs text-amber-900 hover:bg-amber-50 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
+                            >
+                              <Database className="w-4 h-4 text-amber-600 shrink-0" />
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-slate-900">Importa Computo .DCF (PriMus)</span>
+                                  <span className="text-[8px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-black uppercase border border-amber-300">Nativo ACCA</span>
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-medium">Legge file .dcf / .xpwe (Elenco Prezzi, Misure, WBS)</div>
                               </div>
                             </button>
 

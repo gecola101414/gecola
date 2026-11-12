@@ -78,19 +78,35 @@ export async function convertPdfComputo(fileOrBuffer: File | ArrayBuffer | Uint8
     for (let p = 1; p <= numPages; p++) {
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
-      const rows: Record<number, Array<{ x: number; str: string }>> = {};
+      const rawItems = (content.items as any[])
+        .filter((it: any) => it.str && it.str.trim())
+        .map((it: any) => ({
+          x: Math.round(it.transform[4]),
+          y: it.transform[5],
+          str: it.str.trim()
+        }))
+        .sort((a: any, b: any) => b.y - a.y || a.x - b.x);
 
-      for (const item of content.items as any[]) {
-        if (!item.str || !item.str.trim()) continue;
-        const y = Math.round(item.transform[5] / 2.5) * 2.5;
-        if (!rows[y]) rows[y] = [];
-        rows[y].push({ x: Math.round(item.transform[4]), str: item.str.trim() });
+      const clusteredRows: Array<{ y: number; items: Array<{ x: number; str: string }> }> = [];
+      for (const item of rawItems) {
+        let placed = false;
+        for (const row of clusteredRows) {
+          if (Math.abs(row.y - item.y) <= 3.8) {
+            row.items.push(item);
+            row.y = (row.y * (row.items.length - 1) + item.y) / row.items.length;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          clusteredRows.push({ y: item.y, items: [item] });
+        }
       }
 
-      const sortedY = Object.keys(rows).map(Number).sort((a, b) => b - a);
-      for (const y of sortedY) {
-        const items = rows[y].sort((a, b) => a.x - b.x);
-        allLines.push({ page: p, y, items });
+      clusteredRows.sort((a, b) => b.y - a.y);
+      for (const row of clusteredRows) {
+        row.items.sort((a, b) => a.x - b.x);
+        allLines.push({ page: p, y: row.y, items: row.items });
       }
     }
 
@@ -142,17 +158,25 @@ export async function convertPdfComputo(fileOrBuffer: File | ArrayBuffer | Uint8
       const lineText = line.items.map(it => it.str).join(' ');
 
       // Header/Footer filter (only skip table header when both par.ug. and H/peso are present)
-      if (lineText.includes('D I M E N S I O N I') || lineText.includes('I M P O R T I') || 
-          lineText.includes('DESIGNAZIONE DEI LAVORI') || (lineText.includes('par.ug.') && lineText.includes('H/peso')) || 
-          lineText.includes('R I P O R T O') || lineText.includes('COMMITTENTE:') || 
-          lineText.includes('A R I P O R T A R E') || lineText.startsWith('pag.') ||
-          lineText.includes('Parziale LAVORI') || lineText.includes('T O T A L E') || lineText.includes('---')) {
+      if (
+        lineText.includes('D I M E N S I O N I') ||
+        lineText.includes('I M P O R T I') ||
+        lineText.includes('DESIGNAZIONE DEI LAVORI') ||
+        (lineText.includes('par.ug.') && lineText.includes('H/peso')) ||
+        lineText.includes('R I P O R T O') ||
+        lineText.includes('COMMITTENTE:') ||
+        lineText.includes('A R I P O R T A R E') ||
+        lineText.startsWith('pag.') ||
+        lineText.includes('Parziale LAVORI') ||
+        lineText.includes('T O T A L E') ||
+        lineText.includes('---')
+      ) {
         continue;
       }
 
-      const isNewArticle = firstItem && firstItem.x <= 35 && firstItem.str === String(expectedOrder);
+      const orderItem = line.items.find(it => it.x <= 55 && it.str === String(expectedOrder));
 
-      if (isNewArticle) {
+      if (orderItem) {
         if (currentArticle) {
           if (pendingMeasDesc.length > 0) {
             if (currentMeasurements.length > 0) {
@@ -165,10 +189,13 @@ export async function convertPdfComputo(fileOrBuffer: File | ArrayBuffer | Uint8
           rawArticles.push(currentArticle);
         }
 
+        const tariffItem = line.items.find(it => it.x >= 55 && it.x < 118);
+        const descItems = line.items.filter(it => it.x >= 115 && it.x < 285);
+
         currentArticle = {
           order: expectedOrder,
-          code: '',
-          descriptionLines: [],
+          code: tariffItem ? tariffItem.str : '',
+          descriptionLines: descItems.map(d => d.str),
           measurements: [],
           unit: 'cad',
           quantity: 0,
@@ -180,12 +207,10 @@ export async function convertPdfComputo(fileOrBuffer: File | ArrayBuffer | Uint8
         pendingMeasDesc = [];
         expectedOrder++;
 
-        for (let k = 1; k < line.items.length; k++) {
-          const item = line.items[k];
-          if (item.x >= 50 && item.x < 285) {
-            currentArticle.descriptionLines.push(item.str);
-          }
+        if (!currentArticle.code && firstItem && firstItem.x <= 55 && firstItem.str !== String(orderItem.str)) {
+          currentArticle.code = firstItem.str;
         }
+
         continue;
       }
 
@@ -198,8 +223,8 @@ export async function convertPdfComputo(fileOrBuffer: File | ArrayBuffer | Uint8
       const sommanoItem = line.items.find(it => it.str.toUpperCase().startsWith('SOMMANO'));
       if (sommanoItem) {
         const u = sommanoItem.str.replace(/SOMMANO/i, '').trim();
-        currentArticle.unit = u || 'cad';
-        const numItems = line.items.filter(it => it.x >= 435);
+        currentArticle.unit = u || currentArticle.unit || 'cad';
+        const numItems = line.items.filter(it => it.x >= 420);
         if (numItems.length >= 3) {
           currentArticle.quantity = parseNumber(numItems[0].str);
           currentArticle.unitPrice = parseNumber(numItems[1].str);
@@ -213,86 +238,61 @@ export async function convertPdfComputo(fileOrBuffer: File | ArrayBuffer | Uint8
         continue;
       }
 
-      const dimItems = line.items.filter(it => it.x >= 285 && it.x < 480);
-      let descItems = line.items.filter(it => it.x >= 50 && it.x < 285);
+      const dimItems = line.items.filter(it => it.x >= 280 && it.x < 480);
+      const descItems = line.items.filter(it => it.x >= 50 && it.x < 280);
 
-      if (firstItem && firstItem.x <= 35) {
-        const parts = firstItem.str.split(/\s+/);
-        const codePart = parts[0];
-        const descPart = parts.slice(1).join(' ');
-
-        if (currentArticle.code) {
-          currentArticle.code += '.' + codePart;
-        } else {
-          currentArticle.code = codePart;
+      // Se non ci sono dimensioni, è una riga descrittiva o codice di tariffa
+      if (dimItems.length === 0) {
+        const subTariff = line.items.find(it => it.x >= 55 && it.x < 118);
+        if (subTariff && !currentArticle.code) {
+          currentArticle.code = subTariff.str;
         }
-
-        const PeekDesc = [descPart, ...descItems.map(d => d.str)].filter(Boolean).join(' ');
-        if (dimItems.length === 0 && !PeekDesc.toLowerCase().includes('vedi voce')) {
-          if (descPart) {
-            currentArticle.descriptionLines.push(descPart);
+        if (descItems.length > 0) {
+          const descStr = descItems.map(d => d.str).join(' ').trim();
+          if (descStr) {
+            if (currentMeasurements.length === 0) {
+              currentArticle.descriptionLines.push(descStr);
+            } else {
+              pendingMeasDesc.push(descStr);
+            }
           }
-          for (const item of descItems) {
-            currentArticle.descriptionLines.push(item.str);
-          }
-          continue;
-        } else if (descPart) {
-          descItems = [{ x: 65, str: descPart }, ...descItems];
         }
+        continue;
+      }
+
+      // Se ci sono dimensioni, è una riga di misurazione
+      let parUg: number | undefined = undefined;
+      let lung: number | undefined = undefined;
+      let larg: number | undefined = undefined;
+      let hPeso: number | undefined = undefined;
+      let rowQty: number | undefined = undefined;
+
+      for (const it of dimItems) {
+        const val = parseNumber(it.str);
+        if (it.x >= 280 && it.x < 318) parUg = val;
+        else if (it.x >= 318 && it.x < 355) lung = val;
+        else if (it.x >= 355 && it.x < 385) larg = val;
+        else if (it.x >= 385 && it.x < 425) hPeso = val;
+        else if (it.x >= 425 && it.x < 480) rowQty = val;
       }
 
       const descStr = descItems.map(it => it.str).join(' ').trim();
-      const isVediVoceLine = descStr.toLowerCase().includes('vedi voce');
+      const fullRowDesc = [...pendingMeasDesc, descStr].filter(Boolean).join(' ').trim();
+      pendingMeasDesc = [];
 
-      if (dimItems.length > 0 || isVediVoceLine) {
-        let parUg: number | undefined = undefined;
-        let lung: number | undefined = undefined;
-        let larg: number | undefined = undefined;
-        let hPeso: number | undefined = undefined;
-        let rowQty: number | undefined = undefined;
+      const isDeduction = fullRowDesc.toLowerCase().includes('a detrarre') || (rowQty !== undefined && rowQty < 0);
+      const absRowQty = rowQty !== undefined ? Math.abs(rowQty) : 0;
 
-        for (const it of dimItems) {
-          const val = parseNumber(it.str);
-          if (it.x >= 285 && it.x < 320) parUg = val;
-          else if (it.x >= 320 && it.x < 360) lung = val;
-          else if (it.x >= 360 && it.x < 398) larg = val;
-          else if (it.x >= 398 && it.x < 435) hPeso = val;
-          else if (it.x >= 435 && it.x < 480) rowQty = val;
-        }
-
-        if (currentMeasurements.length === 0 && pendingMeasDesc.length === 0 && currentArticle.descriptionLines.length > 1) {
-          const lastDescLine = currentArticle.descriptionLines[currentArticle.descriptionLines.length - 1];
-          if (lastDescLine.trim().endsWith('*') || descStr.startsWith('(par.ug.=')) {
-            pendingMeasDesc.push(currentArticle.descriptionLines.pop()!);
-          }
-        }
-
-        const fullRowDesc = [...pendingMeasDesc, descStr].filter(Boolean).join(' ').trim();
-        pendingMeasDesc = [];
-
-        const isDeduction = fullRowDesc.toLowerCase().includes('a detrarre') || (rowQty !== undefined && rowQty < 0);
-        // Se nel PDF la colonna Quantità del rigo è vuota (es. rigo con quantità 0,00), il valore PDF è 0
-        const absRowQty = rowQty !== undefined ? Math.abs(rowQty) : 0;
-
-        // Mantieni SEMPRE intatti tutti i valori interni trovati nel PDF (par.ug., lung., larg., H/peso)
-        // e salva la quantità letta nella colonna Quantità del PDF in pdfQuantity
-        currentMeasurements.push({
-          id: `m_${currentArticle.order}_${currentMeasurements.length + 1}`,
-          description: fullRowDesc || 'Misurazione',
-          multiplier: parUg !== undefined ? Math.abs(parUg) : undefined,
-          length: lung !== undefined ? Math.abs(lung) : undefined,
-          width: larg !== undefined ? Math.abs(larg) : undefined,
-          height: hPeso !== undefined ? Math.abs(hPeso) : undefined,
-          pdfQuantity: absRowQty,
-          type: isDeduction ? 'deduction' : 'positive'
-        });
-      } else if (descStr) {
-        if (currentMeasurements.length > 0) {
-          pendingMeasDesc.push(descStr);
-        } else {
-          currentArticle.descriptionLines.push(descStr);
-        }
-      }
+      currentMeasurements.push({
+        id: `m_${currentArticle.order}_${currentMeasurements.length + 1}`,
+        description: fullRowDesc || 'Misurazione',
+        multiplier: parUg !== undefined ? Math.abs(parUg) : undefined,
+        length: lung !== undefined ? Math.abs(lung) : undefined,
+        width: larg !== undefined ? Math.abs(larg) : undefined,
+        height: hPeso !== undefined ? Math.abs(hPeso) : undefined,
+        pdfQuantity: absRowQty,
+        type: isDeduction ? 'deduction' : 'positive'
+      });
     }
 
     if (currentArticle) {

@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
+    "@types/pako": "^2.0.4",
     "@types/three": "^0.186.0",
     "firebase": "^12.6.0",
     "jspdf": "^2.5.1",
     "jspdf-autotable": "^3.8.2",
     "lucide-react": "^0.555.0",
+    "pako": "^3.0.3",
     "pdfjs-dist": "^6.5.438",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

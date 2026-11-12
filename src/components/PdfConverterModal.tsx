@@ -1,9 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { 
   FileText, Upload, CheckCircle2, AlertCircle, Loader2, Sparkles, 
-  ArrowRight, Layers, FileSpreadsheet, Calculator, ShieldCheck, X, HardHat
+  ArrowRight, Layers, FileSpreadsheet, Calculator, ShieldCheck, X, HardHat, Database
 } from 'lucide-react';
 import { convertPdfComputo, ConvertedComputoResult } from '../utils/pdfComputoConverter';
+import { convertDcfComputo } from '../utils/dcfComputoConverter';
 
 interface PdfConverterModalProps {
   isOpen: boolean;
@@ -22,41 +23,71 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
   const [isConverting, setIsConverting] = useState(false);
   const [progressStep, setProgressStep] = useState<string>('');
   const [conversionResult, setConversionResult] = useState<ConvertedComputoResult | null>(null);
+  const [detectedFormat, setDetectedFormat] = useState<'DCF' | 'PDF' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
   const handleProcessFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setError("Il file selezionato non è un documento PDF.");
+    const lowerName = file.name.toLowerCase();
+    const isDcf = lowerName.endsWith('.dcf') || lowerName.endsWith('.xpwe');
+    const isPdf = lowerName.endsWith('.pdf');
+
+    if (!isDcf && !isPdf) {
+      setError("Formato non supportato. Seleziona un file nativo ACCA PriMus (.dcf / .xpwe) oppure un documento .pdf.");
       return;
     }
 
     setError(null);
     setConversionResult(null);
+    setDetectedFormat(isDcf ? 'DCF' : 'PDF');
     setIsConverting(true);
-    setProgressStep('Caricamento e lettura documento PDF in corso...');
+    setProgressStep(
+      isDcf
+        ? 'Lettura contenitore binario ACCA PriMus (.dcf) e ricerca blocchi AACS...'
+        : 'Caricamento e lettura documento PDF in corso...'
+    );
 
     // Cede immediatamente il controllo al thread principale per mostrare la rotellina a video
     await new Promise(r => setTimeout(r, 60));
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      setProgressStep('Analisi layout pagine e coordinate tabelle PriMus...');
-      await new Promise(r => setTimeout(r, 60));
 
-      const result = await convertPdfComputo(arrayBuffer, file.name);
+      if (isDcf) {
+        setProgressStep('Decompressione Zlib stream XML (CollectionEP, CollectionVC, CollectionGP)...');
+        await new Promise(r => setTimeout(r, 60));
 
-      setProgressStep('Finalizzazione voci, misurazioni e gruppi WBS...');
-      await new Promise(r => setTimeout(r, 80));
+        const result = await convertDcfComputo(arrayBuffer, file.name);
 
-      setConversionResult(result);
+        setProgressStep('Collegamento voci Elenco Prezzi, misurazioni e categorie WBS...');
+        await new Promise(r => setTimeout(r, 60));
+
+        // Cede il controllo per permettere il rendering del passo finale prima di visualizzare l'anteprima pesante
+        setTimeout(() => setConversionResult(result), 50);
+      } else {
+        setProgressStep('Analisi layout pagine e coordinate tabelle PriMus...');
+        await new Promise(r => setTimeout(r, 60));
+
+        const result = await convertPdfComputo(arrayBuffer, file.name);
+
+        setProgressStep('Finalizzazione voci, misurazioni e gruppi WBS...');
+        await new Promise(r => setTimeout(r, 80));
+
+        setConversionResult(result);
+      }
+
       setIsConverting(false);
       if (playUISound) playUISound('confirm');
     } catch (err: any) {
-      console.error("PDF conversion error:", err);
-      setError(err?.message || "Si è verificato un errore durante la conversione del PDF. Verifica che sia un file computo integro.");
+      console.error("File conversion error:", err);
+      setError(
+        err?.message ||
+          (isDcf
+            ? "Si è verificato un errore durante la lettura del file .dcf. Verifica che sia un file ACCA PriMus integro."
+            : "Si è verificato un errore durante la conversione del PDF. Verifica che sia un file computo integro.")
+      );
       setIsConverting(false);
     }
   };
@@ -114,11 +145,11 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
                   Universal Bridge
                 </span>
                 <span className="text-[10px] font-extrabold uppercase text-amber-300">
-                  PriMus ACCA • Universale
+                  Nativo .DCF PriMus ACCA • .PDF Universale
                 </span>
               </div>
               <h3 className="text-xl font-black tracking-tight text-white uppercase mt-0.5">
-                Convertitore Computi PDF in GeCoLa
+                Importatore Universale Computi (.DCF e .PDF)
               </h3>
             </div>
           </div>
@@ -140,9 +171,9 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
             </div>
             <div className="text-xs text-slate-700 leading-relaxed">
               <p className="font-bold text-slate-900 mb-0.5">
-                Rendi la tua piattaforma completamente aperta e universale!
+                Importazione Nativa file <span className="text-blue-700 font-black">.DCF (ACCA PriMus)</span> e documenti <span className="text-indigo-700 font-black">.PDF</span>!
               </p>
-              GeCoLa decodifica i PDF dei computi metrici generati da <strong className="text-blue-900">ACCA PriMus</strong> o altri software, importando automaticamente tutte le voci, descrizioni, tariffe, misurazioni di dettaglio (lunghezza, larghezza, altezza, detrazioni) e i singoli gruppi di lavoro WBS. Potrai così gestire subito la <strong className="text-slate-900">contabilità di cantiere</strong>, il <strong className="text-slate-900">SAL</strong> e la valutazione del <strong className="text-slate-900">subappalto</strong>.
+              GeCoLa decodifica nativamente i contenitori binari <strong className="text-blue-900">.dcf di ACCA PriMus</strong> (decomprimendo direttamente gli stream interni <code className="bg-blue-100/80 px-1 rounded text-[10px] font-mono">CollectionEP.xml</code>, <code className="bg-blue-100/80 px-1 rounded text-[10px] font-mono">CollectionVC.xml</code> e <code className="bg-blue-100/80 px-1 rounded text-[10px] font-mono">CollectionGP.xml</code>) oltre ai <strong className="text-blue-900">PDF</strong> tabellari, ricostruendo con precisione assoluta Elenco Prezzi, misurazioni analitiche, formule attive e capitoli WBS.
             </div>
           </div>
 
@@ -151,7 +182,7 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
             type="file" 
             ref={fileInputRef} 
             onChange={handleFileChange} 
-            accept=".pdf,application/pdf" 
+            accept=".dcf,.xpwe,.pdf,application/pdf" 
             className="hidden" 
           />
 
@@ -168,10 +199,12 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
               </div>
               
               <span className="text-[11px] font-black uppercase tracking-[0.25em] text-blue-300 mb-1">
-                Elaborazione Computo in Corso
+                {detectedFormat === 'DCF' ? 'Decodifica Binaria AACS / Zlib in Corso' : 'Elaborazione Computo in Corso'}
               </span>
               <h4 className="text-xl font-black text-white mb-2">
-                GeCoLa sta convertendo il PDF...
+                {detectedFormat === 'DCF'
+                  ? 'GeCoLa sta estraendo gli stream del file .DCF PriMus...'
+                  : 'GeCoLa sta convertendo il PDF...'}
               </h4>
               <p className="text-sm font-semibold text-slate-300 max-w-md animate-pulse">
                 {progressStep}
@@ -200,11 +233,16 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
               </div>
               <div>
                 <p className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                  Trascina qui un file PDF oppure <span className="text-blue-600 underline">sfoglia il tuo computer</span>
+                  Trascina qui un file <span className="text-amber-600">.DCF</span>, <span className="text-amber-600">.XPWE</span> o <span className="text-blue-600">.PDF</span> oppure <span className="text-blue-600 underline">sfoglia il tuo computer</span>
                 </p>
-                <p className="text-[11px] text-slate-500 font-medium mt-1">
-                  Compatibile con stampe PDF di PriMus ACCA, STR Vision, Edil-Clima e computi tabellari standard
-                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                  <span className="text-[10px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                    <Database className="w-3 h-3" /> Nativo .DCF / .XPWE (ACCA PriMus)
+                  </span>
+                  <span className="text-[10px] font-black uppercase bg-blue-100 text-blue-800 border border-blue-300 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                    <FileText className="w-3 h-3" /> Stampe .PDF (PriMus, STR Vision, Standard)
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -226,7 +264,18 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
                     <CheckCircle2 className="w-5 h-5" />
                   </div>
                   <div>
-                    <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">Computo Convertito con Successo!</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black uppercase text-emerald-800 tracking-wider">
+                        Computo Importato con Successo!
+                      </span>
+                      {detectedFormat && (
+                        <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                          detectedFormat === 'DCF' ? 'bg-amber-200 text-amber-900' : 'bg-blue-200 text-blue-900'
+                        }`}>
+                          Sorgente .{detectedFormat}
+                        </span>
+                      )}
+                    </div>
                     <h4 className="text-base font-black text-slate-900 leading-tight">
                       {conversionResult.projectInfo.title}
                     </h4>
@@ -251,7 +300,9 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
                   <span className="text-xl font-black font-mono text-slate-800">{conversionResult.categories.length}</span>
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-xs">
-                  <span className="text-[9px] font-bold uppercase text-slate-400 block">Pagine Elaborate</span>
+                  <span className="text-[9px] font-bold uppercase text-slate-400 block">
+                    {detectedFormat === 'DCF' ? 'Stream XML' : 'Pagine Elaborate'}
+                  </span>
                   <span className="text-xl font-black font-mono text-slate-800">{conversionResult.totalPages}</span>
                 </div>
                 <div className="bg-white p-3 rounded-2xl border border-emerald-200 shadow-xs">
