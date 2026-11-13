@@ -201,7 +201,7 @@ const Login: React.FC<LoginProps> = ({
                           </button>
                       </div>
                       <div className="w-full h-full">
-                          <div id="youtube-player" className="w-full h-full" allow="autoplay"></div>
+                          <div id="youtube-player" className="w-full h-full"></div>
                       </div>
                   </div>
               ) : (

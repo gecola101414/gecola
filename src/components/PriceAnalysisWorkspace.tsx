@@ -1504,7 +1504,9 @@ export const PriceAnalysisWorkspace: React.FC<PriceAnalysisWorkspaceProps> = ({
                             {/* COLONNA PULSANTI AZIONE MISURA (COME NEL COMPUTO) */}
                             <td className="p-0 border-r border-slate-200 bg-slate-50/40 text-center relative align-middle">
                               <div className="flex justify-center items-center gap-1 opacity-0 group-hover/row:opacity-100 transition-opacity px-1 h-full py-1.5">
-                                <GripVertical className="w-3.5 h-3.5 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing flex-shrink-0" title="Trascina rigo" />
+                                <span title="Trascina rigo" className="flex-shrink-0 inline-flex">
+                                  <GripVertical className="w-3.5 h-3.5 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing" />
+                                </span>
                                 {!isSubtotal && (
                                   <button 
                                     onClick={() => handleToggleDeduction(art.id, m.id)} 
@@ -1780,9 +1782,9 @@ export const PriceAnalysisWorkspace: React.FC<PriceAnalysisWorkspaceProps> = ({
                     description: gm.description,
                     multiplier: gm.multiplier,
                     length: gm.length,
-                    width: gm.width,
-                    height: gm.height,
-                    type: gm.type || 'positive'
+                    width: undefined,
+                    height: gm.weight,
+                    type: 'positive' as const
                   }))
                 ];
                 handleUpdateArticle(rebarTargetArticleId, 'measurements', nextMeas);
