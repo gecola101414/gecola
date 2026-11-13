@@ -150,19 +150,25 @@ function isZlibHeader(b0: number, b1: number): boolean {
   return true;
 }
 
+const UTF8_DECODER = new TextDecoder('utf-8');
+const UTF8_FATAL_DECODER = new TextDecoder('utf-8', { fatal: true });
+const WIN1252_DECODER = new TextDecoder('windows-1252');
+const UTF16LE_DECODER = new TextDecoder('utf-16le');
+const ASCII_DECODER = new TextDecoder('ascii');
+
 /**
  * Se il file .dcf è stato copiato/incollato come testo UTF-8 (dove i byte > 127 sono stati codificati in sequenze UTF-8
  * a 2-3 byte e i byte 0x00 in spazi 0x20), ricostruisce il buffer binario single-byte Windows-1252.
  */
-function normalizeDcfInputBuffer(buf: Uint8Array): Uint8Array {
-  if (buf.length < 16) return buf;
+function normalizeDcfInputBuffer(buf: Uint8Array): { buf: Uint8Array; isTextNormalized: boolean } {
+  if (buf.length < 16) return { buf, isTextNormalized: false };
   const head8 = String.fromCharCode(...buf.subarray(0, 8));
   if (
     head8 === ACCA_MAGIC_1 &&
     (buf[8] === 0x20 || buf[8] === 0xC3 || buf[8] === 0xC2 || (buf[8] === 0xFE && buf[9] === 0xFF))
   ) {
     try {
-      const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+      const text = UTF8_DECODER.decode(buf);
       const out = new Uint8Array(text.length);
       for (let i = 0; i < text.length; i++) {
         const cp = text.charCodeAt(i);
@@ -174,12 +180,12 @@ function normalizeDcfInputBuffer(buf: Uint8Array): Uint8Array {
           out[i] = cp & 0xFF;
         }
       }
-      return out;
+      return { buf: out, isTextNormalized: true };
     } catch {
-      return buf;
+      return { buf, isTextNormalized: false };
     }
   }
-  return buf;
+  return { buf, isTextNormalized: false };
 }
 
 /**
@@ -207,18 +213,22 @@ function runPakoProbe(
   const strm = (inflator as any).strm;
   if (strm && strm.next_out > 0 && strm.output) {
     const partial = new Uint8Array(strm.output.subarray(0, strm.next_out));
-    const alreadyLen = chunks.reduce((a, c) => a + c.length, 0);
+    let alreadyLen = 0;
+    for (let i = 0; i < chunks.length; i++) alreadyLen += chunks[i].length;
     if (alreadyLen === 0) {
       chunks.push(partial);
     }
   }
 
-  const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
-  const merged = new Uint8Array(totalLen);
-  let pos = 0;
-  for (const c of chunks) {
-    merged.set(c, pos);
-    pos += c.length;
+  let totalLen = 0;
+  for (let i = 0; i < chunks.length; i++) totalLen += chunks[i].length;
+  const merged = chunks.length === 1 ? chunks[0] : new Uint8Array(totalLen);
+  if (chunks.length > 1) {
+    let pos = 0;
+    for (const c of chunks) {
+      merged.set(c, pos);
+      pos += c.length;
+    }
   }
 
   const consumedInput = strm && typeof strm.next_in === 'number' ? strm.next_in : 0;
@@ -233,7 +243,7 @@ function runPakoProbe(
 function repairTextCorruptedDeflate(
   input: Uint8Array,
   raw: boolean,
-  maxSteps = 450
+  maxSteps = 250
 ): Uint8Array | null {
   const working = new Uint8Array(input);
   const startOffset = raw ? 0 : 2;
@@ -263,7 +273,6 @@ function repairTextCorruptedDeflate(
 
   while (stack.length > 0 && steps < maxSteps) {
     steps++;
-    // Estrae il nodo con il maggior progresso nello stream
     stack.sort((a, b) => b.consumed - a.consumed || b.outLen - a.outLen);
     const curr = stack.shift()!;
 
@@ -316,23 +325,28 @@ function repairTextCorruptedDeflate(
 
 /**
  * Decomprime uno stream Raw Deflate (senza i 2 byte di header Zlib), tollerando eventuali byte di coda
- * o corruzioni da copia-incolla testuale.
+ * o corruzioni da copia-incolla testuale (solo se allowRepair è attivo).
  */
-function safeRawDeflateInflate(rawDeflate: Uint8Array): Uint8Array | null {
+function safeRawDeflateInflate(rawDeflate: Uint8Array, allowRepair = false): Uint8Array | null {
   if (!rawDeflate || rawDeflate.length < 2) return null;
 
-  // Tentativo 1: pako.inflateRaw diretto
   try {
     const res = pako.inflateRaw(rawDeflate);
     if (res && res.length > 0) return res;
   } catch {
-    // Continua con sonda + riparazione automatica
+    // Prova probe tollerante a trailing bytes
   }
 
-  // Tentativo 2: riparazione automatica per stream danneggiati da copia-incolla testo (0x00->0x20, 0x0D->0x0A)
-  const repaired = repairTextCorruptedDeflate(rawDeflate, true);
-  if (repaired && repaired.length > 0) {
-    return repaired;
+  const probe = runPakoProbe(rawDeflate, true);
+  if (probe.ok && probe.output.length > 0) {
+    return probe.output;
+  }
+
+  if (allowRepair) {
+    const repaired = repairTextCorruptedDeflate(rawDeflate, true);
+    if (repaired && repaired.length > 0) {
+      return repaired;
+    }
   }
 
   return null;
@@ -342,26 +356,33 @@ function safeRawDeflateInflate(rawDeflate: Uint8Array): Uint8Array | null {
  * Decomprime uno stream Zlib/Deflate gestendo in modo sicuro eventuali byte di coda/padding
  * presenti nel contenitore binario dopo la fine logica dello stream compresso.
  */
-function safeZlibInflate(compressed: Uint8Array): Uint8Array | null {
+function safeZlibInflate(compressed: Uint8Array, allowRepair = false): Uint8Array | null {
   if (!compressed || compressed.length < 2) return null;
 
-  // Tentativo 1: pako.inflate diretto
   try {
     const res = pako.inflate(compressed);
     if (res && res.length > 0) return res;
   } catch {
-    // Continua con sonda + riparazione automatica
+    // Prova probe tollerante a trailing bytes
   }
 
-  // Tentativo 2: riparazione automatica su Zlib o su Raw Deflate (saltando i 2 byte di header Zlib)
-  const repairedZlib = repairTextCorruptedDeflate(compressed, false);
-  const repairedRaw =
-    compressed.length > 2 ? repairTextCorruptedDeflate(compressed.subarray(2), true) : null;
-
-  if (repairedZlib && repairedRaw) {
-    return repairedZlib.length >= repairedRaw.length ? repairedZlib : repairedRaw;
+  const probe = runPakoProbe(compressed, false);
+  if (probe.ok && probe.output.length > 0) {
+    return probe.output;
   }
-  return repairedZlib || repairedRaw || null;
+
+  if (allowRepair) {
+    const repairedZlib = repairTextCorruptedDeflate(compressed, false);
+    const repairedRaw =
+      compressed.length > 2 ? repairTextCorruptedDeflate(compressed.subarray(2), true) : null;
+
+    if (repairedZlib && repairedRaw) {
+      return repairedZlib.length >= repairedRaw.length ? repairedZlib : repairedRaw;
+    }
+    return repairedZlib || repairedRaw || null;
+  }
+
+  return null;
 }
 
 /**
@@ -372,28 +393,28 @@ export function decodeDcfXmlBytes(bytes: Uint8Array): string {
 
   // Controllo BOM UTF-16LE (FF FE)
   if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
-    return new TextDecoder('utf-16le').decode(bytes.subarray(2));
+    return UTF16LE_DECODER.decode(bytes.subarray(2));
   }
   // Controllo UTF-16LE senza BOM (caratteri ASCII alternati a 0x00)
   if (bytes.length >= 4 && bytes[0] === 0x3C && bytes[1] === 0x00 && bytes[2] === 0x3F && bytes[3] === 0x00) {
-    return new TextDecoder('utf-16le').decode(bytes);
+    return UTF16LE_DECODER.decode(bytes);
   }
   // Controllo BOM UTF-8 (EF BB BF)
   if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
-    return new TextDecoder('utf-8').decode(bytes.subarray(3));
+    return UTF8_DECODER.decode(bytes.subarray(3));
   }
 
   // Ispezione prologo XML nei primi 160 byte per rilevare Windows-1252 / ISO-8859-1 dichiarato
-  const prologSample = new TextDecoder('ascii').decode(bytes.subarray(0, Math.min(160, bytes.length))).toLowerCase();
+  const prologSample = ASCII_DECODER.decode(bytes.subarray(0, Math.min(160, bytes.length))).toLowerCase();
   if (prologSample.includes('windows-1252') || prologSample.includes('iso-8859-1') || prologSample.includes('iso-8859-15')) {
-    return new TextDecoder('windows-1252').decode(bytes);
+    return WIN1252_DECODER.decode(bytes);
   }
 
   // Prova decodifica UTF-8 rigorosa; se ci sono sequenze non valide (es. accenti/simboli Windows-1252 come ², °, €, à, è), usa Windows-1252
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return UTF8_FATAL_DECODER.decode(bytes);
   } catch {
-    return new TextDecoder('windows-1252').decode(bytes);
+    return WIN1252_DECODER.decode(bytes);
   }
 }
 
@@ -407,15 +428,12 @@ export function decodeDcfXmlBytes(bytes: Uint8Array): string {
  *
  * Questa funzione ripristina lo swap dei K byte ed estrae il payload interno (XML o sotto-contenitore .dcf).
  */
-function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
+function unwrapAccaInnerContainer(layer2: Uint8Array, allowRepair = false): Uint8Array | null {
   if (!layer2 || layer2.length < 36) return null;
 
-  // Controlla se contiene l'intestazione "Copyright ACCA software S.p.A." o una firma PK ZIP
-  const headAscii = new TextDecoder('ascii').decode(layer2.subarray(0, Math.min(48, layer2.length)));
+  const headAscii = ASCII_DECODER.decode(layer2.subarray(0, Math.min(48, layer2.length)));
   const hasAccaCopyright = headAscii.includes('Copyright ACCA');
 
-  // Cerca la firma del Local File Header ZIP `PK\x03\x04` (0x50 0x4B 0x03 0x04)
-  // Nei file .dcf standard si trova esattamente a `layer2.length - K` (tipicamente `layer2.length - 100`)
   let pk34Pos = -1;
   const searchStart = Math.max(0, layer2.length - 300);
   for (let i = layer2.length - 4; i >= searchStart; i--) {
@@ -430,9 +448,7 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
     }
   }
 
-  // Se non trovato con `PK\x03\x04`, cerca l'ancora ASCII invariante `"CopyRightAcca"` che si trova a `pk34Pos + 30`
   if (pk34Pos === -1) {
-    // "CopyRightAcca" = [0x43, 0x6F, 0x70, 0x79, 0x52, 0x69, 0x67, 0x68, 0x74, 0x41, 0x63, 0x63, 0x61]
     const anchor = [0x43, 0x6F, 0x70, 0x79, 0x52, 0x69, 0x67, 0x68, 0x74, 0x41, 0x63, 0x63, 0x61];
     for (let i = layer2.length - anchor.length; i >= 30; i--) {
       let match = true;
@@ -443,7 +459,6 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
         }
       }
       if (match) {
-        // Verifica che non sia quello della Central Directory (`PK\x01\x02` a `i - 46`)
         if (i >= 46 && layer2[i - 46] === 0x50 && layer2[i - 45] === 0x4B && layer2[i - 44] === 0x01) {
           continue;
         }
@@ -453,7 +468,6 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
     }
   }
 
-  // Se ancora non trovato, cerca `PK\x03\x04` su tutto il buffer
   if (pk34Pos === -1) {
     for (let i = 0; i <= layer2.length - 4; i++) {
       if (
@@ -473,7 +487,6 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
     const L = layer2.length - headerLen;
     const defaultK = L > 200 ? 100 : Math.max(0, Math.floor(L / 2) - 1);
 
-    // Determina il punto di swap `swapPos` e la lunghezza `K` dello swap
     const candidateConfigs: Array<{ swapPos: number; k: number }> = [];
     if (pk34Pos > headerLen) {
       const kFromPk = Math.min(100, layer2.length - pk34Pos, pk34Pos - headerLen);
@@ -505,7 +518,6 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
         const extraLen = rawExtraLen <= 128 ? rawExtraLen : 0;
         const dataStart = headerLen + 30 + nameLen + extraLen;
 
-        // Trova la Central Directory (PK\x01\x02) per leggere la vera compSize non troncata da flags Data Descriptor
         let pk12Pos = -1;
         for (let i = dataStart; i <= unswapped.length - 4; i++) {
           if (
@@ -548,7 +560,7 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
             if (compMethod === 0) {
               return payloadSlice;
             }
-            const inflated = safeRawDeflateInflate(payloadSlice);
+            const inflated = safeRawDeflateInflate(payloadSlice, allowRepair);
             if (inflated && inflated.length > 0) {
               return inflated;
             }
@@ -557,7 +569,6 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
       }
     }
 
-    // Fallback diretto tramite ricostruzione dei 3 segmenti del flusso Deflate (`[pk34Pos + 47 .. pk34Pos + 100] + [134 .. pk34Pos] + [34 .. 134]`)
     if (pk34Pos > headerLen && pk34Pos + 30 <= layer2.length) {
       const compMethodRaw = readUint16LE(layer2, pk34Pos + 8);
       const compMethod = compMethodRaw === 0 ? 0 : 8;
@@ -581,7 +592,7 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
         combined.set(part3, part1.length + part2.length);
 
         if (compMethod === 0) return combined;
-        const inflated = safeRawDeflateInflate(combined);
+        const inflated = safeRawDeflateInflate(combined, allowRepair);
         if (inflated && inflated.length > 0) return inflated;
       }
     }
@@ -590,18 +601,11 @@ function unwrapAccaInnerContainer(layer2: Uint8Array): Uint8Array | null {
   return null;
 }
 
-/**
- * Converte un payload decompresso di Livello 2 (`layer2`) in stringa XML,
- * gestendo sia il caso in cui `layer2` contenga il contenitore ZIP swappato `CopyRightAcca2006` (Livello 3)
- * sia il caso in cui `layer2` sia già testo XML diretto.
- */
-function extractXmlFromLayer2(layer2: Uint8Array): { xml?: string; nestedDcf?: Uint8Array } | null {
+function extractXmlFromLayer2(layer2: Uint8Array, allowRepair = false): { xml?: string; nestedDcf?: Uint8Array } | null {
   if (!layer2 || layer2.length === 0) return null;
 
-  // 1. Prova prima a sbloccare il contenitore interno ACCA (`Copyright ACCA software S.p.A.` + `PK\x03\x04` swappato)
-  const unwrapped = unwrapAccaInnerContainer(layer2);
+  const unwrapped = unwrapAccaInnerContainer(layer2, allowRepair);
   if (unwrapped && unwrapped.length > 0) {
-    // Controlla se il file interno è un sotto-file .dcf annidato (es. CostiSicurezza.dcf che inizia con AAMVHFSS)
     if (
       unwrapped.length >= 8 &&
       String.fromCharCode(...unwrapped.subarray(0, 8)) === ACCA_MAGIC_1
@@ -618,7 +622,6 @@ function extractXmlFromLayer2(layer2: Uint8Array): { xml?: string; nestedDcf?: U
     }
   }
 
-  // 2. Verifica se `layer2` è già direttamente un XML in chiaro
   const directXml = decodeDcfXmlBytes(layer2);
   const trimmed = directXml.trim();
   if (
@@ -632,32 +635,26 @@ function extractXmlFromLayer2(layer2: Uint8Array): { xml?: string; nestedDcf?: U
   return null;
 }
 
-/**
- * Estrae il contenuto XML (o eventuale sotto-contenitore .dcf) da un singolo flusso che può iniziare
- * con firma `AACS` (header di 144 byte + Zlib), oppure direttamente con byte Zlib o testo XML in chiaro.
- */
 function decodeSingleDcfStreamWithNested(
-  streamBytes: Uint8Array
+  streamBytes: Uint8Array,
+  allowRepair = false
 ): { xml?: string; nestedDcf?: Uint8Array } | null {
   if (!streamBytes || streamBytes.length < 4) return null;
 
-  // Caso 1: inizia già con XML in chiaro ('<?xml' o '<' o BOM)
-  const trimmedStart = (() => {
-    let i = 0;
-    while (
-      i < Math.min(32, streamBytes.length) &&
-      (streamBytes[i] === 0x20 ||
-        streamBytes[i] === 0x09 ||
-        streamBytes[i] === 0x0D ||
-        streamBytes[i] === 0x0A)
-    ) {
-      i++;
-    }
-    return i;
-  })();
+  let trimmedStart = 0;
+  const maxWs = Math.min(32, streamBytes.length);
+  while (
+    trimmedStart < maxWs &&
+    (streamBytes[trimmedStart] === 0x20 ||
+      streamBytes[trimmedStart] === 0x09 ||
+      streamBytes[trimmedStart] === 0x0D ||
+      streamBytes[trimmedStart] === 0x0A)
+  ) {
+    trimmedStart++;
+  }
 
   if (
-    streamBytes[trimmedStart] === 0x3C || // '<'
+    streamBytes[trimmedStart] === 0x3C ||
     (streamBytes[0] === 0xEF && streamBytes[1] === 0xBB && streamBytes[2] === 0xBF) ||
     (streamBytes[0] === 0xFF && streamBytes[1] === 0xFE)
   ) {
@@ -665,45 +662,37 @@ function decodeSingleDcfStreamWithNested(
     if (text.includes('<') && text.includes('>')) return { xml: text };
   }
 
-  // Caso 2: intestazione proprietaria `AACS` (0x41 0x41 0x43 0x53)
-  // Nei file .dcf di ACCA PriMus l'header AACS è lungo esattamente 144 byte:
-  // - byte 128..131 (u1): dimensione dello stream Zlib compresso
-  // - byte 132..135 (u2): dimensione del contenitore interno non compresso
-  // - byte 144: inizio dello stream Zlib (0x78 0x5E / 0x78 0x9C / 0x78 0xDA / 0x78 0x01)
   if (
     streamBytes[0] === 0x41 &&
     streamBytes[1] === 0x41 &&
     streamBytes[2] === 0x43 &&
     streamBytes[3] === 0x53
   ) {
-    // 2a. Prova prima l'offset canonico 144 di ACCA PriMus
     if (streamBytes.length > 146 && isZlibHeader(streamBytes[144], streamBytes[145])) {
       const u1 = readAccaSize32LE(streamBytes, 128, streamBytes.length);
       const zlibSlice =
         u1 > 2 && 144 + u1 <= streamBytes.length
           ? streamBytes.subarray(144, 144 + u1)
           : streamBytes.subarray(144);
-      const inflated = safeZlibInflate(zlibSlice);
+      const inflated = safeZlibInflate(zlibSlice, allowRepair);
       if (inflated && inflated.length > 0) {
-        const extracted = extractXmlFromLayer2(inflated);
+        const extracted = extractXmlFromLayer2(inflated, allowRepair);
         if (extracted) return extracted;
       }
     }
 
-    // 2b. Scansiona da byte 4 fino a byte 256 per altre varianti di header AACS
     const searchLimit = Math.min(streamBytes.length - 2, 256);
     for (let offset = 4; offset < searchLimit; offset++) {
       if (offset === 144) continue;
       if (isZlibHeader(streamBytes[offset], streamBytes[offset + 1])) {
-        const inflated = safeZlibInflate(streamBytes.subarray(offset));
+        const inflated = safeZlibInflate(streamBytes.subarray(offset), false);
         if (inflated && inflated.length > 0) {
-          const extracted = extractXmlFromLayer2(inflated);
+          const extracted = extractXmlFromLayer2(inflated, false);
           if (extracted) return extracted;
         }
       }
     }
 
-    // 2c. Controllo se nel payload dello stream è presente direttamente "Copyright ACCA"
     let copyIdx = -1;
     const anchor = [0x43, 0x6F, 0x70, 0x79, 0x72, 0x69, 0x67, 0x68, 0x74, 0x20, 0x41, 0x43, 0x43, 0x41];
     for (let i = 0; i <= Math.min(streamBytes.length - anchor.length, 500); i++) {
@@ -721,38 +710,38 @@ function decodeSingleDcfStreamWithNested(
     }
     if (copyIdx !== -1) {
       const headPos = Math.max(0, copyIdx - 4);
-      const extracted = extractXmlFromLayer2(streamBytes.subarray(headPos));
+      const extracted = extractXmlFromLayer2(streamBytes.subarray(headPos), allowRepair);
       if (extracted) return extracted;
     }
   }
 
-  // Caso 3: ricerca generica di header Zlib nei primi 256 byte dello stream
   const maxScan = Math.min(streamBytes.length - 2, 256);
   for (let offset = 0; offset < maxScan; offset++) {
     if (isZlibHeader(streamBytes[offset], streamBytes[offset + 1])) {
-      const inflated = safeZlibInflate(streamBytes.subarray(offset));
+      const inflated = safeZlibInflate(streamBytes.subarray(offset), false);
       if (inflated && inflated.length > 0) {
-        const extracted = extractXmlFromLayer2(inflated);
+        const extracted = extractXmlFromLayer2(inflated, false);
         if (extracted) return extracted;
       }
     }
   }
 
-  // Caso 4: Ispezione se lo stream contiene già testo XML valido
-  const directText = decodeDcfXmlBytes(streamBytes);
-  const trimmedDirect = directText.trim();
-  if (
-    (trimmedDirect.startsWith('<') || trimmedDirect.startsWith('\ufeff<')) &&
-    /<\s*[a-zA-Z_][a-zA-Z0-9_:.-]*(\s+[^>]*)?>/.test(trimmedDirect)
-  ) {
-    return { xml: directText };
+  if (streamBytes[0] === 0x3C || (streamBytes.length < 4096 && streamBytes.includes(0x3C))) {
+    const directText = decodeDcfXmlBytes(streamBytes);
+    const trimmedDirect = directText.trim();
+    if (
+      (trimmedDirect.startsWith('<') || trimmedDirect.startsWith('\ufeff<')) &&
+      /<\s*[a-zA-Z_][a-zA-Z0-9_:.-]*(\s+[^>]*)?>/.test(trimmedDirect)
+    ) {
+      return { xml: directText };
+    }
   }
 
   return null;
 }
 
-function decodeSingleDcfStream(streamBytes: Uint8Array): string | null {
-  const res = decodeSingleDcfStreamWithNested(streamBytes);
+function decodeSingleDcfStream(streamBytes: Uint8Array, allowRepair = false): string | null {
+  const res = decodeSingleDcfStreamWithNested(streamBytes, allowRepair);
   return res?.xml ?? null;
 }
 
@@ -884,61 +873,61 @@ function parseAccaPagedContainerStreams(buf: Uint8Array): Map<string, Uint8Array
     }
   }
 
-  // 1b. Scansione continua per intercettare directory entries disallineate o fuori griglia
-  const knownPrefixes = [
-    'Collection',
-    'InfoDoc',
-    'DatiGenerali',
-    'CostiSicurezza',
-    'Versione',
-    'Identity',
-    'OpzioniInterfaccia',
-    'EPV'
-  ];
-  for (const prefix of knownPrefixes) {
-    let searchPos = 0;
-    while ((searchPos = buf.indexOf(prefix.charCodeAt(0), searchPos)) !== -1) {
-      if (searchPos + prefix.length <= buf.length) {
-        let match = true;
-        for (let k = 0; k < prefix.length; k++) {
-          if (buf[searchPos + k] !== prefix.charCodeAt(k)) {
-            match = false;
-            break;
+  // 1b. Scansione continua solo se la griglia standard non ha trovato nessuna directory entry
+  if (dirEntries.length === 0) {
+    const knownPrefixes = [
+      'Collection',
+      'InfoDoc',
+      'DatiGenerali',
+      'CostiSicurezza',
+      'Versione',
+      'Identity',
+      'OpzioniInterfaccia',
+      'EPV'
+    ];
+    for (const prefix of knownPrefixes) {
+      let searchPos = 0;
+      while ((searchPos = buf.indexOf(prefix.charCodeAt(0), searchPos)) !== -1) {
+        if (searchPos + prefix.length <= buf.length) {
+          let match = true;
+          for (let k = 0; k < prefix.length; k++) {
+            if (buf[searchPos + k] !== prefix.charCodeAt(k)) {
+              match = false;
+              break;
+            }
           }
-        }
-        if (match) {
-          const nameStart = searchPos;
-          let nameEnd = nameStart;
-          while (
-            nameEnd < nameStart + 64 &&
-            buf[nameEnd] >= 0x20 &&
-            buf[nameEnd] <= 0x7E &&
-            !(buf[nameEnd] === 0x20 && buf[nameEnd + 1] === 0x20)
-          ) {
-            nameEnd++;
-          }
-          let candidateName = new TextDecoder('ascii')
-            .decode(buf.subarray(nameStart, nameEnd))
-            .trim();
-          if (candidateName.startsWith('llection')) {
-            candidateName = 'Co' + candidateName;
-          }
-          if (/^[A-Za-z0-9_.-]+$/.test(candidateName) && !seenDirNames.has(candidateName)) {
-            const trueEntryOff = nameStart - 256;
-            if (trueEntryOff >= 0 && trueEntryOff + 40 <= buf.length) {
-              const inodeSec = readAccaSize32LE(buf, trueEntryOff + 32, totalPages + 100);
-              const byteLength = readAccaSize32LE(buf, trueEntryOff + 36, buf.length);
-              seenDirNames.add(candidateName);
-              dirEntries.push({
-                name: candidateName,
-                inodeSec,
-                byteLength
-              });
+          if (match) {
+            const nameStart = searchPos;
+            let nameEnd = nameStart;
+            while (
+              nameEnd < nameStart + 64 &&
+              buf[nameEnd] >= 0x20 &&
+              buf[nameEnd] <= 0x7E &&
+              !(buf[nameEnd] === 0x20 && buf[nameEnd + 1] === 0x20)
+            ) {
+              nameEnd++;
+            }
+            let candidateName = ASCII_DECODER.decode(buf.subarray(nameStart, nameEnd)).trim();
+            if (candidateName.startsWith('llection')) {
+              candidateName = 'Co' + candidateName;
+            }
+            if (/^[A-Za-z0-9_.-]+$/.test(candidateName) && !seenDirNames.has(candidateName)) {
+              const trueEntryOff = nameStart - 256;
+              if (trueEntryOff >= 0 && trueEntryOff + 40 <= buf.length) {
+                const inodeSec = readAccaSize32LE(buf, trueEntryOff + 32, totalPages + 100);
+                const byteLength = readAccaSize32LE(buf, trueEntryOff + 36, buf.length);
+                seenDirNames.add(candidateName);
+                dirEntries.push({
+                  name: candidateName,
+                  inodeSec,
+                  byteLength
+                });
+              }
             }
           }
         }
+        searchPos++;
       }
-      searchPos++;
     }
   }
 
@@ -969,21 +958,27 @@ function parseAccaPagedContainerStreams(buf: Uint8Array): Map<string, Uint8Array
     }
   };
 
-  // 2a. Scansione su griglia standard delle pagine
+  // 2a. Scansione veloce su griglia standard delle pagine
   for (let p = 1; p < totalPages; p++) {
     registerPage(aasfPos + p * pageSize, p);
   }
 
-  // 2b. Scansione continua tollerante per intercettare pagine con offset disallineati
-  for (let i = aasfPos + 512; i <= buf.length - 64; i++) {
-    if (
-      ((buf[i] === 0x90 && buf[i + 1] === 0xEE && buf[i + 2] === 0x19) ||
-       (buf[i] === 0x3C && buf[i + 1] === 0xEB && buf[i + 2] === 0x19) ||
-       (buf[i] === 0x19 && buf[i + 1] === 0x00 && buf[i + 2] === 0x00)) &&
-      (buf[i + 8] === 0x06 || buf[i + 8] === 0x20 || buf[i + 8] === 0x00 || buf[i + 8] === 0x04)
-    ) {
-      const pIdx = Math.max(1, Math.round((i - aasfPos) / pageSize));
-      registerPage(i, pIdx);
+  // 2b. Scansione disallineata SOLO se la griglia non ha trovato pagine sufficienti
+  if (ownerPagesMap.size === 0) {
+    for (const marker of [0x90, 0x3C, 0x19]) {
+      let pos = aasfPos + 512;
+      while ((pos = buf.indexOf(marker, pos)) !== -1 && pos <= buf.length - 64) {
+        if (
+          ((buf[pos] === 0x90 && buf[pos + 1] === 0xEE && buf[pos + 2] === 0x19) ||
+           (buf[pos] === 0x3C && buf[pos + 1] === 0xEB && buf[pos + 2] === 0x19) ||
+           (buf[pos] === 0x19 && buf[pos + 1] === 0x00 && buf[pos + 2] === 0x00)) &&
+          (buf[pos + 8] === 0x06 || buf[pos + 8] === 0x20 || buf[pos + 8] === 0x00 || buf[pos + 8] === 0x04)
+        ) {
+          const pIdx = Math.max(1, Math.round((pos - aasfPos) / pageSize));
+          registerPage(pos, pIdx);
+        }
+        pos++;
+      }
     }
   }
 
@@ -1244,22 +1239,21 @@ function parseCompoundFileStreams(buf: Uint8Array): Map<string, Uint8Array> {
 
 /**
  * Scanner binario diretto per blocchi `AACS` + Zlib (`0x78 0x9C` / `0x78 0xDA` / `0x78 0x01` / `0x78 0x5E`)
- * su tutto il buffer del file .dcf.
+ * su tutto il buffer del file .dcf, ottimizzato con `buf.indexOf`.
  */
-function scanRawAacsAndZlibStreams(buf: Uint8Array): string[] {
+function scanRawAacsAndZlibStreams(buf: Uint8Array, allowRepair = false): string[] {
   const xmlList: string[] = [];
   const seenHashes = new Set<string>();
 
-  // 1. Ricerca di tutti i marcatori ASCII `AACS` (0x41 0x41 0x43 0x53)
+  // 1. Ricerca rapida tramite indexOf di tutti i marcatori ASCII `AACS` (0x41 0x41 0x43 0x53)
   const aacsPositions: number[] = [];
-  for (let i = 0; i <= buf.length - 8; i++) {
-    if (
-      buf[i] === 0x41 &&
-      buf[i + 1] === 0x41 &&
-      buf[i + 2] === 0x43 &&
-      buf[i + 3] === 0x53
-    ) {
-      aacsPositions.push(i);
+  let searchPos = 0;
+  while ((searchPos = buf.indexOf(0x41, searchPos)) !== -1 && searchPos <= buf.length - 8) {
+    if (buf[searchPos + 1] === 0x41 && buf[searchPos + 2] === 0x43 && buf[searchPos + 3] === 0x53) {
+      aacsPositions.push(searchPos);
+      searchPos += 4;
+    } else {
+      searchPos++;
     }
   }
 
@@ -1267,7 +1261,7 @@ function scanRawAacsAndZlibStreams(buf: Uint8Array): string[] {
     const start = aacsPositions[idx];
     const nextStart = idx + 1 < aacsPositions.length ? aacsPositions[idx + 1] : buf.length;
     const blockSlice = buf.subarray(start, nextStart);
-    const decoded = decodeSingleDcfStream(blockSlice);
+    const decoded = decodeSingleDcfStream(blockSlice, allowRepair);
     if (decoded) {
       const sig = `${decoded.length}:${decoded.slice(0, 120)}`;
       if (!seenHashes.has(sig)) {
@@ -1277,13 +1271,14 @@ function scanRawAacsAndZlibStreams(buf: Uint8Array): string[] {
     }
   }
 
-  // 2. Se non sono stati trovati blocchi AACS (o ne mancano alcuni), scansiona gli header Zlib diretti
-  if (xmlList.length < 2) {
-    for (let i = 0; i <= buf.length - 6; i++) {
-      if (isZlibHeader(buf[i], buf[i + 1])) {
-        const inflated = safeZlibInflate(buf.subarray(i));
+  // 2. Fallback header Zlib diretti SOLO se nessun blocco AACS ha prodotto XML (senza costosa riparazione per byte casuali)
+  if (xmlList.length === 0) {
+    let pos = 0;
+    while ((pos = buf.indexOf(0x78, pos)) !== -1 && pos <= buf.length - 6) {
+      if (isZlibHeader(buf[pos], buf[pos + 1])) {
+        const inflated = safeZlibInflate(buf.subarray(pos), false);
         if (inflated && inflated.length > 16) {
-          const extracted = extractXmlFromLayer2(inflated);
+          const extracted = extractXmlFromLayer2(inflated, false);
           const decoded = extracted?.xml;
           if (decoded && decoded.includes('<') && decoded.includes('>')) {
             const sig = `${decoded.length}:${decoded.slice(0, 120)}`;
@@ -1294,6 +1289,7 @@ function scanRawAacsAndZlibStreams(buf: Uint8Array): string[] {
           }
         }
       }
+      pos++;
     }
   }
 
@@ -1304,7 +1300,7 @@ function scanRawAacsAndZlibStreams(buf: Uint8Array): string[] {
  * Classifica e raccoglie tutti gli stream XML contenuti in un file .dcf
  */
 export function extractDcfXmlStreams(rawInputBuf: Uint8Array): ExtractedDcfStreams {
-  const buf = normalizeDcfInputBuffer(rawInputBuf);
+  const { buf, isTextNormalized } = normalizeDcfInputBuffer(rawInputBuf);
   const result: ExtractedDcfStreams = {
     rawXmlStreams: []
   };
@@ -1403,14 +1399,13 @@ export function extractDcfXmlStreams(rawInputBuf: Uint8Array): ExtractedDcfStrea
   // Fase 1A: Estrazione nativa dal contenitore paginato ACCA PriMus (`AAMVHFSS` / `AASFSSGN` a pagine da 4096 byte)
   const accaPagedStreams = parseAccaPagedContainerStreams(buf);
   for (const [entryName, streamData] of accaPagedStreams.entries()) {
-    const decoded = decodeSingleDcfStreamWithNested(streamData);
+    const decoded = decodeSingleDcfStreamWithNested(streamData, isTextNormalized);
     if (decoded?.xml) {
       assignXmlByRole(entryName, decoded.xml);
     } else if (decoded?.nestedDcf) {
-      // Se c'è un sotto-documento .dcf annidato (es. CostiSicurezza.dcf), estrai i suoi stream come fallback
       const nestedStreams = parseAccaPagedContainerStreams(decoded.nestedDcf);
       for (const [nestedName, nestedData] of nestedStreams.entries()) {
-        const nestedXml = decodeSingleDcfStream(nestedData);
+        const nestedXml = decodeSingleDcfStream(nestedData, isTextNormalized);
         if (nestedXml) {
           assignXmlByRole(`${entryName}/${nestedName}`, nestedXml);
         }
@@ -1418,18 +1413,20 @@ export function extractDcfXmlStreams(rawInputBuf: Uint8Array): ExtractedDcfStrea
     }
   }
 
-  // Fase 1B: Estrazione strutturata da Compound File OLE2 standard (`D0 CF 11 E0`)
-  const compoundStreams = parseCompoundFileStreams(buf);
-  for (const [entryName, streamData] of compoundStreams.entries()) {
-    const xml = decodeSingleDcfStream(streamData);
-    if (xml) {
-      assignXmlByRole(entryName, xml);
+  // Fase 1B: Estrazione strutturata da Compound File OLE2 standard (`D0 CF 11 E0`) solo se non è già un contenitore ACCA paginato
+  if (accaPagedStreams.size === 0 || (!result.collectionEPXml && !result.collectionVCXml)) {
+    const compoundStreams = parseCompoundFileStreams(buf);
+    for (const [entryName, streamData] of compoundStreams.entries()) {
+      const xml = decodeSingleDcfStream(streamData, isTextNormalized);
+      if (xml) {
+        assignXmlByRole(entryName, xml);
+      }
     }
   }
 
-  // Fase 2: Scansione binaria diretta dei blocchi `AACS` + Zlib (integra eventuali stream non letti o file sequenziali)
-  if (!result.collectionEPXml || !result.collectionVCXml) {
-    const scannedXmls = scanRawAacsAndZlibStreams(buf);
+  // Fase 2: Scansione binaria diretta dei blocchi `AACS` solo se mancano sia EP sia VC (o 0 stream estratti)
+  if (result.rawXmlStreams.length === 0 || (!result.collectionEPXml && !result.collectionVCXml && !result.xpweXml)) {
+    const scannedXmls = scanRawAacsAndZlibStreams(buf, isTextNormalized);
     scannedXmls.forEach((xml, idx) => {
       assignXmlByRole(`Stream_AACS_${idx + 1}.xml`, xml);
     });
@@ -1441,6 +1438,14 @@ export function extractDcfXmlStreams(rawInputBuf: Uint8Array): ExtractedDcfStrea
     if (directText.includes('<') && directText.includes('>')) {
       assignXmlByRole('Direct.xml', directText);
     }
+  }
+
+  // Fase 4: Fallback estremo di riparazione testo solo se nulla è stato estratto finora
+  if (result.rawXmlStreams.length === 0 && !isTextNormalized) {
+    const repairedXmls = scanRawAacsAndZlibStreams(buf, true);
+    repairedXmls.forEach((xml, idx) => {
+      assignXmlByRole(`Stream_AACS_Repaired_${idx + 1}.xml`, xml);
+    });
   }
 
   return result;
@@ -1470,6 +1475,12 @@ export function normalizeUnit(raw?: string | null): string {
  */
 function cleanDcfText(raw?: string | null): string {
   if (!raw) return '';
+  if (!raw.includes('&') && !raw.includes('\\')) {
+    return raw.includes('\r') || raw.includes('\t') || raw.includes('  ')
+      ? raw.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim()
+      : raw.trim();
+  }
+
   let s = raw
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -1479,8 +1490,7 @@ function cleanDcfText(raw?: string | null): string {
     .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 
-  // Se il testo contiene markup RTF (\rtf, \par, ecc.), rimuove i tag di controllo RTF preservando il testo
-  if (s.includes('\\rtf') || s.includes('\\par') || s.includes('\\\'')) {
+  if (s.includes('\\rtf') || s.includes('\\par') || s.includes("\\'")) {
     s = s
       .replace(/\\par\b/g, '\n')
       .replace(/\\line\b/g, '\n')
@@ -1488,7 +1498,7 @@ function cleanDcfText(raw?: string | null): string {
       .replace(/\\'([0-9a-fA-F]{2})/g, (_, hex) => {
         try {
           const byte = new Uint8Array([parseInt(hex, 16)]);
-          return new TextDecoder('windows-1252').decode(byte);
+          return WIN1252_DECODER.decode(byte);
         } catch {
           return '';
         }
@@ -1504,16 +1514,21 @@ function cleanDcfText(raw?: string | null): string {
   return s.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim();
 }
 
-/**
- * Converte una stringa numerica o espressione matematica semplice di PriMus in numero float.
- * Gestisce sia numeri standard ("1250.50", "1.250,50", "12,50") sia formule semplici ("2*3,50", "4+2,5").
- */
 export function parseDcfNumber(raw?: string | null): number | undefined {
   if (raw === undefined || raw === null) return undefined;
   const trimmed = String(raw).trim();
   if (!trimmed) return undefined;
 
-  // Normalizzazione numero standard italiano o internazionale
+  // Fast-path immediata per numeri puri standard (95% dei casi)
+  if (/^[+-]?\d+(\.\d+)?$/.test(trimmed)) {
+    const v = parseFloat(trimmed);
+    return isNaN(v) ? undefined : v;
+  }
+  if (/^[+-]?\d+,\d+$/.test(trimmed)) {
+    const v = parseFloat(trimmed.replace(',', '.'));
+    return isNaN(v) ? undefined : v;
+  }
+
   const normalizeNumToken = (token: string): string => {
     let t = token.split('|')[0].replace(/[´' $€]/g, '');
     const lastComma = t.lastIndexOf(',');
@@ -1536,7 +1551,6 @@ export function parseDcfNumber(raw?: string | null): number | undefined {
     return isNaN(val) ? undefined : val;
   }
 
-  // Valutazione sicura di espressioni aritmetiche semplici usate nei righi di misura PriMus (es. "2*1,50", "(3,20+1,80)/2")
   const expr = trimmed
     .replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2')
     .replace(/,/g, '.')
@@ -1558,18 +1572,24 @@ export function parseDcfNumber(raw?: string | null): number | undefined {
   return isNaN(fallback) ? undefined : fallback;
 }
 
-/**
- * Helper universale per interrogare un nodo XML (compatibile sia con DOMParser browser sia con fallback regex)
- */
 interface LiteXmlNode {
   tagName: string;
+  lowerTag: string;
   attributes: Record<string, string>;
+  lowerAttrs: Record<string, string>;
   text: string;
   children: LiteXmlNode[];
 }
 
+let activeXmlCache: Map<string, LiteXmlNode> | null = null;
+
 function parseXmlToLiteTree(xmlString: string): LiteXmlNode {
-  // Se DOMParser è disponibile nel browser, usalo per massima precisione
+  if (activeXmlCache && activeXmlCache.has(xmlString)) {
+    return activeXmlCache.get(xmlString)!;
+  }
+
+  let parsedTree: LiteXmlNode | null = null;
+
   if (typeof DOMParser !== 'undefined') {
     try {
       const parser = new DOMParser();
@@ -1578,14 +1598,20 @@ function parseXmlToLiteTree(xmlString: string): LiteXmlNode {
       if (!parserError && doc.documentElement) {
         const convertDomNode = (el: Element): LiteXmlNode => {
           const attrs: Record<string, string> = {};
-          for (let i = 0; i < el.attributes.length; i++) {
-            const a = el.attributes[i];
+          const lowerAttrs: Record<string, string> = {};
+          const elAttrs = el.attributes;
+          for (let i = 0; i < elAttrs.length; i++) {
+            const a = elAttrs[i];
             attrs[a.name] = a.value;
+            if (a.value !== '') {
+              lowerAttrs[a.name.toLowerCase()] = a.value;
+            }
           }
           const children: LiteXmlNode[] = [];
           let directText = '';
-          for (let i = 0; i < el.childNodes.length; i++) {
-            const cn = el.childNodes[i];
+          const childNodes = el.childNodes;
+          for (let i = 0; i < childNodes.length; i++) {
+            const cn = childNodes[i];
             if (cn.nodeType === 1) {
               children.push(convertDomNode(cn as Element));
             } else if (cn.nodeType === 3 || cn.nodeType === 4) {
@@ -1595,105 +1621,120 @@ function parseXmlToLiteTree(xmlString: string): LiteXmlNode {
           const text = directText.trim() || (children.length === 0 ? el.textContent?.trim() || '' : '');
           return {
             tagName: el.tagName,
+            lowerTag: el.tagName.toLowerCase(),
             attributes: attrs,
+            lowerAttrs,
             text,
             children
           };
         };
-        return convertDomNode(doc.documentElement);
+        parsedTree = convertDomNode(doc.documentElement);
       }
     } catch {
       // Fallback al parser leggero integrato
     }
   }
 
-  // Parser XML leggero e veloce (funziona anche in ambienti Node/SSR e su XML con caratteri speciali non scappati)
-  const root: LiteXmlNode = { tagName: 'root', attributes: {}, text: '', children: [] };
-  const stack: LiteXmlNode[] = [root];
+  if (!parsedTree) {
+    const root: LiteXmlNode = { tagName: 'root', lowerTag: 'root', attributes: {}, lowerAttrs: {}, text: '', children: [] };
+    const stack: LiteXmlNode[] = [root];
 
-  const cleanXml = xmlString
-    .replace(/<\?xml[\s\S]*?\?>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '');
+    const cleanXml = xmlString
+      .replace(/<\?xml[\s\S]*?\?>/gi, '')
+      .replace(/<!--[\s\S]*?-->/g, '');
 
-  const tagRegex = /<!\[CDATA\[([\s\S]*?)\]\]>|<(\/?)([a-zA-Z0-9_:-]+)((?:\s+[a-zA-Z0-9_:-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;
-  let match: RegExpExecArray | null;
+    const tagRegex = /<!\[CDATA\[([\s\S]*?)\]\]>|<(\/?)([a-zA-Z0-9_:-]+)((?:\s+[a-zA-Z0-9_:-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;
+    let match: RegExpExecArray | null;
 
-  while ((match = tagRegex.exec(cleanXml)) !== null) {
-    const [, cdata, closingSlash, tagName, attrStr, selfClosingSlash, textNode] = match;
-    const current = stack[stack.length - 1];
+    while ((match = tagRegex.exec(cleanXml)) !== null) {
+      const [, cdata, closingSlash, tagName, attrStr, selfClosingSlash, textNode] = match;
+      const current = stack[stack.length - 1];
 
-    if (cdata !== undefined) {
-      current.text += cdata;
-    } else if (textNode !== undefined) {
-      const t = textNode.trim();
-      if (t) current.text += (current.text ? ' ' : '') + t;
-    } else if (tagName) {
-      if (closingSlash) {
-        if (stack.length > 1) stack.pop();
-      } else {
-        const attributes: Record<string, string> = {};
-        if (attrStr) {
-          const attrRegex = /([a-zA-Z0-9_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-          let am: RegExpExecArray | null;
-          while ((am = attrRegex.exec(attrStr)) !== null) {
-            attributes[am[1]] = cleanDcfText(am[2] ?? am[3] ?? '');
+      if (cdata !== undefined) {
+        current.text += cdata;
+      } else if (textNode !== undefined) {
+        const t = textNode.trim();
+        if (t) current.text += (current.text ? ' ' : '') + t;
+      } else if (tagName) {
+        if (closingSlash) {
+          if (stack.length > 1) stack.pop();
+        } else {
+          const attributes: Record<string, string> = {};
+          const lowerAttrs: Record<string, string> = {};
+          if (attrStr) {
+            const attrRegex = /([a-zA-Z0-9_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+            let am: RegExpExecArray | null;
+            while ((am = attrRegex.exec(attrStr)) !== null) {
+              const val = cleanDcfText(am[2] ?? am[3] ?? '');
+              attributes[am[1]] = val;
+              if (val !== '') {
+                lowerAttrs[am[1].toLowerCase()] = val;
+              }
+            }
           }
-        }
-        const node: LiteXmlNode = {
-          tagName,
-          attributes,
-          text: '',
-          children: []
-        };
-        current.children.push(node);
-        if (!selfClosingSlash) {
-          stack.push(node);
+          const node: LiteXmlNode = {
+            tagName,
+            lowerTag: tagName.toLowerCase(),
+            attributes,
+            lowerAttrs,
+            text: '',
+            children: []
+          };
+          current.children.push(node);
+          if (!selfClosingSlash) {
+            stack.push(node);
+          }
         }
       }
     }
+
+    parsedTree = root.children.length === 1 ? root.children[0] : root;
   }
 
-  return root.children.length === 1 ? root.children[0] : root;
+  if (activeXmlCache) {
+    activeXmlCache.set(xmlString, parsedTree);
+  }
+  return parsedTree;
 }
 
 function getNodeFullText(node: LiteXmlNode): string {
   if (node.text) return node.text;
   let full = '';
-  for (const c of node.children) {
-    const ct = getNodeFullText(c);
+  for (let i = 0; i < node.children.length; i++) {
+    const ct = getNodeFullText(node.children[i]);
     if (ct) full += (full ? ' ' : '') + ct;
   }
   return full;
 }
 
-function getFieldVal(node: LiteXmlNode, candidateNames: string[]): string | undefined {
-  const lowerCandidates = candidateNames.map(c => c.toLowerCase());
+function getFieldVal(node: LiteXmlNode, candidateNames: readonly string[]): string | undefined {
+  const lowerAttrs = node.lowerAttrs;
+  const children = node.children;
 
-  // 1. Cerca negli attributi del nodo stesso (rispettando l'ordine di priorità di candidateNames)
-  const attrMapLower = new Map<string, string>();
-  for (const [k, v] of Object.entries(node.attributes)) {
-    if (v !== undefined && v !== '') {
-      attrMapLower.set(k.toLowerCase(), v);
-    }
-  }
-  for (const cand of lowerCandidates) {
-    const found = attrMapLower.get(cand);
+  // 1. Ricerca diretta O(1) negli attributi pre-lowercased (senza allocare Map né toLowerCase ripetuti)
+  for (let i = 0; i < candidateNames.length; i++) {
+    const cand = candidateNames[i].toLowerCase();
+    const found = lowerAttrs[cand];
     if (found !== undefined && found !== '') {
       return cleanDcfText(found);
     }
   }
 
-  // 2. Cerca nei figli diretti
-  for (const cand of lowerCandidates) {
-    for (const child of node.children) {
-      if (child.tagName.toLowerCase() === cand) {
-        const val =
-          getNodeFullText(child) ||
-          child.attributes.value ||
-          child.attributes.Valore ||
-          child.attributes.val ||
-          '';
-        if (val !== '') return cleanDcfText(val);
+  // 2. Ricerca nei figli diretti
+  if (children.length > 0) {
+    for (let i = 0; i < candidateNames.length; i++) {
+      const cand = candidateNames[i].toLowerCase();
+      for (let j = 0; j < children.length; j++) {
+        const child = children[j];
+        if (child.lowerTag === cand) {
+          const val =
+            getNodeFullText(child) ||
+            child.lowerAttrs.value ||
+            child.lowerAttrs.valore ||
+            child.lowerAttrs.val ||
+            '';
+          if (val !== '') return cleanDcfText(val);
+        }
       }
     }
   }
@@ -1705,8 +1746,8 @@ function collectNodesByPredicate(node: LiteXmlNode, pred: (n: LiteXmlNode) => bo
   if (pred(node)) {
     out.push(node);
   }
-  for (const c of node.children) {
-    collectNodesByPredicate(c, pred, out);
+  for (let i = 0; i < node.children.length; i++) {
+    collectNodesByPredicate(node.children[i], pred, out);
   }
   return out;
 }
@@ -2614,7 +2655,8 @@ function computeMeasurementContribution(m: Measurement): number {
  */
 export async function convertDcfComputo(
   fileOrBuffer: File | ArrayBuffer | Uint8Array,
-  fileName?: string
+  fileName?: string,
+  onProgress?: (step: string) => void
 ): Promise<ConvertedComputoResult> {
   let uint8: Uint8Array;
   if (fileOrBuffer instanceof File) {
@@ -2631,6 +2673,8 @@ export async function convertDcfComputo(
     throw new Error('Il file .dcf selezionato è vuoto o danneggiato.');
   }
 
+  onProgress?.('Estrazione e decompressione stream XML dal contenitore .dcf...');
+
   // 1. Estrazione e decompressione degli stream XML dal contenitore .dcf
   const streams = extractDcfXmlStreams(uint8);
   if (streams.rawXmlStreams.length === 0) {
@@ -2639,20 +2683,26 @@ export async function convertDcfComputo(
     );
   }
 
-  // 2. Parsing Metadati Progetto (InfoDoc.xml + DatiGenerali.xml)
-  const projectInfo = parseProjectMetadata(streams.infoDocXml, streams.datiGeneraliXml, fileName);
+  onProgress?.('Parsing struttura WBS, Elenco Prezzi e Misurazioni...');
+  await new Promise((r) => setTimeout(r, 0));
 
-  // 3. Parsing SuperTesti / String Table (CollectionST.xml)
-  const stMap = parseCollectionST(streams.collectionSTXml);
+  // Attiva cache alberi XML per evitare di ri-parsare più volte lo stesso stream (es. xpweXml)
+  activeXmlCache = new Map<string, LiteXmlNode>();
+  try {
+    // 2. Parsing Metadati Progetto (InfoDoc.xml + DatiGenerali.xml)
+    const projectInfo = parseProjectMetadata(streams.infoDocXml, streams.datiGeneraliXml, fileName);
 
-  // 4. Parsing Categorie / Capitoli WBS (CollectionGP.xml)
-  const rawCategories = parseCollectionGP(streams.collectionGPXml, streams.datiGeneraliXml, streams.xpweXml);
+    // 3. Parsing SuperTesti / String Table (CollectionST.xml)
+    const stMap = parseCollectionST(streams.collectionSTXml);
 
-  // 5. Parsing Elenco Prezzi (CollectionEP.xml)
-  let epMap = parseCollectionEP(streams.collectionEPXml, streams.xpweXml, stMap);
+    // 4. Parsing Categorie / Capitoli WBS (CollectionGP.xml)
+    const rawCategories = parseCollectionGP(streams.collectionGPXml, streams.datiGeneraliXml, streams.xpweXml);
 
-  // 6. Parsing Voci di Computo e Misure (CollectionVC.xml)
-  let rawVcItems = parseCollectionVC(streams.collectionVCXml, streams.xpweXml, stMap);
+    // 5. Parsing Elenco Prezzi (CollectionEP.xml)
+    let epMap = parseCollectionEP(streams.collectionEPXml, streams.xpweXml, stMap);
+
+    // 6. Parsing Voci di Computo e Misure (CollectionVC.xml)
+    let rawVcItems = parseCollectionVC(streams.collectionVCXml, streams.xpweXml, stMap);
 
   // Fallback: se epMap o rawVcItems sono vuoti, cerca in tutti gli stream XML estratti
   if (epMap.size === 0) {
@@ -2918,13 +2968,16 @@ export async function convertDcfComputo(
 
   const totalAmount = articles.reduce((sum, a) => sum + a.unitPrice * a.quantity, 0);
 
-  return {
-    projectInfo,
-    categories: finalCategories,
-    articles,
-    totalAmount,
-    totalPages: streams.rawXmlStreams.length,
-    articlesCount: articles.length,
-    fileName
-  };
+    return {
+      projectInfo,
+      categories: finalCategories,
+      articles,
+      totalAmount,
+      totalPages: streams.rawXmlStreams.length,
+      articlesCount: articles.length,
+      fileName
+    };
+  } finally {
+    activeXmlCache = null;
+  }
 }

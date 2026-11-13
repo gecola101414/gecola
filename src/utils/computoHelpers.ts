@@ -170,34 +170,43 @@ export const calculateRowValueWithContext = (
 export const resolveArticleQuantity = (
   articleId: string,
   allArticlesMap: Map<string, Article>,
-  visited: Set<string> = new Set()
+  visited: Set<string> = new Set(),
+  resolvedCache?: Map<string, number>
 ): number => {
+  if (resolvedCache && resolvedCache.has(articleId)) {
+    return resolvedCache.get(articleId)!;
+  }
   if (visited.has(articleId)) return 0;
   visited.add(articleId);
 
   const article = allArticlesMap.get(articleId);
   if (!article) return 0;
 
-  const sum = article.measurements.reduce((acc, m) => {
-    let rowVal = 0;
+  let sum = 0;
+  const measurements = article.measurements;
+  for (let i = 0; i < measurements.length; i++) {
+    const m = measurements[i];
+    if (m.type === 'subtotal') continue;
     if (m.linkedArticleId) {
-      const sourceQty = resolveArticleQuantity(m.linkedArticleId, allArticlesMap, new Set(visited));
+      const sourceQty = resolveArticleQuantity(m.linkedArticleId, allArticlesMap, visited, resolvedCache);
       const sourceArt = allArticlesMap.get(m.linkedArticleId);
       let finalSourceVal = sourceQty;
       if (m.linkedType === 'amount' && sourceArt) {
         finalSourceVal = sourceQty * sourceArt.unitPrice;
       }
-      rowVal = calculateRowValueWithContext(m, article.unit, finalSourceVal, sourceArt?.unit || '');
+      sum += calculateRowValueWithContext(m, article.unit, finalSourceVal, sourceArt?.unit || '');
     } else {
-      rowVal = calculateRowValueWithContext(m, article.unit);
+      sum += calculateRowValueWithContext(m, article.unit);
     }
-    return acc + rowVal;
-  }, 0);
-
-  if (article.measurements.length === 0 || (sum === 0 && article.quantity > 0)) {
-    return article.quantity;
   }
-  return sum;
+
+  visited.delete(articleId);
+
+  const result = measurements.length === 0 || (sum === 0 && article.quantity > 0) ? article.quantity : sum;
+  if (resolvedCache) {
+    resolvedCache.set(articleId, result);
+  }
+  return result;
 };
 
 export const isBlankMeasurement = (m: Measurement) => {
@@ -212,9 +221,66 @@ export const isBlankMeasurement = (m: Measurement) => {
 };
 
 export const recalculateAllArticles = (articles: Article[]): Article[] => {
-  const articleMap = new Map(articles.map((a) => [a.id, a]));
-  return articles.map((art) => {
-    const calculatedQty = resolveArticleQuantity(art.id, articleMap);
-    return { ...art, quantity: roundTwoDecimals(calculatedQty) };
+  const articleMap = new Map<string, Article>();
+  for (let i = 0; i < articles.length; i++) {
+    articleMap.set(articles[i].id, articles[i]);
+  }
+  const resolvedCache = new Map<string, number>();
+  let anyChanged = false;
+
+  const result = articles.map((art) => {
+    const calculatedQty = roundTwoDecimals(resolveArticleQuantity(art.id, articleMap, new Set(), resolvedCache));
+    if (calculatedQty === art.quantity) {
+      return art;
+    }
+    anyChanged = true;
+    return { ...art, quantity: calculatedQty };
   });
+
+  return anyChanged ? result : articles;
+};
+
+/**
+ * Ricalcola rapidamente solo l'articolo modificato e gli eventuali articoli che lo referenziano tramite Vedi Voce.
+ * Evita di ricalcolare centinaia o migliaia di articoli non coinvolti durante la digitazione delle misure.
+ */
+export const recalculateAffectedArticles = (articles: Article[], changedArticleId: string): Article[] => {
+  // Verifica veloce se qualche articolo ha collegamenti inter-voce
+  let hasAnyLink = false;
+  for (let i = 0; i < articles.length; i++) {
+    const ms = articles[i].measurements;
+    for (let j = 0; j < ms.length; j++) {
+      if (ms[j].linkedArticleId) {
+        hasAnyLink = true;
+        break;
+      }
+    }
+    if (hasAnyLink) break;
+  }
+
+  if (hasAnyLink) {
+    return recalculateAllArticles(articles);
+  }
+
+  // Fast-path O(1) sugli articoli non toccati: aggiorna solo l'articolo modificato
+  let changed = false;
+  const next = articles.map((art) => {
+    if (art.id !== changedArticleId) return art;
+    let sum = 0;
+    for (let i = 0; i < art.measurements.length; i++) {
+      const m = art.measurements[i];
+      if (m.type !== 'subtotal') {
+        sum += calculateRowValueWithContext(m, art.unit);
+      }
+    }
+    const nextQty =
+      art.measurements.length === 0 || (sum === 0 && art.quantity > 0)
+        ? art.quantity
+        : roundTwoDecimals(sum);
+    if (nextQty === art.quantity) return art;
+    changed = true;
+    return { ...art, quantity: nextQty };
+  });
+
+  return changed ? next : articles;
 };

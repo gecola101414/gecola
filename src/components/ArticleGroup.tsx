@@ -192,21 +192,23 @@ export const FastTextarea: React.FC<FastTextareaProps> = ({ initialValue, onComm
   const isDirtyRef = useRef(false);
 
   const adjustHeight = () => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.max(22, textareaRef.current.scrollHeight)}px`;
-    }
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.max(22, el.scrollHeight)}px`;
   };
 
   useEffect(() => {
     setVal(initialValue);
     isDirtyRef.current = false;
-    setTimeout(adjustHeight, 0);
+    // Evita forced reflow su migliaia di celle vuote o corte a singola riga durante lo scroll virtualizzato
+    if (initialValue && (initialValue.includes('\n') || initialValue.length >= 42)) {
+      const raf = requestAnimationFrame(adjustHeight);
+      return () => cancelAnimationFrame(raf);
+    } else if (textareaRef.current && textareaRef.current.style.height && textareaRef.current.style.height !== '22px') {
+      textareaRef.current.style.height = '22px';
+    }
   }, [initialValue]);
-
-  useEffect(() => {
-    adjustHeight();
-  }, [val]);
 
   useEffect(() => {
     if (props.autoFocus && textareaRef.current) {
@@ -352,7 +354,8 @@ export interface ArticleGroupProps {
   article: Article;
   index: number;
   globalIndex: number;
-  allArticles: Article[];
+  allArticlesMap: Map<string, Article>;
+  articleLocalNumberMap: Map<string, string>;
   isPrintMode: boolean;
   isCategoryLocked?: boolean;
   isSurveyorGuardActive: boolean;
@@ -395,6 +398,7 @@ export interface ArticleGroupProps {
   voiceActiveField?: VoiceField;
   onVoiceCellFocus?: (rowId: string, field: VoiceField) => void;
   onOpenContextMenu?: (e: React.MouseEvent, article: Article, measurement?: Measurement | null) => void;
+  onTbodyRef?: (articleId: string, el: HTMLTableSectionElement | null) => void;
 }
 
 const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
@@ -402,7 +406,8 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
     article,
     index,
     globalIndex,
-    allArticles,
+    allArticlesMap,
+    articleLocalNumberMap,
     isPrintMode,
     isCategoryLocked,
     isSurveyorGuardActive,
@@ -439,6 +444,7 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
     voiceActiveRowId,
     voiceActiveField,
     onVoiceCellFocus,
+    onTbodyRef,
   } = props;
 
   const [measurementDragOverId, setMeasurementDragOverId] = useState<string | null>(null);
@@ -449,7 +455,12 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
   const [touchedRowIds, setTouchedRowIds] = useState<Set<string>>(new Set());
 
   const addBtnRef = useRef<HTMLButtonElement>(null);
-  const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  const tbodyRef = useRef<HTMLTableSectionElement | null>(null);
+
+  const setCombinedTbodyRef = (el: HTMLTableSectionElement | null) => {
+    tbodyRef.current = el;
+    onTbodyRef?.(article.id, el);
+  };
 
   const isArticleLocked = article.isLocked || false;
   const isArticleDisabled = article.isEnabled === false;
@@ -459,8 +470,6 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
   const isIndustrialMode = individualDisplayMode === 2; // Patto d'Acciaio
   const isConciseMode = individualDisplayMode === 1; // Revisione
   const isSafetyCategory = article.categoryCode.startsWith('S.');
-
-  const articlesById = useMemo(() => new Map(allArticles.map((a) => [a.id, a])), [allArticles]);
 
   const handleCycleLocal = () => {
     if (isCategoryLocked) return;
@@ -487,7 +496,7 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
 
     let sourceRank = 0;
     if (m.linkedArticleId) {
-      const src = articlesById.get(m.linkedArticleId);
+      const src = allArticlesMap.get(m.linkedArticleId);
       if (src) sourceRank = getRank(src.unit);
     }
 
@@ -576,14 +585,11 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
 
   const getLinkedInfo = (m: Measurement) => {
     if (!m.linkedArticleId) return null;
-    return articlesById.get(m.linkedArticleId) || null;
+    return allArticlesMap.get(m.linkedArticleId) || null;
   };
 
   const getLinkedArticleNumber = (linkedArt: Article) => {
-    const catArticles = allArticles.filter((a) => a.id && a.categoryCode === linkedArt.categoryCode);
-    const localIndex = catArticles.findIndex((a) => a.id === linkedArt.id) + 1;
-    const wbsNum = getWbsNumber(linkedArt.categoryCode);
-    return `${wbsNum}.${localIndex}`;
+    return articleLocalNumberMap.get(linkedArt.id) || `${getWbsNumber(linkedArt.categoryCode)}.1`;
   };
 
   let runningPartialSum = 0;
@@ -591,7 +597,7 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
     let val = 0;
     if (m.type !== 'subtotal') {
       if (m.linkedArticleId) {
-        const linkedArt = articlesById.get(m.linkedArticleId);
+        const linkedArt = allArticlesMap.get(m.linkedArticleId);
         if (linkedArt) {
           const baseVal = m.linkedType === 'amount' ? linkedArt.quantity * linkedArt.unitPrice : linkedArt.quantity;
           val = calculateRowValueWithContext(m, article.unit, baseVal, linkedArt.unit);
@@ -765,7 +771,7 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
 
   return (
     <tbody
-      ref={tbodyRef}
+      ref={setCombinedTbodyRef}
       id={`article-${article.id}`}
       style={{ scrollMarginTop: '60px' }}
       className={`article-block group/article transition-all ${
@@ -1509,4 +1515,94 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
   );
 };
 
-export const ArticleGroup = React.memo(ArticleGroupComponent);
+function areArticleGroupPropsEqual(prev: ArticleGroupProps, next: ArticleGroupProps): boolean {
+  if (
+    prev.article !== next.article ||
+    prev.index !== next.index ||
+    prev.globalIndex !== next.globalIndex ||
+    prev.isPrintMode !== next.isPrintMode ||
+    prev.isCategoryLocked !== next.isCategoryLocked ||
+    prev.isSurveyorGuardActive !== next.isSurveyorGuardActive ||
+    prev.projectSettings !== next.projectSettings ||
+    prev.onTbodyRef !== next.onTbodyRef
+  ) {
+    return false;
+  }
+
+  // Evidenziazione spostamento solo per la voce interessata
+  const prevMoved = prev.lastMovedItemId === prev.article.id;
+  const nextMoved = next.lastMovedItemId === next.article.id;
+  if (prevMoved !== nextMoved) return false;
+
+  // Smart repeat solo per la voce interessata
+  const prevRepeat = prev.smartRepeatActiveId === prev.article.id;
+  const nextRepeat = next.smartRepeatActiveId === next.article.id;
+  if (prevRepeat !== nextRepeat) return false;
+
+  // Dettatura vocale solo per la voce interessata
+  const prevRec = prev.recordingArticleId === prev.article.id;
+  const nextRec = next.recordingArticleId === next.article.id;
+  if (prevRec !== nextRec) return false;
+  if (nextRec && (prev.voiceActiveRowId !== next.voiceActiveRowId || prev.voiceActiveField !== next.voiceActiveField)) {
+    return false;
+  }
+
+  // Focus auto su nuovo rigo solo se riguarda questo articolo
+  if (prev.lastAddedMeasurementId !== next.lastAddedMeasurementId) {
+    const addFocusKey = 'ADD_BUTTON_FOCUS' + next.article.id;
+    const touchesThis =
+      prev.lastAddedMeasurementId === addFocusKey ||
+      next.lastAddedMeasurementId === addFocusKey ||
+      next.article.measurements.some(
+        (m) => m.id === prev.lastAddedMeasurementId || m.id === next.lastAddedMeasurementId
+      );
+    if (touchesThis) return false;
+  }
+
+  // Aggiorna solo se un articolo collegato tramite "Vedi Voce" è cambiato
+  if (prev.allArticlesMap !== next.allArticlesMap || prev.articleLocalNumberMap !== next.articleLocalNumberMap) {
+    for (let i = 0; i < next.article.measurements.length; i++) {
+      const linkedId = next.article.measurements[i].linkedArticleId;
+      if (linkedId) {
+        if (prev.allArticlesMap.get(linkedId) !== next.allArticlesMap.get(linkedId)) return false;
+        if (prev.articleLocalNumberMap.get(linkedId) !== next.articleLocalNumberMap.get(linkedId)) return false;
+      }
+    }
+  }
+
+  // Callback stability check
+  if (
+    prev.onUpdateArticle !== next.onUpdateArticle ||
+    prev.onEditArticleDetails !== next.onEditArticleDetails ||
+    prev.onUpdateMeasurement !== next.onUpdateMeasurement ||
+    prev.onDeleteMeasurement !== next.onDeleteMeasurement ||
+    prev.onAddMeasurement !== next.onAddMeasurement ||
+    prev.onAddSubtotal !== next.onAddSubtotal ||
+    prev.onOpenLinkModal !== next.onOpenLinkModal ||
+    prev.onScrollToArticle !== next.onScrollToArticle ||
+    prev.onViewAnalysis !== next.onViewAnalysis ||
+    prev.onInsertExternalArticle !== next.onInsertExternalArticle ||
+    prev.onToggleArticleLock !== next.onToggleArticleLock ||
+    prev.onOpenRebarCalculator !== next.onOpenRebarCalculator ||
+    prev.onOpenPaintingCalculator !== next.onOpenPaintingCalculator ||
+    prev.onToggleSmartRepeat !== next.onToggleSmartRepeat ||
+    prev.onToggleItemDisplayMode !== next.onToggleItemDisplayMode ||
+    prev.onStartVoiceDictation !== next.onStartVoiceDictation ||
+    prev.onDeleteArticle !== next.onDeleteArticle ||
+    prev.onToggleArticleEnabled !== next.onToggleArticleEnabled ||
+    prev.onArticleDragStart !== next.onArticleDragStart ||
+    prev.onArticleDrop !== next.onArticleDrop ||
+    prev.onArticleDragEnd !== next.onArticleDragEnd ||
+    prev.onColumnFocus !== next.onColumnFocus ||
+    prev.onMeasurementDragStart !== next.onMeasurementDragStart ||
+    prev.onMeasurementDrop !== next.onMeasurementDrop ||
+    prev.onVoiceCellFocus !== next.onVoiceCellFocus ||
+    prev.onOpenContextMenu !== next.onOpenContextMenu
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export const ArticleGroup = React.memo(ArticleGroupComponent, areArticleGroupPropsEqual);

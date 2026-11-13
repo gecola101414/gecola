@@ -16,48 +16,63 @@ const Summary: React.FC<SummaryProps> = ({ totals, info, categories, articles, a
     return new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(val);
   };
 
-  // 1. Riepilogo per WBS
+  // 1. Riepilogo per WBS - O(N + M)
   const wbsBreakdown = useMemo(() => {
-      return categories
-        .filter(c => c.isEnabled !== false && !c.isSuperCategory)
-        .map(cat => {
-          const catTotal = articles
-            .filter(a => a.categoryCode === cat.code && a.isEnabled !== false)
-            .reduce((sum, a) => sum + (a.quantity * a.unitPrice), 0);
-          return { ...cat, total: catTotal };
-      }).filter(c => c.total > 0.01);
+    const totalsByCat = new Map<string, number>();
+    for (let i = 0; i < articles.length; i++) {
+      const a = articles[i];
+      if (a.isEnabled === false) continue;
+      totalsByCat.set(a.categoryCode, (totalsByCat.get(a.categoryCode) || 0) + a.quantity * a.unitPrice);
+    }
+
+    return categories
+      .filter((c) => c.isEnabled !== false && !c.isSuperCategory)
+      .map((cat) => ({ ...cat, total: totalsByCat.get(cat.code) || 0 }))
+      .filter((c) => c.total > 0.01);
   }, [categories, articles]);
 
-  // 2. Riepilogo SOA
+  // 2. Riepilogo SOA - O(N + M)
   const soaBreakdown = useMemo(() => {
-      const soaMap: Record<string, number> = {};
-      let untaggedTotal = 0;
+    const categoryMap = new Map<string, Category>();
+    for (let i = 0; i < categories.length; i++) {
+      categoryMap.set(categories[i].code, categories[i]);
+    }
+    const soaDescMap = new Map<string, string>();
+    for (let i = 0; i < SOA_CATEGORIES.length; i++) {
+      soaDescMap.set(SOA_CATEGORIES[i].code, SOA_CATEGORIES[i].desc);
+    }
 
-      articles.forEach(art => {
-          if (art.isEnabled === false) return;
-          const cat = categories.find(c => c.code === art.categoryCode);
-          if (cat && cat.isEnabled === false) return;
+    const soaMap: Record<string, number> = {};
+    let untaggedTotal = 0;
 
-          const amount = art.quantity * art.unitPrice;
-          const effectiveSoa = cat?.soaCategory || art.soaCategory;
+    for (let i = 0; i < articles.length; i++) {
+      const art = articles[i];
+      if (art.isEnabled === false) continue;
+      const cat = categoryMap.get(art.categoryCode);
+      if (cat && cat.isEnabled === false) continue;
 
-          if (effectiveSoa) {
-              soaMap[effectiveSoa] = (soaMap[effectiveSoa] || 0) + amount;
-          } else if (amount > 0) {
-              untaggedTotal += amount;
-          }
-      });
+      const amount = art.quantity * art.unitPrice;
+      const effectiveSoa = cat?.soaCategory || art.soaCategory;
 
-      const list = Object.entries(soaMap).map(([code, amount]) => ({
-          code,
-          description: SOA_CATEGORIES.find(s => s.code === code)?.desc || 'Cat. Sconosciuta',
-          amount
-      })).sort((a, b) => b.amount - a.amount);
-
-      if (untaggedTotal > 0.01) {
-          list.push({ code: 'N/D', description: 'Voci non qualificate (Verifica WBS)', amount: untaggedTotal });
+      if (effectiveSoa) {
+        soaMap[effectiveSoa] = (soaMap[effectiveSoa] || 0) + amount;
+      } else if (amount > 0) {
+        untaggedTotal += amount;
       }
-      return list;
+    }
+
+    const list = Object.entries(soaMap)
+      .map(([code, amount]) => ({
+        code,
+        description: soaDescMap.get(code) || 'Cat. Sconosciuta',
+        amount,
+      }))
+      .sort((a, b) => b.amount - a.amount);
+
+    if (untaggedTotal > 0.01) {
+      list.push({ code: 'N/D', description: 'Voci non qualificate (Verifica WBS)', amount: untaggedTotal });
+    }
+    return list;
   }, [articles, categories]);
 
   const totalAnalyzed = soaBreakdown.reduce((s, i) => s + i.amount, 0);

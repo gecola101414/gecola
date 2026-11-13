@@ -72,6 +72,7 @@ import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { ArticleGroup, TableHeader, RebarCagePillarIcon } from './components/ArticleGroup';
+import { VirtualizedComputoTable, ScrollToArticleRequest } from './components/VirtualizedComputoTable';
 import { parseDroppedContent, generateBulkItems, cleanDescription } from './services/geminiService';
 import {
   generateComputoMetricPdf,
@@ -95,8 +96,22 @@ import {
   formatCurrency,
   roundTwoDecimals,
   isBlankMeasurement,
+  getWbsNumber,
   recalculateAllArticles,
+  recalculateAffectedArticles,
 } from './utils/computoHelpers';
+
+const IsolatedTableHeader: React.FC<{
+  registerSetter: (setter: (col: string | null) => void) => void;
+  tariffWidth?: number;
+  isSafety?: boolean;
+}> = React.memo(({ registerSetter, tariffWidth, isSafety }) => {
+  const [activeColumn, setActiveColumn] = useState<string | null>(null);
+  useEffect(() => {
+    registerSetter(setActiveColumn);
+  }, [registerSetter]);
+  return <TableHeader activeColumn={activeColumn} tariffWidth={tariffWidth} isSafety={isSafety} />;
+});
 
 type ViewMode = 'COMPUTO' | 'SICUREZZA' | 'ANALISI' | 'SUMMARY' | 'CRONOPROGRAMMA';
 
@@ -592,13 +607,17 @@ function App() {
 
   const [viewMode, setViewMode] = useState<ViewMode>('COMPUTO');
   const [categories, setCategories] = useState<Category[]>(initializedCategories);
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
+
   const [articles, setArticles] = useState<Article[]>(() => (isNewProjectTab ? [] : INITIAL_ARTICLES));
   const articlesRef = useRef(articles);
-  useEffect(() => {
-    articlesRef.current = articles;
-  }, [articles]);
+  articlesRef.current = articles;
 
   const [analyses, setAnalyses] = useState<PriceAnalysis[]>(() => (isNewProjectTab ? [] : INITIAL_ANALYSES));
+  const analysesRef = useRef(analyses);
+  analysesRef.current = analyses;
+
   const [projectInfo, setProjectInfo] = useState<ProjectInfo>(() =>
     isNewProjectTab
       ? {
@@ -610,7 +629,31 @@ function App() {
       : PROJECT_INFO
   );
   const [selectedCategoryCode, setSelectedCategoryCode] = useState<string>(categories[0]?.code || 'WBS.01');
-  const [activeColumn, setActiveColumn] = useState<string | null>(null);
+  const selectedCategoryCodeRef = useRef(selectedCategoryCode);
+  selectedCategoryCodeRef.current = selectedCategoryCode;
+
+  const wbsDisplayModeRef = useRef(wbsDisplayMode);
+  wbsDisplayModeRef.current = wbsDisplayMode;
+
+  const activeCategoryForAiRef = useRef(activeCategoryForAi);
+  activeCategoryForAiRef.current = activeCategoryForAi;
+
+  const smartRepeatActiveIdRef = useRef(smartRepeatActiveId);
+  smartRepeatActiveIdRef.current = smartRepeatActiveId;
+
+  const recordingArticleIdRef = useRef(recordingArticleId);
+  recordingArticleIdRef.current = recordingArticleId;
+
+  const setActiveColumnCallbackRef = useRef<(col: string | null) => void>(() => {});
+  const registerActiveColumnSetter = useCallback((setter: (col: string | null) => void) => {
+    setActiveColumnCallbackRef.current = setter;
+  }, []);
+  const handleColumnFocus = useCallback((col: string | null) => {
+    setActiveColumnCallbackRef.current(col);
+  }, []);
+
+  const [scrollToArticleRequest, setScrollToArticleRequest] = useState<ScrollToArticleRequest | null>(null);
+
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [future, setFuture] = useState<Snapshot[]>([]);
   const [currentFileHandle, setCurrentFileHandle] = useState<any>(null);
@@ -632,7 +675,7 @@ function App() {
     measurement?: Measurement | null;
   } | null>(null);
 
-  const handleOpenContextMenu = (e: React.MouseEvent, article: Article, measurement?: Measurement | null) => {
+  const handleOpenContextMenu = useCallback((e: React.MouseEvent, article: Article, measurement?: Measurement | null) => {
     e.preventDefault();
     e.stopPropagation();
     setContextMenuTarget({
@@ -641,7 +684,7 @@ function App() {
       article,
       measurement,
     });
-  };
+  }, []);
 
   const handleAddSameMeasure = (articleId: string, sourceMeasurementId?: string) => {
     const newId = Math.random().toString(36).substr(2, 9);
@@ -862,7 +905,7 @@ function App() {
       if (ro) ro.disconnect();
       window.removeEventListener('resize', updateScrollbar);
     };
-  }, [articles, selectedCategoryCode, viewMode, isFocusMode, projectInfo.tariffColumnWidth]);
+  }, [selectedCategoryCode, viewMode, isFocusMode]);
 
   const startScroll = useCallback((speed: number) => {
     if (scrollFrameRef.current) return;
@@ -899,24 +942,35 @@ function App() {
     document.title = projectInfo.title ? `${projectInfo.title} - GeCoLa Cloud` : 'GeCoLa - Computo Metrico';
   }, [projectInfo.title]);
 
-  const updateState = (
-    newArticles: Article[],
-    newCategories: Category[] = categories,
-    newAnalyses: PriceAnalysis[] = analyses,
-    saveHistory: boolean = true
-  ) => {
-    const recomputed = recalculateAllArticles(newArticles);
-    if (saveHistory) {
-      setHistory((prev) => {
-        const newHist = [...prev, { articles, categories, analyses }];
-        return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist;
-      });
-      setFuture([]);
-    }
-    setArticles(recomputed);
-    setCategories(newCategories);
-    setAnalyses(newAnalyses);
-  };
+  const updateState = useCallback(
+    (
+      newArticles: Article[],
+      newCategories: Category[] = categoriesRef.current,
+      newAnalyses: PriceAnalysis[] = analysesRef.current,
+      saveHistory: boolean = true
+    ) => {
+      const recomputed = recalculateAllArticles(newArticles);
+      if (saveHistory) {
+        const prevSnap = {
+          articles: articlesRef.current,
+          categories: categoriesRef.current,
+          analyses: analysesRef.current,
+        };
+        setHistory((prev) => {
+          const newHist = [...prev, prevSnap];
+          return newHist.length > 50 ? newHist.slice(newHist.length - 50) : newHist;
+        });
+        setFuture([]);
+      }
+      articlesRef.current = recomputed;
+      categoriesRef.current = newCategories;
+      analysesRef.current = newAnalyses;
+      setArticles(recomputed);
+      setCategories(newCategories);
+      setAnalyses(newAnalyses);
+    },
+    []
+  );
 
   const handleUndo = useCallback(() => {
     if (history.length === 0) return;
@@ -938,64 +992,100 @@ function App() {
     setAnalyses(next.analyses);
   }, [future, articles, categories, analyses]);
 
+  const categoryByCodeMap = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (let i = 0; i < categories.length; i++) {
+      map.set(categories[i].code, categories[i]);
+    }
+    return map;
+  }, [categories]);
+
+  const allArticlesMap = useMemo(() => {
+    const map = new Map<string, Article>();
+    for (let i = 0; i < articles.length; i++) {
+      map.set(articles[i].id, articles[i]);
+    }
+    return map;
+  }, [articles]);
+
+  const articleLocalNumberMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const catCount = new Map<string, number>();
+    for (let i = 0; i < articles.length; i++) {
+      const a = articles[i];
+      if (!a.id) continue;
+      const nextCount = (catCount.get(a.categoryCode) || 0) + 1;
+      catCount.set(a.categoryCode, nextCount);
+      map.set(a.id, `${getWbsNumber(a.categoryCode)}.${nextCount}`);
+    }
+    return map;
+  }, [articles]);
+
   const categoryTotals = useMemo(() => {
     const lookup: Record<string, number> = {};
-    categories.forEach((cat) => {
-      const catTotal = articles
-        .filter((a) => a.categoryCode === cat.code && a.isEnabled !== false)
-        .reduce((sum, a) => sum + a.quantity * a.unitPrice, 0);
-      lookup[cat.code] = catTotal;
-    });
+    for (let i = 0; i < articles.length; i++) {
+      const a = articles[i];
+      if (a.isEnabled === false) continue;
+      lookup[a.categoryCode] = (lookup[a.categoryCode] || 0) + a.quantity * a.unitPrice;
+    }
     return lookup;
-  }, [articles, categories]);
+  }, [articles]);
 
-  // CALCOLO NUMERAZIONE GLOBALE PROGRESSIVA
+  // CALCOLO NUMERAZIONE GLOBALE PROGRESSIVA - O(N + M)
   const globalArticleIndexMap = useMemo(() => {
     const map = new Map<string, number>();
-    let counter = 1;
-    const filteredCategoriesForView =
-      activeWbsContext === 'safety'
-        ? categories.filter((c) => c.type === 'safety')
-        : categories.filter((c) => c.type !== 'safety');
+    const articlesByCat = new Map<string, Article[]>();
+    for (let i = 0; i < articles.length; i++) {
+      const a = articles[i];
+      let list = articlesByCat.get(a.categoryCode);
+      if (!list) {
+        list = [];
+        articlesByCat.set(a.categoryCode, list);
+      }
+      list.push(a);
+    }
 
-    filteredCategoriesForView.forEach((cat) => {
-      if (cat.isEnabled === false || cat.isSuperCategory) return;
-      const catArticles = articles.filter((a) => a.categoryCode === cat.code);
-      catArticles.forEach((art) => {
-        map.set(art.id, counter++);
-      });
-    });
+    let counter = 1;
+    const isSafetyView = activeWbsContext === 'safety';
+    for (let i = 0; i < categories.length; i++) {
+      const cat = categories[i];
+      if (isSafetyView ? cat.type !== 'safety' : cat.type === 'safety') continue;
+      if (cat.isEnabled === false || cat.isSuperCategory) continue;
+      const catArticles = articlesByCat.get(cat.code);
+      if (!catArticles) continue;
+      for (let j = 0; j < catArticles.length; j++) {
+        map.set(catArticles[j].id, counter++);
+      }
+    }
     return map;
   }, [articles, categories, activeWbsContext]);
 
   const totals: Totals = useMemo(() => {
-    const totalWorks = articles.reduce((acc, art) => {
-      if (art.isEnabled === false) return acc;
-      const cat = categories.find((c) => c.code === art.categoryCode);
-      if (cat && (cat.isEnabled === false || cat.type === 'safety')) return acc;
-      return acc + art.quantity * art.unitPrice;
-    }, 0);
+    let totalWorks = 0;
+    let totalLabor = 0;
+    let totalSafetyProgettuale = 0;
 
-    const totalLabor = articles.reduce((acc, art) => {
-      if (art.isEnabled === false) return acc;
-      const cat = categories.find((c) => c.code === art.categoryCode);
-      if (cat && cat.isEnabled === false) return acc;
-      return acc + art.quantity * art.unitPrice * (art.laborRate / 100);
-    }, 0);
+    for (let i = 0; i < articles.length; i++) {
+      const art = articles[i];
+      if (art.isEnabled === false) continue;
+      const cat = categoryByCodeMap.get(art.categoryCode);
+      if (cat && cat.isEnabled === false) continue;
 
-    const totalSafetyProgettuale = articles.reduce((acc, art) => {
-      if (art.isEnabled === false) return acc;
-      const cat = categories.find((c) => c.code === art.categoryCode);
-      if (cat && (cat.isEnabled === false || cat.type !== 'safety')) return acc;
-      return acc + art.quantity * art.unitPrice;
-    }, 0);
+      const amount = art.quantity * art.unitPrice;
+      if (cat && cat.type === 'safety') {
+        totalSafetyProgettuale += amount;
+      } else {
+        totalWorks += amount;
+      }
+      totalLabor += amount * (art.laborRate / 100);
+    }
 
     const safetyCosts = totalWorks * (projectInfo.safetyRate / 100);
     const totalTaxable = totalWorks + safetyCosts + totalSafetyProgettuale;
     const vatAmount = totalTaxable * (projectInfo.vatRate / 100);
     const grandTotal = totalTaxable + vatAmount;
     return { totalWorks, totalLabor, safetyCosts, totalSafetyProgettuale, totalTaxable, vatAmount, grandTotal };
-  }, [articles, categories, projectInfo.safetyRate, projectInfo.vatRate]);
+  }, [articles, categoryByCodeMap, projectInfo.safetyRate, projectInfo.vatRate]);
 
   const totalForView =
     viewMode === 'COMPUTO'
@@ -1164,8 +1254,8 @@ function App() {
     setIsImportAnalysisModalOpen(false);
   };
 
-  const handleViewLinkedAnalysis = (analysisId: string, articleId?: string) => {
-    const analysis = analyses.find((a) => a.id === analysisId);
+  const handleViewLinkedAnalysis = useCallback((analysisId: string, articleId?: string) => {
+    const analysis = analysesRef.current.find((a) => a.id === analysisId);
     if (analysis) {
       if (articleId) setReturnPath(articleId);
       setSelectedAnalysisId(analysis.id);
@@ -1174,7 +1264,7 @@ function App() {
     } else {
       alert('Analisi non trovata.');
     }
-  };
+  }, []);
 
   const handleConvertArticleToAnalysis = (article: Article) => {
     const newId = Math.random().toString(36).substr(2, 9);
@@ -1213,32 +1303,37 @@ function App() {
     setIsAnalysisEditorOpen(true);
   };
 
-  const handleInsertExternalArticle = (_insertIndex: number, rawText: string) => {
-    if (!canAddArticle()) return;
-    const targetCode = selectedCategoryCode === 'SUMMARY' ? categories[0].code : selectedCategoryCode;
-    const parsed = parseDroppedContent(rawText);
-    if (parsed) {
-      const newArticleId = Math.random().toString(36).substr(2, 9);
-      const newMeasId = Math.random().toString(36).substr(2, 9);
-      const newArticle: Article = {
-        id: newArticleId,
-        categoryCode: targetCode,
-        code: parsed.code || 'NP.001',
-        priceListSource: parsed.priceListSource,
-        description: parsed.description || 'Voce importata',
-        unit: parsed.unit || 'cad',
-        unitPrice: parsed.unitPrice || 0,
-        laborRate: parsed.laborRate || 0,
-        soaCategory: activeSoaCategory,
-        measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }],
-        quantity: 0,
-        displayMode: wbsDisplayMode,
-      };
-      updateState([...articles, newArticle]);
-      setLastAddedMeasurementId(newMeasId);
-      handleScrollToArticle(newArticleId, undefined, targetCode);
-    }
-  };
+  const handleInsertExternalArticle = useCallback(
+    (_insertIndex: number, rawText: string) => {
+      if (!canAddArticle()) return;
+      const currCats = categoriesRef.current;
+      const currSelected = selectedCategoryCodeRef.current;
+      const targetCode = currSelected === 'SUMMARY' ? currCats[0].code : currSelected;
+      const parsed = parseDroppedContent(rawText);
+      if (parsed) {
+        const newArticleId = Math.random().toString(36).substr(2, 9);
+        const newMeasId = Math.random().toString(36).substr(2, 9);
+        const newArticle: Article = {
+          id: newArticleId,
+          categoryCode: targetCode,
+          code: parsed.code || 'NP.001',
+          priceListSource: parsed.priceListSource,
+          description: parsed.description || 'Voce importata',
+          unit: parsed.unit || 'cad',
+          unitPrice: parsed.unitPrice || 0,
+          laborRate: parsed.laborRate || 0,
+          soaCategory: activeSoaCategory,
+          measurements: [{ id: newMeasId, description: '', type: 'positive', length: undefined, multiplier: undefined }],
+          quantity: 0,
+          displayMode: wbsDisplayModeRef.current,
+        };
+        updateState([...articlesRef.current, newArticle]);
+        setLastAddedMeasurementId(newMeasId);
+        handleScrollToArticle(newArticleId, undefined, targetCode);
+      }
+    },
+    [canAddArticle, activeSoaCategory, updateState]
+  );
 
   const handleWbsDragStart = (e: React.DragEvent, id: string) => {
     setDraggedCategoryCode(id);
@@ -1506,11 +1601,14 @@ function App() {
     setWbsOptionsContext(null);
   };
 
-  const handleUpdateArticle = (id: string, field: keyof Article, value: any) => {
-    const finalValue = field === 'description' ? cleanDescription(value) : value;
-    const updated = articles.map((art) => (art.id === id ? { ...art, [field]: finalValue } : art));
-    updateState(updated);
-  };
+  const handleUpdateArticle = useCallback(
+    (id: string, field: keyof Article, value: any) => {
+      const finalValue = field === 'description' ? cleanDescription(value) : value;
+      const updated = articlesRef.current.map((art) => (art.id === id ? { ...art, [field]: finalValue } : art));
+      updateState(updated);
+    },
+    [updateState]
+  );
 
   // PATTO DI FERRO: DISTACCO ANALISI SU MODIFICA EDIT
   const handleArticleEditSave = (id: string, updates: Partial<Article>) => {
@@ -1536,20 +1634,24 @@ function App() {
     updateState(updated);
   };
 
-  const handleEditArticleDetails = (article: Article) => {
+  const handleEditArticleDetails = useCallback((article: Article) => {
     setEditingArticle(article);
     setIsEditArticleModalOpen(true);
-  };
+  }, []);
 
-  const handleDeleteArticle = (id: string) => {
-    if (window.confirm('Eliminare la voce?')) {
-      const updated = articles.filter((art) => art.id !== id);
-      updateState(updated);
-    }
-  };
+  const handleDeleteArticle = useCallback(
+    (id: string) => {
+      if (window.confirm('Eliminare la voce?')) {
+        const updated = articlesRef.current.filter((art) => art.id !== id);
+        updateState(updated);
+      }
+    },
+    [updateState]
+  );
 
-  const handleAddMeasurement = (articleId: string) => {
+  const handleAddMeasurement = useCallback((articleId: string) => {
     const newId = Math.random().toString(36).substr(2, 9);
+    const repeatId = smartRepeatActiveIdRef.current;
     setLastAddedMeasurementId(newId);
     setArticles((prevArticles) => {
       const updated = prevArticles.map((art) => {
@@ -1564,7 +1666,7 @@ function App() {
           height: undefined,
           multiplier: undefined,
         };
-        if (smartRepeatActiveId === articleId && lastM && lastM.type !== 'subtotal') {
+        if (repeatId === articleId && lastM && lastM.type !== 'subtotal') {
           newM = {
             ...newM,
             description: lastM.description,
@@ -1577,191 +1679,190 @@ function App() {
         }
         return { ...art, measurements: [...art.measurements, newM] };
       });
-      return recalculateAllArticles(updated);
+      const result = recalculateAffectedArticles(updated, articleId);
+      articlesRef.current = result;
+      return result;
     });
-  };
+  }, []);
 
-  const handleUpdateMeasurement = (
-    articleId: string,
-    mId: string,
-    field: keyof Measurement,
-    value: string | number | undefined
-  ) => {
-    const finalValue = field === 'description' && typeof value === 'string' ? cleanDescription(value) : value;
+  const handleUpdateMeasurement = useCallback(
+    (articleId: string, mId: string, field: keyof Measurement, value: string | number | undefined) => {
+      const finalValue = field === 'description' && typeof value === 'string' ? cleanDescription(value) : value;
 
-    const domEl = document.querySelector(`[data-m-id="${mId}"][data-field="${field}"]`) as
-      | HTMLInputElement
-      | HTMLTextAreaElement
-      | null;
-    if (domEl) {
-      domEl.value = finalValue === undefined ? '' : String(finalValue);
-      if (domEl instanceof HTMLTextAreaElement) {
-        domEl.style.height = 'auto';
-        domEl.style.height = `${Math.max(22, domEl.scrollHeight)}px`;
-      }
-    }
-
-    const isDimField = field === 'multiplier' || field === 'length' || field === 'width' || field === 'height';
-
-    articlesRef.current = articlesRef.current.map((art) => {
-      if (art.id !== articleId) return art;
-      const newMeasurements = art.measurements.map((m) => {
-        if (m.id !== mId) return m;
-        const isVediVoceDesc = (field === 'description' ? String(finalValue || '') : m.description || '')
-          .toLowerCase()
-          .includes('vedi voce');
-        const nextM: Measurement = { ...m, [field]: finalValue };
-        if (isDimField && !isVediVoceDesc) {
-          nextM.pdfQuantity = undefined;
+      const domEl = document.querySelector(`[data-m-id="${mId}"][data-field="${field}"]`) as
+        | HTMLInputElement
+        | HTMLTextAreaElement
+        | null;
+      if (domEl) {
+        domEl.value = finalValue === undefined ? '' : String(finalValue);
+        if (domEl instanceof HTMLTextAreaElement) {
+          domEl.style.height = 'auto';
+          domEl.style.height = `${Math.max(22, domEl.scrollHeight)}px`;
         }
-        return nextM;
-      });
-      return { ...art, measurements: newMeasurements };
-    });
+      }
 
-    setArticles((prevArticles) => {
-      const updated = prevArticles.map((art) => {
-        if (art.id !== articleId) return art;
-        const newMeasurements = art.measurements.map((m) => {
-          if (m.id !== mId) return m;
-          const isVediVoceDesc = (field === 'description' ? String(finalValue || '') : m.description || '')
-            .toLowerCase()
-            .includes('vedi voce');
-          const nextM: Measurement = { ...m, [field]: finalValue };
-          if (isDimField && !isVediVoceDesc) {
-            nextM.pdfQuantity = undefined;
-          }
-          return nextM;
+      const isDimField = field === 'multiplier' || field === 'length' || field === 'width' || field === 'height';
+
+      setArticles((prevArticles) => {
+        const updated = prevArticles.map((art) => {
+          if (art.id !== articleId) return art;
+          const newMeasurements = art.measurements.map((m) => {
+            if (m.id !== mId) return m;
+            const isVediVoceDesc = (field === 'description' ? String(finalValue || '') : m.description || '')
+              .toLowerCase()
+              .includes('vedi voce');
+            const nextM: Measurement = { ...m, [field]: finalValue };
+            if (isDimField && !isVediVoceDesc) {
+              nextM.pdfQuantity = undefined;
+            }
+            return nextM;
+          });
+          return { ...art, measurements: newMeasurements };
         });
+        const result = recalculateAffectedArticles(updated, articleId);
+        articlesRef.current = result;
+        return result;
+      });
+    },
+    []
+  );
+
+  const handleAddSubtotal = useCallback(
+    (articleId: string) => {
+      const updated = articlesRef.current.map((art) => {
+        if (art.id !== articleId) return art;
+        const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' };
+        return { ...art, measurements: [...art.measurements, newM] };
+      });
+      updateState(updated);
+    },
+    [updateState]
+  );
+
+  const handleDeleteMeasurement = useCallback(
+    (articleId: string, mId: string) => {
+      const updated = articlesRef.current.map((art) => {
+        if (art.id !== articleId) return art;
+        const newMeasurements = art.measurements.filter((m) => m.id !== mId);
         return { ...art, measurements: newMeasurements };
       });
-      return recalculateAllArticles(updated);
-    });
-  };
-
-  const handleAddSubtotal = (articleId: string) => {
-    const updated = articles.map((art) => {
-      if (art.id !== articleId) return art;
-      const newM: Measurement = { id: Math.random().toString(36).substr(2, 9), description: '', type: 'subtotal' };
-      return { ...art, measurements: [...art.measurements, newM] };
-    });
-    updateState(updated);
-  };
-
-  const handleDeleteMeasurement = (articleId: string, mId: string) => {
-    const updated = articles.map((art) => {
-      if (art.id !== articleId) return art;
-      const newMeasurements = art.measurements.filter((m) => m.id !== mId);
-      return { ...art, measurements: newMeasurements };
-    });
-    updateState(updated);
-  };
+      updateState(recalculateAffectedArticles(updated, articleId));
+    },
+    [updateState]
+  );
 
   // --- DRAG & DROP MISURAZIONI (SPOSTAMENTO NELLA STESSA VOCE, COPIA TRA VOCI DIVERSE) ---
-  const handleMeasurementDrop = (
-    sourceArticleId: string,
-    measurementId: string,
-    targetArticleId: string,
-    targetMeasurementId?: string,
-    position: 'top' | 'bottom' = 'bottom'
-  ) => {
-    const currentArticles = articlesRef.current;
-    const sourceArt = currentArticles.find((a) => a.id === sourceArticleId);
-    const targetArt = currentArticles.find((a) => a.id === targetArticleId);
-    if (!sourceArt || !targetArt) return;
+  const handleMeasurementDrop = useCallback(
+    (
+      sourceArticleId: string,
+      measurementId: string,
+      targetArticleId: string,
+      targetMeasurementId?: string,
+      position: 'top' | 'bottom' = 'bottom'
+    ) => {
+      const currentArticles = articlesRef.current;
+      const sourceArt = currentArticles.find((a) => a.id === sourceArticleId);
+      const targetArt = currentArticles.find((a) => a.id === targetArticleId);
+      if (!sourceArt || !targetArt) return;
 
-    const sourceMeas = sourceArt.measurements.find((m) => m.id === measurementId);
-    if (!sourceMeas) return;
+      const sourceMeas = sourceArt.measurements.find((m) => m.id === measurementId);
+      if (!sourceMeas) return;
 
-    if (sourceArticleId === targetArticleId) {
-      const currentMeasurements = [...sourceArt.measurements];
-      const fromIndex = currentMeasurements.findIndex((m) => m.id === measurementId);
-      let toIndex = targetMeasurementId
-        ? currentMeasurements.findIndex((m) => m.id === targetMeasurementId)
-        : currentMeasurements.length - 1;
+      if (sourceArticleId === targetArticleId) {
+        const currentMeasurements = [...sourceArt.measurements];
+        const fromIndex = currentMeasurements.findIndex((m) => m.id === measurementId);
+        let toIndex = targetMeasurementId
+          ? currentMeasurements.findIndex((m) => m.id === targetMeasurementId)
+          : currentMeasurements.length - 1;
 
-      if (fromIndex === -1 || toIndex === -1) return;
-      if (position === 'bottom' && fromIndex > toIndex) toIndex++;
-      else if (position === 'top' && fromIndex < toIndex) toIndex--;
+        if (fromIndex === -1 || toIndex === -1) return;
+        if (position === 'bottom' && fromIndex > toIndex) toIndex++;
+        else if (position === 'top' && fromIndex < toIndex) toIndex--;
 
-      const [movedItem] = currentMeasurements.splice(fromIndex, 1);
-      currentMeasurements.splice(toIndex, 0, movedItem);
+        const [movedItem] = currentMeasurements.splice(fromIndex, 1);
+        currentMeasurements.splice(toIndex, 0, movedItem);
 
-      const updated = currentArticles.map((art) =>
-        art.id === sourceArticleId ? { ...art, measurements: currentMeasurements } : art
-      );
-      updateState(updated);
-      playUISound('move');
-    } else {
-      const newMeasId = Math.random().toString(36).substr(2, 9);
-      const clonedMeas: Measurement = {
-        ...sourceMeas,
-        id: newMeasId,
-      };
+        const updated = currentArticles.map((art) =>
+          art.id === sourceArticleId ? { ...art, measurements: currentMeasurements } : art
+        );
+        updateState(updated);
+        playUISound('move');
+      } else {
+        const newMeasId = Math.random().toString(36).substr(2, 9);
+        const clonedMeas: Measurement = {
+          ...sourceMeas,
+          id: newMeasId,
+        };
 
-      const targetMeasurements = [...targetArt.measurements];
-      let insertIndex = targetMeasurements.length;
-      if (targetMeasurementId) {
-        const idx = targetMeasurements.findIndex((m) => m.id === targetMeasurementId);
-        if (idx !== -1) {
-          insertIndex = position === 'bottom' ? idx + 1 : idx;
+        const targetMeasurements = [...targetArt.measurements];
+        let insertIndex = targetMeasurements.length;
+        if (targetMeasurementId) {
+          const idx = targetMeasurements.findIndex((m) => m.id === targetMeasurementId);
+          if (idx !== -1) {
+            insertIndex = position === 'bottom' ? idx + 1 : idx;
+          }
         }
+        targetMeasurements.splice(insertIndex, 0, clonedMeas);
+
+        const updated = currentArticles.map((art) => {
+          if (art.id === targetArticleId) {
+            return { ...art, measurements: targetMeasurements };
+          }
+          return art;
+        });
+
+        updateState(recalculateAffectedArticles(updated, targetArticleId));
+        setLastAddedMeasurementId(newMeasId);
+        playUISound('confirm');
       }
-      targetMeasurements.splice(insertIndex, 0, clonedMeas);
+    },
+    [updateState]
+  );
 
-      const updated = currentArticles.map((art) => {
-        if (art.id === targetArticleId) {
-          return { ...art, measurements: targetMeasurements };
-        }
-        return art;
-      });
-
-      updateState(recalculateAllArticles(updated));
-      setLastAddedMeasurementId(newMeasId);
-      playUISound('confirm');
-    }
-  };
-
-  const handleArticleDragStart = (e: React.DragEvent, article: Article) => {
+  const handleArticleDragStart = useCallback((e: React.DragEvent, article: Article) => {
     setIsDraggingArticle(true);
     e.dataTransfer.setData(MIME_ARTICLE, 'true');
     e.dataTransfer.setData('type', 'ARTICLE');
     e.dataTransfer.setData('articleId', article.id);
     e.dataTransfer.effectAllowed = 'all';
-  };
+  }, []);
 
-  const onArticleDragEnd = () => {
+  const onArticleDragEnd = useCallback(() => {
     setIsDraggingArticle(false);
     setWbsDropTarget(null);
-  };
+  }, []);
 
-  const handleArticleDrop = (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => {
-    setIsDraggingArticle(false);
-    setWbsDropTarget(null);
-    const articleId = e.dataTransfer.getData('articleId');
-    if (!articleId) return;
-    const targetArticle = articles.find((a) => a.id === articleId);
-    if (!targetArticle) return;
-    const currentCategoryArticles = articles.filter((a) => a.categoryCode === targetArticle.categoryCode);
-    const startIndex = currentCategoryArticles.findIndex((a) => a.id === articleId);
-    let targetIndex = currentCategoryArticles.findIndex((a) => a.id === targetArticleId);
-    if (startIndex === -1 || targetIndex === -1) return;
-    if (position === 'bottom' && startIndex > targetIndex) targetIndex++;
-    else if (position === 'top' && startIndex < targetIndex) targetIndex--;
-    const otherArticles = articles.filter((a) => a.categoryCode !== targetArticle.categoryCode);
-    const newSubset = [...currentCategoryArticles];
-    const [movedItem] = newSubset.splice(startIndex, 1);
-    newSubset.splice(targetIndex, 0, movedItem);
-    const newGlobalArticles = [...otherArticles, ...newSubset];
-    updateState(newGlobalArticles);
-    setLastMovedItemId(articleId);
-    setTimeout(() => setLastMovedItemId(null), 3000);
-  };
+  const handleArticleDrop = useCallback(
+    (e: React.DragEvent, targetArticleId: string, position: 'top' | 'bottom' = 'bottom') => {
+      setIsDraggingArticle(false);
+      setWbsDropTarget(null);
+      const articleId = e.dataTransfer.getData('articleId');
+      if (!articleId) return;
+      const currArticles = articlesRef.current;
+      const targetArticle = currArticles.find((a) => a.id === articleId);
+      if (!targetArticle) return;
+      const currentCategoryArticles = currArticles.filter((a) => a.categoryCode === targetArticle.categoryCode);
+      const startIndex = currentCategoryArticles.findIndex((a) => a.id === articleId);
+      let targetIndex = currentCategoryArticles.findIndex((a) => a.id === targetArticleId);
+      if (startIndex === -1 || targetIndex === -1) return;
+      if (position === 'bottom' && startIndex > targetIndex) targetIndex++;
+      else if (position === 'top' && startIndex < targetIndex) targetIndex--;
+      const otherArticles = currArticles.filter((a) => a.categoryCode !== targetArticle.categoryCode);
+      const newSubset = [...currentCategoryArticles];
+      const [movedItem] = newSubset.splice(startIndex, 1);
+      newSubset.splice(targetIndex, 0, movedItem);
+      const newGlobalArticles = [...otherArticles, ...newSubset];
+      updateState(newGlobalArticles);
+      setLastMovedItemId(articleId);
+      setTimeout(() => setLastMovedItemId(null), 3000);
+    },
+    [updateState]
+  );
 
-  const handleOpenLinkModal = (articleId: string, measurementId: string) => {
+  const handleOpenLinkModal = useCallback((articleId: string, measurementId: string) => {
     setLinkTarget({ articleId, measurementId });
     setIsLinkModalOpen(true);
-  };
+  }, []);
 
   const handleLinkMeasurement = (sourceArticle: Article, type: 'quantity' | 'amount') => {
     if (!linkTarget) return;
@@ -1783,34 +1884,17 @@ function App() {
     setLinkTarget(null);
   };
 
-  const handleScrollToArticle = (id: string, fromId?: string, categoryCodeOverride?: string) => {
+  const handleScrollToArticle = useCallback((id: string, fromId?: string, categoryCodeOverride?: string) => {
     if (fromId) setReturnPath(fromId);
-    const targetArt = articles.find((a) => a.id === id);
+    const targetArt = articlesRef.current.find((a) => a.id === id);
     const targetCatCode = categoryCodeOverride || targetArt?.categoryCode;
-    if (targetCatCode && selectedCategoryCode !== targetCatCode) {
+    if (targetCatCode && selectedCategoryCodeRef.current !== targetCatCode) {
       setSelectedCategoryCode(targetCatCode);
     }
     setLastMovedItemId(id);
     setTimeout(() => setLastMovedItemId(null), 4000);
-
-    const performScroll = () => {
-      const element = document.getElementById(`article-${id}`);
-      const scrollContainer = scrollContainerRef.current;
-      if (element && scrollContainer) {
-        const containerRect = scrollContainer.getBoundingClientRect();
-        const elementRect = element.getBoundingClientRect();
-        const targetScrollTop = scrollContainer.scrollTop + (elementRect.top - containerRect.top);
-        scrollContainer.scrollTo({
-          top: Math.max(0, targetScrollTop - 2),
-          behavior: 'smooth',
-        });
-      }
-    };
-
-    setTimeout(performScroll, 50);
-    setTimeout(performScroll, 200);
-    setTimeout(performScroll, 450);
-  };
+    setScrollToArticleRequest({ id, nonce: Date.now() + Math.random() });
+  }, []);
 
   const handleReturnToArticle = () => {
     if (returnPath) {
@@ -1871,31 +1955,36 @@ function App() {
     handleScrollToArticle(newArticleId, undefined, categoryCode);
   };
 
-  const handleToggleArticleLock = (id: string) => {
-    const updated = articles.map((art) => (art.id === id ? { ...art, isLocked: !art.isLocked } : art));
-    updateState(updated);
-  };
+  const handleToggleArticleLock = useCallback(
+    (id: string) => {
+      const updated = articlesRef.current.map((art) => (art.id === id ? { ...art, isLocked: !art.isLocked } : art));
+      updateState(updated);
+    },
+    [updateState]
+  );
 
-  const handleToggleArticleEnabled = (id: string) => {
-    const updated = articles.map((art) => (art.id === id ? { ...art, isEnabled: art.isEnabled === false ? true : false } : art));
-    updateState(updated);
-    playUISound('toggle');
-  };
+  const handleToggleArticleEnabled = useCallback(
+    (id: string) => {
+      const updated = articlesRef.current.map((art) => (art.id === id ? { ...art, isEnabled: art.isEnabled === false ? true : false } : art));
+      updateState(updated);
+      playUISound('toggle');
+    },
+    [updateState]
+  );
 
-  const handleOpenRebarCalculator = (articleId: string) => {
+  const handleOpenRebarCalculator = useCallback((articleId: string) => {
     setRebarTargetArticleId(articleId);
     setIsRebarModalOpen(true);
-  };
+  }, []);
 
-  const handleOpenPaintingCalculator = (articleId: string) => {
+  const handleOpenPaintingCalculator = useCallback((articleId: string) => {
     setPaintingTargetArticleId(articleId);
     setIsPaintingModalOpen(true);
-  };
+  }, []);
 
-  const handleToggleSmartRepeat = (articleId: string) => {
-    if (smartRepeatActiveId === articleId) setSmartRepeatActiveId(null);
-    else setSmartRepeatActiveId(articleId);
-  };
+  const handleToggleSmartRepeat = useCallback((articleId: string) => {
+    setSmartRepeatActiveId((prev) => (prev === articleId ? null : articleId));
+  }, []);
 
   // --- SISTEMA DETTATURA VOCALE OPERATIVA AVANZATA CONTINUA ---
   const focusMeasurementCell = (mId: string, field: VoiceField) => {
@@ -1969,16 +2058,17 @@ function App() {
     }
   };
 
-  const handleVoiceCellFocus = (rowId: string, field: VoiceField) => {
-    if (recordingArticleId) {
-      voiceStateRef.current = { articleId: recordingArticleId, rowId, field };
+  const handleVoiceCellFocus = useCallback((rowId: string, field: VoiceField) => {
+    const activeRecId = recordingArticleIdRef.current;
+    if (activeRecId) {
+      voiceStateRef.current = { articleId: activeRecId, rowId, field };
       setVoiceActiveRowId(rowId);
       setVoiceActiveField(field);
     }
-  };
+  }, []);
 
-  const handleStartVoiceDictation = (articleId: string) => {
-    if (isVoiceRunningRef.current && recordingArticleId === articleId) {
+  const handleStartVoiceDictation = useCallback((articleId: string) => {
+    if (isVoiceRunningRef.current && recordingArticleIdRef.current === articleId) {
       isVoiceRunningRef.current = false;
       if (voiceRecognitionRef.current) {
         try {
@@ -2157,15 +2247,18 @@ function App() {
     } catch (e) {
       console.warn('Errore avvio riconoscimento:', e);
     }
-  };
+  }, [handleAddSubtotal, handleDeleteMeasurement, handleUpdateMeasurement, updateState]);
 
-  const handleToggleItemDisplayMode = (articleId: string) => {
-    const article = articles.find((a) => a.id === articleId);
-    if (!article) return;
-    const next = ((article.displayMode || 0) + 1) % 3;
-    handleUpdateArticle(articleId, 'displayMode', next);
-    playUISound('cycle');
-  };
+  const handleToggleItemDisplayMode = useCallback(
+    (articleId: string) => {
+      const article = articlesRef.current.find((a) => a.id === articleId);
+      if (!article) return;
+      const next = ((article.displayMode || 0) + 1) % 3;
+      handleUpdateArticle(articleId, 'displayMode', next);
+      playUISound('cycle');
+    },
+    [handleUpdateArticle]
+  );
 
   const handleCycleDisplayMode = () => {
     const nextMode = (wbsDisplayMode + 1) % 3;
@@ -4044,13 +4137,18 @@ function App() {
                         <col style={{ width: '96px' }} />
                         <col style={{ width: '84px' }} />
                       </colgroup>
-                      <TableHeader activeColumn={activeColumn} tariffWidth={projectInfo.tariffColumnWidth} isSafety={viewMode === 'SICUREZZA'} />
+                      <IsolatedTableHeader
+                        registerSetter={registerActiveColumnSetter}
+                        tariffWidth={projectInfo.tariffColumnWidth}
+                        isSafety={viewMode === 'SICUREZZA'}
+                      />
                     </table>
                   </div>
 
                   <div
                     ref={scrollContainerRef}
-                    className={`flex-1 overflow-y-auto overflow-x-hidden border-x border-b border-slate-200/90 flex flex-col relative scroll-smooth bg-slate-100/50 computo-scroll-container ${
+                    style={{ overflowAnchor: 'none' }}
+                    className={`flex-1 overflow-y-auto overflow-x-hidden border-x border-b border-slate-200/90 flex flex-col relative bg-slate-100/50 computo-scroll-container ${
                       isWorkspaceDragOver ? 'ring-8 ring-blue-400 ring-inset animate-pulse bg-blue-50/50' : ''
                     }`}
                     onKeyDown={handleInputKeyDown}
@@ -4095,50 +4193,48 @@ function App() {
                             </tr>
                           </tbody>
                         ) : (
-                          activeArticles.map((article, artIndex) => (
-                            <ArticleGroup
-                              key={article.id}
-                              article={article}
-                              index={artIndex}
-                              globalIndex={globalArticleIndexMap.get(article.id) || 0}
-                              allArticles={articles}
-                              isPrintMode={false}
-                              isCategoryLocked={activeCategory.isLocked}
-                              isSurveyorGuardActive={isSurveyorGuardActive}
-                              projectSettings={projectInfo}
-                              lastMovedItemId={lastMovedItemId}
-                              recordingArticleId={recordingArticleId}
-                              onUpdateArticle={handleUpdateArticle}
-                              onEditArticleDetails={handleEditArticleDetails}
-                              onDeleteArticle={handleDeleteArticle}
-                              onToggleArticleEnabled={handleToggleArticleEnabled}
-                              onAddMeasurement={handleAddMeasurement}
-                              onAddSubtotal={handleAddSubtotal}
-                              onUpdateMeasurement={handleUpdateMeasurement}
-                              onDeleteMeasurement={handleDeleteMeasurement}
-                              onOpenLinkModal={handleOpenLinkModal}
-                              onScrollToArticle={handleScrollToArticle}
-                              onArticleDragStart={handleArticleDragStart}
-                              onArticleDrop={handleArticleDrop}
-                              onArticleDragEnd={onArticleDragEnd}
-                              lastAddedMeasurementId={lastAddedMeasurementId}
-                              onColumnFocus={setActiveColumn}
-                              onViewAnalysis={handleViewLinkedAnalysis}
-                              onInsertExternalArticle={handleInsertExternalArticle}
-                              onToggleArticleLock={handleToggleArticleLock}
-                              onOpenRebarCalculator={handleOpenRebarCalculator}
-                              onOpenPaintingCalculator={handleOpenPaintingCalculator}
-                              onToggleSmartRepeat={handleToggleSmartRepeat}
-                              onToggleItemDisplayMode={handleToggleItemDisplayMode}
-                              onStartVoiceDictation={handleStartVoiceDictation}
-                              smartRepeatActiveId={smartRepeatActiveId}
-                              onMeasurementDrop={handleMeasurementDrop}
-                              voiceActiveRowId={voiceActiveRowId}
-                              voiceActiveField={voiceActiveField}
-                              onVoiceCellFocus={handleVoiceCellFocus}
-                              onOpenContextMenu={handleOpenContextMenu}
-                            />
-                          ))
+                          <VirtualizedComputoTable
+                            articles={activeArticles}
+                            scrollContainerRef={scrollContainerRef}
+                            globalArticleIndexMap={globalArticleIndexMap}
+                            allArticlesMap={allArticlesMap}
+                            articleLocalNumberMap={articleLocalNumberMap}
+                            isCategoryLocked={activeCategory.isLocked}
+                            isSurveyorGuardActive={isSurveyorGuardActive}
+                            projectSettings={projectInfo}
+                            lastMovedItemId={lastMovedItemId}
+                            recordingArticleId={recordingArticleId}
+                            smartRepeatActiveId={smartRepeatActiveId}
+                            lastAddedMeasurementId={lastAddedMeasurementId}
+                            voiceActiveRowId={voiceActiveRowId}
+                            voiceActiveField={voiceActiveField}
+                            scrollToArticleRequest={scrollToArticleRequest}
+                            onUpdateArticle={handleUpdateArticle}
+                            onEditArticleDetails={handleEditArticleDetails}
+                            onDeleteArticle={handleDeleteArticle}
+                            onToggleArticleEnabled={handleToggleArticleEnabled}
+                            onAddMeasurement={handleAddMeasurement}
+                            onAddSubtotal={handleAddSubtotal}
+                            onUpdateMeasurement={handleUpdateMeasurement}
+                            onDeleteMeasurement={handleDeleteMeasurement}
+                            onOpenLinkModal={handleOpenLinkModal}
+                            onScrollToArticle={handleScrollToArticle}
+                            onArticleDragStart={handleArticleDragStart}
+                            onArticleDrop={handleArticleDrop}
+                            onArticleDragEnd={onArticleDragEnd}
+                            onColumnFocus={handleColumnFocus}
+                            onViewAnalysis={handleViewLinkedAnalysis}
+                            onInsertExternalArticle={handleInsertExternalArticle}
+                            onToggleArticleLock={handleToggleArticleLock}
+                            onOpenRebarCalculator={handleOpenRebarCalculator}
+                            onOpenPaintingCalculator={handleOpenPaintingCalculator}
+                            onToggleSmartRepeat={handleToggleSmartRepeat}
+                            onToggleItemDisplayMode={handleToggleItemDisplayMode}
+                            onStartVoiceDictation={handleStartVoiceDictation}
+                            onMeasurementDrop={handleMeasurementDrop}
+                            onVoiceCellFocus={handleVoiceCellFocus}
+                            onOpenContextMenu={handleOpenContextMenu}
+                          />
                         )}
                       </table>
                       <div className="h-[calc(100vh-280px)] flex-shrink-0 pointer-events-none" />

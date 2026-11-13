@@ -56,16 +56,11 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
       const arrayBuffer = await file.arrayBuffer();
 
       if (isDcf) {
-        setProgressStep('Decompressione Zlib stream XML (CollectionEP, CollectionVC, CollectionGP)...');
-        await new Promise(r => setTimeout(r, 60));
-
-        const result = await convertDcfComputo(arrayBuffer, file.name);
-
-        setProgressStep('Collegamento voci Elenco Prezzi, misurazioni e categorie WBS...');
-        await new Promise(r => setTimeout(r, 60));
-
-        // Cede il controllo per permettere il rendering del passo finale prima di visualizzare l'anteprima pesante
-        setTimeout(() => setConversionResult(result), 50);
+        setProgressStep('Estrazione e decompressione stream XML (.dcf / .xpwe)...');
+        const result = await convertDcfComputo(arrayBuffer, file.name, (step) => {
+          setProgressStep(step);
+        });
+        setConversionResult(result);
       } else {
         setProgressStep('Analisi layout pagine e coordinate tabelle PriMus...');
         await new Promise(r => setTimeout(r, 60));
