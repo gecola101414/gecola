@@ -71,6 +71,7 @@ import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOpti
 import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
+import PlanMeasureModal, { PlanMeasureExportRow } from './components/PlanMeasureModal';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { ArticleGroup, TableHeader, RebarCagePillarIcon } from './components/ArticleGroup';
@@ -148,6 +149,8 @@ function App() {
   const [rebarTargetArticleId, setRebarTargetArticleId] = useState<string | null>(null);
   const [isPaintingModalOpen, setIsPaintingModalOpen] = useState(false);
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
+  const [isPlanMeasureModalOpen, setIsPlanMeasureModalOpen] = useState(false);
+  const [planMeasureTargetArticleId, setPlanMeasureTargetArticleId] = useState<string | null>(null);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
   const [recordingArticleId, setRecordingArticleId] = useState<string | null>(null);
@@ -2005,6 +2008,11 @@ function App() {
     setIsPaintingModalOpen(true);
   }, []);
 
+  const handleOpenPlanMeasure = useCallback((articleId: string) => {
+    setPlanMeasureTargetArticleId(articleId);
+    setIsPlanMeasureModalOpen(true);
+  }, []);
+
   const handleToggleSmartRepeat = useCallback((articleId: string) => {
     setSmartRepeatActiveId((prev) => (prev === articleId ? null : articleId));
   }, []);
@@ -2439,6 +2447,30 @@ function App() {
       updateState(recalculateAllArticles(updated));
       setIsPaintingModalOpen(false);
     }
+  };
+
+  const handleAddPlanMeasurements = (rows: PlanMeasureExportRow[], explicitTargetId: string) => {
+    const targetId = explicitTargetId || planMeasureTargetArticleId;
+    if (!targetId || rows.length === 0) return;
+
+    const updated = articlesRef.current.map((art) => {
+      if (art.id !== targetId) return art;
+      const newMeasures: Measurement[] = rows.map((row) => ({
+        id: Math.random().toString(36).substr(2, 9),
+        description: row.description,
+        type: row.type,
+        multiplier: row.multiplier,
+        length: row.length,
+        width: row.width,
+        height: row.height,
+      }));
+      const existingNonBlank = art.measurements.filter((m) => !isBlankMeasurement(m));
+      return { ...art, measurements: [...existingNonBlank, ...newMeasures] };
+    });
+
+    updateState(recalculateAffectedArticles(updated, targetId));
+    playUISound('confirm');
+    setIsPlanMeasureModalOpen(false);
   };
 
   const handleDropContent = (rawText: string) => {
@@ -4397,6 +4429,7 @@ function App() {
                             onInsertExternalArticle={handleInsertExternalArticle}
                             onToggleArticleLock={handleToggleArticleLock}
                             onOpenRebarCalculator={handleOpenRebarCalculator}
+                            onOpenPlanMeasure={handleOpenPlanMeasure}
                             onOpenPaintingCalculator={handleOpenPaintingCalculator}
                             onToggleSmartRepeat={handleToggleSmartRepeat}
                             onToggleItemDisplayMode={handleToggleItemDisplayMode}
@@ -4512,6 +4545,14 @@ function App() {
             onClose={() => setIsPaintingModalOpen(false)}
             onAdd={handleAddPaintingMeasurements}
           />
+          <PlanMeasureModal
+            isOpen={isPlanMeasureModalOpen}
+            onClose={() => setIsPlanMeasureModalOpen(false)}
+            onAdd={handleAddPlanMeasurements}
+            articles={articles}
+            targetArticleId={planMeasureTargetArticleId}
+            onSelectTargetArticle={(id) => setPlanMeasureTargetArticleId(id)}
+          />
 
           {/* MODALE CON ROTELLINA CHE GIRA DURANTE LA GENERAZIONE PDF */}
           {isGeneratingPdf && (
@@ -4591,6 +4632,7 @@ function App() {
               onDeleteMeasurement={handleDeleteMeasurement}
               onToggleArticleEnabled={handleToggleArticleEnabled}
               onOpenRebarCalculator={handleOpenRebarCalculator}
+              onOpenPlanMeasure={handleOpenPlanMeasure}
               onClose={() => setContextMenuTarget(null)}
             />
           )}

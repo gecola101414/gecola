@@ -42,6 +42,7 @@ interface VirtualizedComputoTableProps {
   onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
   onOpenRebarCalculator: (articleId: string) => void;
+  onOpenPlanMeasure: (articleId: string) => void;
   onOpenPaintingCalculator: (articleId: string) => void;
   onToggleSmartRepeat: (articleId: string) => void;
   onToggleItemDisplayMode: (articleId: string) => void;
@@ -119,6 +120,7 @@ export const VirtualizedComputoTable: React.FC<VirtualizedComputoTableProps> = (
   onInsertExternalArticle,
   onToggleArticleLock,
   onOpenRebarCalculator,
+  onOpenPlanMeasure,
   onOpenPaintingCalculator,
   onToggleSmartRepeat,
   onToggleItemDisplayMode,
@@ -450,6 +452,7 @@ export const VirtualizedComputoTable: React.FC<VirtualizedComputoTableProps> = (
             onInsertExternalArticle={onInsertExternalArticle}
             onToggleArticleLock={onToggleArticleLock}
             onOpenRebarCalculator={onOpenRebarCalculator}
+            onOpenPlanMeasure={onOpenPlanMeasure}
             onOpenPaintingCalculator={onOpenPaintingCalculator}
             onToggleSmartRepeat={onToggleSmartRepeat}
             onToggleItemDisplayMode={onToggleItemDisplayMode}

@@ -350,6 +350,21 @@ export const RebarCagePillarIcon: React.FC<{ className?: string }> = ({ classNam
   </svg>
 );
 
+export const RulerTapeIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
+  <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path
+      d="M3 16.5L16.5 3l4.5 4.5L7.5 21 3 16.5z"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      fill="currentColor"
+      fillOpacity="0.16"
+    />
+    <line x1="7" y1="12.5" x2="9.2" y2="14.7" stroke="currentColor" strokeWidth="1.7" />
+    <line x1="10" y1="9.5" x2="11.6" y2="11.1" stroke="currentColor" strokeWidth="1.7" />
+    <line x1="13" y1="6.5" x2="15.2" y2="8.7" stroke="currentColor" strokeWidth="1.7" />
+  </svg>
+);
+
 export interface ArticleGroupProps {
   article: Article;
   index: number;
@@ -374,6 +389,7 @@ export interface ArticleGroupProps {
   onInsertExternalArticle: (index: number, text: string) => void;
   onToggleArticleLock: (id: string) => void;
   onOpenRebarCalculator: (articleId: string) => void;
+  onOpenPlanMeasure: (articleId: string) => void;
   onOpenPaintingCalculator: (articleId: string) => void;
   onToggleSmartRepeat: (articleId: string) => void;
   onToggleItemDisplayMode: (articleId: string) => void;
@@ -427,6 +443,7 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
     onInsertExternalArticle,
     onToggleArticleLock,
     onOpenRebarCalculator,
+    onOpenPlanMeasure,
     onOpenPaintingCalculator,
     onToggleSmartRepeat,
     onStartVoiceDictation,
@@ -1051,6 +1068,15 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
                     <button
                       type="button"
                       disabled={areControlsDisabled}
+                      onClick={() => onOpenPlanMeasure(article.id)}
+                      className="p-1 rounded transition-all hover:text-amber-600 hover:bg-white text-slate-500 group relative disabled:opacity-30"
+                      title="Rilievo Misure da Tavola PDF (Planimetrie, Quote & Superfici)"
+                    >
+                      <RulerTapeIcon className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={areControlsDisabled}
                       onClick={() => onOpenPaintingCalculator(article.id)}
                       className="p-1 rounded transition-colors hover:text-blue-600 hover:bg-white text-slate-500 disabled:opacity-30"
                       title="Calcolo Automatico Pitturazioni e Superfici"
@@ -1592,6 +1618,7 @@ function areArticleGroupPropsEqual(prev: ArticleGroupProps, next: ArticleGroupPr
     prev.onInsertExternalArticle !== next.onInsertExternalArticle ||
     prev.onToggleArticleLock !== next.onToggleArticleLock ||
     prev.onOpenRebarCalculator !== next.onOpenRebarCalculator ||
+    prev.onOpenPlanMeasure !== next.onOpenPlanMeasure ||
     prev.onOpenPaintingCalculator !== next.onOpenPaintingCalculator ||
     prev.onToggleSmartRepeat !== next.onToggleSmartRepeat ||
     prev.onToggleItemDisplayMode !== next.onToggleItemDisplayMode ||

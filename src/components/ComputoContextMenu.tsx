@@ -29,6 +29,16 @@ export const RebarCagePillarIcon: React.FC<{ className?: string }> = ({ classNam
   </svg>
 );
 
+// Icona Metro / Flessometro CAD per Rilievo Misure da Tavola PDF
+export const RulerTapeIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
+  <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M3 16.5L16.5 3l4.5 4.5L7.5 21 3 16.5z" stroke="currentColor" strokeWidth="1.8" className="text-amber-500" fill="currentColor" fillOpacity="0.16" />
+    <line x1="7" y1="12.5" x2="9.2" y2="14.7" stroke="currentColor" strokeWidth="1.6" className="text-amber-400" />
+    <line x1="10" y1="9.5" x2="11.6" y2="11.1" stroke="currentColor" strokeWidth="1.6" className="text-amber-400" />
+    <line x1="13" y1="6.5" x2="15.2" y2="8.7" stroke="currentColor" strokeWidth="1.6" className="text-amber-400" />
+  </svg>
+);
+
 export interface ContextMenuProps {
   x: number;
   y: number;
@@ -46,6 +56,7 @@ export interface ContextMenuProps {
   onDeleteMeasurement?: (articleId: string, mId: string) => void;
   onToggleArticleEnabled?: (articleId: string) => void;
   onOpenRebarCalculator?: (articleId: string) => void;
+  onOpenPlanMeasure?: (articleId: string) => void;
   onClose: () => void;
 }
 
@@ -66,6 +77,7 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
   onDeleteMeasurement,
   onToggleArticleEnabled,
   onOpenRebarCalculator,
+  onOpenPlanMeasure,
   onClose,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -218,6 +230,26 @@ export const ComputoContextMenu: React.FC<ContextMenuProps> = ({
               <span>Armatura 3D Ferri/Staffe</span>
             </div>
             <span className="text-[9px] font-mono opacity-60 group-hover:opacity-100 bg-white/10 px-1.5 py-0.5 rounded">3D</span>
+          </button>
+        )}
+
+        {/* Rilievo Misure da Tavola PDF */}
+        {onOpenPlanMeasure && (
+          <button
+            disabled={isLocked}
+            onClick={() => {
+              onOpenPlanMeasure(article.id);
+              onClose();
+            }}
+            className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left text-xs font-bold text-slate-100 hover:bg-amber-600/90 hover:text-white transition-all group disabled:opacity-40 disabled:pointer-events-none"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="p-1 rounded-lg bg-amber-500/20 text-amber-400 group-hover:bg-white/20 group-hover:text-white transition-colors">
+                <RulerTapeIcon className="w-4 h-4" />
+              </span>
+              <span>Misure da Tavola PDF</span>
+            </div>
+            <span className="text-[9px] font-mono opacity-60 group-hover:opacity-100 bg-white/10 px-1.5 py-0.5 rounded">PDF</span>
           </button>
         )}
 

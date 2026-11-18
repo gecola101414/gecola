@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Sparkles, Cpu, Activity, Zap, PlayCircle, XCircle, Building, MonitorPlay } from 'lucide-react';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Sparkles, Cpu, Activity, Zap, PlayCircle, Building } from 'lucide-react';
 import IntranetSpotPlayer from './IntranetSpotPlayer';
 
 interface LoginProps {
@@ -26,135 +26,6 @@ const Login: React.FC<LoginProps> = ({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showVideo, setShowVideo] = useState(true);
-  const [videoMode, setVideoMode] = useState<'youtube' | 'intranet'>(isArmedForcesIp ? 'intranet' : 'youtube');
-  const [youtubeBlocked, setYoutubeBlocked] = useState(false);
-  const [youtubeReady, setYoutubeReady] = useState(false);
-  const [hasLocalMp4, setHasLocalMp4] = useState(false);
-
-  // Controlla se esiste un file video locale (/public/spot-gecola.mp4) servito dallo stesso dominio
-  useEffect(() => {
-    let active = true;
-    fetch('/spot-gecola.mp4', { method: 'HEAD' })
-      .then((res) => {
-        const ct = res.headers.get('content-type') || '';
-        if (active && res.ok && ct.startsWith('video/')) {
-          setHasLocalMp4(true);
-          setVideoMode('intranet');
-        }
-      })
-      .catch(() => {
-        // Nessun MP4 locale presente: continua con fallback Spot Interattivo / YouTube
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isArmedForcesIp) {
-      setVideoMode('intranet');
-    }
-  }, [isArmedForcesIp]);
-
-  useEffect(() => {
-    if (!showVideo || videoMode !== 'youtube') return;
-
-    let player: any;
-    let isMounted = true;
-    let hasPlayed = false;
-    setYoutubeReady(false);
-
-    const fallbackToIntranet = () => {
-      if (!isMounted || hasPlayed) return;
-      setYoutubeBlocked(true);
-      setVideoMode('intranet');
-    };
-
-    // Timeout rapido: se YouTube o googlevideo è bloccato dal firewall aziendale, passa subito allo Spot Intranet
-    const fallbackTimer = window.setTimeout(() => {
-      if (!hasPlayed) {
-        fallbackToIntranet();
-      }
-    }, 3500);
-
-    const initPlayer = () => {
-      if (!isMounted) return;
-      if (!document.getElementById('youtube-player')) {
-        setTimeout(initPlayer, 100);
-        return;
-      }
-      try {
-        player = new (window as any).YT.Player('youtube-player', {
-          videoId: 'wGXVM1Yh4cM',
-          playerVars: {
-            autoplay: 1,
-            mute: 1,
-            enablejsapi: 1,
-            rel: 0
-          },
-          events: {
-            'onReady': (event: any) => {
-              if (!isMounted) return;
-              setYoutubeReady(true);
-              try {
-                event.target.playVideo();
-              } catch {
-                fallbackToIntranet();
-              }
-            },
-            'onStateChange': (event: any) => {
-              if (event.data === 1) { // 1 = playing
-                hasPlayed = true;
-                window.clearTimeout(fallbackTimer);
-              } else if (event.data === 0) { // 0 = ended
-                setShowVideo(false);
-              }
-            },
-            'onError': () => {
-              fallbackToIntranet();
-            }
-          }
-        });
-      } catch (e) {
-        console.error("Error initializing YouTube player", e);
-        fallbackToIntranet();
-      }
-    };
-
-    if (!(window as any).YT) {
-      const existingScript = document.querySelector('script[src*="youtube.com/iframe_api"]') as HTMLScriptElement | null;
-      if (existingScript) {
-        existingScript.addEventListener('error', fallbackToIntranet);
-        (window as any).onYouTubeIframeAPIReady = initPlayer;
-      } else {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        tag.async = true;
-        tag.onerror = fallbackToIntranet;
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        if (firstScriptTag && firstScriptTag.parentNode) {
-          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        } else {
-          document.head.appendChild(tag);
-        }
-        (window as any).onYouTubeIframeAPIReady = initPlayer;
-      }
-    } else if ((window as any).YT && (window as any).YT.Player) {
-      initPlayer();
-    }
-
-    return () => {
-      isMounted = false;
-      window.clearTimeout(fallbackTimer);
-      if (player && typeof player.destroy === 'function') {
-        try {
-          player.destroy();
-        } catch (e) {
-          console.error("Error destroying YouTube player", e);
-        }
-      }
-    };
-  }, [showVideo, videoMode]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,51 +133,12 @@ const Login: React.FC<LoginProps> = ({
           {/* AREA ANIMAZIONE AI - NEURAL DATA FLOW (SOSTITUISCE IMMAGINE) */}
           <div className="flex-1 relative bg-slate-950 overflow-hidden border-t border-slate-800">
               {showVideo ? (
-                  videoMode === 'intranet' ? (
-                      <IntranetSpotPlayer
-                          youtubeBlockedNotice={youtubeBlocked}
-                          hasLocalMp4={hasLocalMp4}
-                          canTryYoutube={!isArmedForcesIp}
-                          onSwitchToYoutube={() => {
-                              setYoutubeBlocked(false);
-                              setVideoMode('youtube');
-                          }}
-                          onClose={() => setShowVideo(false)}
-                          onTryDemo={onMilanoDemoLogin}
-                          onVisitorEnter={onVisitorLogin}
-                      />
-                  ) : (
-                      <div className="absolute inset-0 w-full h-full bg-black z-50 flex flex-col">
-                          <div className="flex items-center justify-end gap-2 p-2.5 absolute top-0 right-0 z-50">
-                              <button
-                                  type="button"
-                                  onClick={() => setVideoMode('intranet')}
-                                  className="bg-slate-900/90 hover:bg-slate-800 text-white border border-slate-600 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-lg transition-colors flex items-center gap-1.5"
-                                  title="Passa alla presentazione locale compatibile con intranet senza YouTube"
-                              >
-                                  <MonitorPlay className="w-3.5 h-3.5 text-orange-400" />
-                                  <span>Modalità Intranet (No YouTube)</span>
-                              </button>
-                              <button
-                                  type="button"
-                                  onClick={() => setShowVideo(false)}
-                                  className="bg-red-600 text-white p-1.5 rounded-full hover:bg-red-700 shadow-lg transition-transform hover:scale-110"
-                                  aria-label="Chiudi video"
-                              >
-                                  <XCircle className="w-5 h-5" />
-                              </button>
-                          </div>
-                          {!youtubeReady && (
-                              <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 text-slate-300 z-40 pointer-events-none gap-2">
-                                  <Loader2 className="w-7 h-7 animate-spin text-orange-400" />
-                                  <span className="text-xs font-semibold">Connessione a YouTube in corso (passaggio automatico a Spot Locale se bloccato)...</span>
-                              </div>
-                          )}
-                          <div className="w-full h-full">
-                              <div id="youtube-player" className="w-full h-full"></div>
-                          </div>
-                      </div>
-                  )
+                  <IntranetSpotPlayer
+                      localVideoUrl="/assets/aistudio/GECOLA_2026__4__b05bd9dd.mp4"
+                      onClose={() => setShowVideo(false)}
+                      onTryDemo={onMilanoDemoLogin}
+                      onVisitorEnter={onVisitorLogin}
+                  />
               ) : (
                   <>
                       {/* Background Grid */}

@@ -21,10 +21,7 @@ import {
 } from 'lucide-react';
 
 interface IntranetSpotPlayerProps {
-  youtubeBlockedNotice?: boolean;
-  hasLocalMp4?: boolean;
-  canTryYoutube?: boolean;
-  onSwitchToYoutube?: () => void;
+  localVideoUrl?: string;
   onClose: () => void;
   onTryDemo?: () => void;
   onVisitorEnter?: () => void;
@@ -100,10 +97,7 @@ const SCENE_OFFSETS = SCENES.reduce<number[]>((acc, s, idx) => {
 }, []);
 
 const IntranetSpotPlayer: React.FC<IntranetSpotPlayerProps> = ({
-  youtubeBlockedNotice = false,
-  hasLocalMp4 = false,
-  canTryYoutube = true,
-  onSwitchToYoutube,
+  localVideoUrl,
   onClose,
   onTryDemo,
   onVisitorEnter,
@@ -111,16 +105,32 @@ const IntranetSpotPlayer: React.FC<IntranetSpotPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(true);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [sourceType, setSourceType] = useState<'interactive' | 'mp4'>(hasLocalMp4 ? 'mp4' : 'interactive');
+  const [mp4Failed, setMp4Failed] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [sourceType, setSourceType] = useState<'interactive' | 'mp4'>(localVideoUrl ? 'mp4' : 'interactive');
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastSpokenSceneRef = useRef<number>(-1);
   const rafRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (hasLocalMp4) {
+    if (localVideoUrl && !mp4Failed) {
       setSourceType('mp4');
+    } else {
+      setSourceType('interactive');
     }
-  }, [hasLocalMp4]);
+  }, [localVideoUrl, mp4Failed]);
+
+  const toggleMp4Mute = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    const nextMuted = !vid.muted;
+    vid.muted = nextMuted;
+    setIsMuted(nextMuted);
+    if (vid.paused) {
+      vid.play().catch(() => {});
+    }
+  };
 
   // Calcola indice scena corrente e progresso interno [0..1]
   let activeSceneIdx = SCENES.length - 1;
@@ -535,50 +545,31 @@ const IntranetSpotPlayer: React.FC<IntranetSpotPlayerProps> = ({
       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/35 to-slate-950/80 pointer-events-none" />
 
       {/* Top Bar player */}
-      <div className="relative z-20 flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-800/80 bg-slate-950/75 backdrop-blur-sm">
+      <div className="relative z-20 flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-sm">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center gap-2 text-xs font-bold text-white whitespace-nowrap shrink-0">
             <MonitorPlay className="w-4 h-4 text-orange-400" />
-            <span>Spot Presentazione 2026</span>
+            <span>Spot Ufficiale GeCoLa 2026</span>
           </div>
-          {youtubeBlockedNotice && (
-            <span className="hidden sm:inline text-[11px] text-amber-300/90 truncate">
-              · YouTube bloccato dalla rete: attiva modalità locale
-            </span>
-          )}
+          <span className="hidden sm:inline text-[11px] text-emerald-400/90 truncate">
+            · Video Locale Intranet Compatibile (No YouTube)
+          </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {hasLocalMp4 && (
-            <div className="flex items-center bg-slate-900 border border-slate-700 rounded-lg p-0.5 text-[11px]">
-              <button
-                type="button"
-                onClick={() => setSourceType('mp4')}
-                className={`px-2.5 py-1 rounded-md font-semibold transition-colors whitespace-nowrap ${
-                  sourceType === 'mp4' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                Video MP4 Locale
-              </button>
-              <button
-                type="button"
-                onClick={() => setSourceType('interactive')}
-                className={`px-2.5 py-1 rounded-md font-semibold transition-colors whitespace-nowrap ${
-                  sourceType === 'interactive' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                Spot Interattivo
-              </button>
-            </div>
-          )}
-
-          {canTryYoutube && onSwitchToYoutube && (
+          {sourceType === 'mp4' && localVideoUrl && (
             <button
               type="button"
-              onClick={onSwitchToYoutube}
-              className="text-[11px] font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+              onClick={toggleMp4Mute}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap ${
+                isMuted
+                  ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-md'
+                  : 'bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700'
+              }`}
+              title={isMuted ? 'Attiva audio del video' : 'Disattiva audio'}
             >
-              Prova YouTube
+              {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+              <span>{isMuted ? 'Attiva Audio' : 'Audio Attivo'}</span>
             </button>
           )}
 
@@ -587,7 +578,7 @@ const IntranetSpotPlayer: React.FC<IntranetSpotPlayerProps> = ({
             onClick={onClose}
             aria-label="Chiudi presentazione"
             className="text-slate-300 hover:text-white hover:bg-red-600/80 p-1.5 rounded-lg transition-colors"
-            title="Chiudi player e mostra sfondo"
+            title="Chiudi video"
           >
             <XCircle className="w-5 h-5" />
           </button>
@@ -595,20 +586,31 @@ const IntranetSpotPlayer: React.FC<IntranetSpotPlayerProps> = ({
       </div>
 
       {/* Area centrale video/animazione */}
-      <div className="relative z-10 flex-1 flex items-center justify-center px-6 py-4 overflow-y-auto">
-        {sourceType === 'mp4' && hasLocalMp4 ? (
+      <div className="relative z-10 flex-1 flex items-center justify-center bg-black overflow-hidden">
+        {sourceType === 'mp4' && localVideoUrl ? (
           <video
-            src="/spot-gecola.mp4"
+            ref={videoRef}
+            src={localVideoUrl}
             controls
             autoPlay
-            muted
+            muted={isMuted}
             playsInline
-            className="w-full h-full max-h-full rounded-xl bg-black object-contain shadow-2xl border border-slate-800"
+            preload="metadata"
+            onEnded={onClose}
+            onVolumeChange={() => {
+              if (videoRef.current) {
+                setIsMuted(videoRef.current.muted);
+              }
+            }}
+            onError={() => setMp4Failed(true)}
+            className="w-full h-full object-contain bg-black"
           >
             Il browser non supporta il tag video HTML5.
           </video>
         ) : (
-          renderSceneVisual()
+          <div className="w-full h-full flex items-center justify-center px-6 py-4 overflow-y-auto">
+            {renderSceneVisual()}
+          </div>
         )}
       </div>
 
