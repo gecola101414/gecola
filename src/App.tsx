@@ -48,6 +48,8 @@ import {
   Truck,
   GripVertical,
   GripHorizontal,
+  Upload,
+  CheckCircle2,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -130,6 +132,9 @@ function App() {
   const [user, setUser] = useState<FirebaseUser | 'visitor' | null>(() => (isNewProjectTab ? 'visitor' : null));
   const [authLoading, setAuthLoading] = useState(() => !isNewProjectTab);
   const [isWorkspaceDragOver, setIsWorkspaceDragOver] = useState(false);
+  const [isDraggingExternalFile, setIsDraggingExternalFile] = useState(false);
+  const [wbsFileImportStatus, setWbsFileImportStatus] = useState<{ fileName: string; targetWbsLabel: string; step: string } | null>(null);
+  const [wbsFileImportSuccess, setWbsFileImportSuccess] = useState<{ count: number; targetWbsLabel: string; fileName: string } | null>(null);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isPrintMenuOpen, setIsPrintMenuOpen] = useState(false);
   const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
@@ -1367,6 +1372,15 @@ function App() {
       setWbsDropTarget({ code: targetCode, position: 'inside' });
       return;
     }
+    if (e.dataTransfer.types.includes('Files')) {
+      if (targetCat?.isSuperCategory) {
+        e.dataTransfer.dropEffect = 'none';
+        setWbsDropTarget(null);
+        return;
+      }
+      setWbsDropTarget({ code: targetCode, position: 'inside' });
+      return;
+    }
     if (draggedCategoryCode || e.dataTransfer.types.includes('text/plain')) {
       if (draggedCategoryCode === targetCode) {
         setWbsDropTarget(null);
@@ -1391,6 +1405,15 @@ function App() {
     e.stopPropagation();
     const pos = wbsDropTarget?.position || 'bottom';
     setWbsDropTarget(null);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && targetCode) {
+      const droppedFile = e.dataTransfer.files[0];
+      const lowerName = droppedFile.name.toLowerCase();
+      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.dcf') || lowerName.endsWith('.xpwe')) {
+        void handleDirectFileDropIntoWbs(droppedFile, targetCode);
+        return;
+      }
+    }
 
     const analysisId = e.dataTransfer.getData(MIME_ANALYSIS_DRAG);
     if (analysisId && targetCode) {
@@ -2498,9 +2521,128 @@ function App() {
     }
   };
 
+  const handleDirectFileDropIntoWbs = async (file: File, targetCatCodeOverride?: string) => {
+    const lowerName = file.name.toLowerCase();
+    const isPdf = lowerName.endsWith('.pdf');
+    const isDcf = lowerName.endsWith('.dcf') || lowerName.endsWith('.xpwe');
+
+    if (!isPdf && !isDcf) {
+      alert('Formato non supportato per il caricamento diretto in WBS. Trascina un file .PDF oppure .DCF / .XPWE.');
+      return;
+    }
+
+    const currCats = categoriesRef.current;
+    const rawTargetCode =
+      targetCatCodeOverride ||
+      activeCategoryForAiRef.current ||
+      (selectedCategoryCodeRef.current === 'SUMMARY'
+        ? currCats.find((c) => !c.isSuperCategory)?.code || currCats[0]?.code
+        : selectedCategoryCodeRef.current);
+
+    let targetCat = currCats.find((c) => c.code === rawTargetCode);
+    if (!targetCat || targetCat.isSuperCategory) {
+      targetCat = currCats.find((c) => !c.isSuperCategory && (viewMode === 'SICUREZZA' ? c.type === 'safety' : c.type !== 'safety')) || currCats[0];
+    }
+
+    if (!targetCat) {
+      alert('Seleziona o crea una WBS prima di trascinare un file.');
+      return;
+    }
+
+    if (targetCat.isLocked) {
+      alert(`La WBS "${targetCat.code} - ${targetCat.name}" è bloccata. Sbloccala per poter importare nuove voci.`);
+      return;
+    }
+
+    const targetCode = targetCat.code;
+    const targetLabel = `${targetCat.code} • ${targetCat.name}`;
+
+    if (selectedCategoryCodeRef.current !== targetCode) {
+      setSelectedCategoryCode(targetCode);
+    }
+
+    setWbsFileImportStatus({
+      fileName: file.name,
+      targetWbsLabel: targetLabel,
+      step: isPdf
+        ? 'Lettura e decodifica tabella PDF in corso...'
+        : 'Estrazione voci dal file ACCA PriMus (.dcf / .xpwe)...',
+    });
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = isPdf
+        ? await (await import('./utils/pdfComputoConverter')).convertPdfComputo(arrayBuffer, file.name, (step) => {
+            setWbsFileImportStatus((prev) => (prev ? { ...prev, step } : prev));
+          })
+        : await (await import('./utils/dcfComputoConverter')).convertDcfComputo(arrayBuffer, file.name, (step) => {
+            setWbsFileImportStatus((prev) => (prev ? { ...prev, step } : prev));
+          });
+
+      if (!result.articles || result.articles.length === 0) {
+        throw new Error('Nessuna voce trovata nel file selezionato.');
+      }
+
+      if (!canAddArticle(result.articles.length)) {
+        setWbsFileImportStatus(null);
+        return;
+      }
+
+      const uniqueBatchPrefix = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const currentMode = wbsDisplayModeRef.current;
+      const defaultSoa = targetCat.soaCategory || activeSoaCategory;
+
+      // Mappa i vecchi ID -> nuovi ID univoci in caso di eventuali riferimenti interni
+      const oldToNewIdMap = new Map<string, string>();
+      result.articles.forEach((art, idx) => {
+        oldToNewIdMap.set(art.id, `art_drop_${uniqueBatchPrefix}_${idx}`);
+      });
+
+      const importedArticles: Article[] = result.articles.map((art, idx) => {
+        const newArtId = oldToNewIdMap.get(art.id)!;
+        const newMeasurements: Measurement[] = (art.measurements || []).map((m, mIdx) => ({
+          ...m,
+          id: `m_drop_${uniqueBatchPrefix}_${idx}_${mIdx}`,
+          linkedArticleId: m.linkedArticleId ? oldToNewIdMap.get(m.linkedArticleId) : undefined,
+        }));
+
+        return {
+          ...art,
+          id: newArtId,
+          categoryCode: targetCode,
+          soaCategory: targetCat!.soaCategory || art.soaCategory || defaultSoa,
+          measurements: newMeasurements,
+          displayMode: currentMode,
+        };
+      });
+
+      updateState([...articlesRef.current, ...importedArticles]);
+
+      if (importedArticles.length > 0) {
+        handleScrollToArticle(importedArticles[0].id, undefined, targetCode);
+      }
+
+      playUISound('confirm');
+      setWbsFileImportStatus(null);
+      setWbsFileImportSuccess({
+        count: importedArticles.length,
+        targetWbsLabel: targetLabel,
+        fileName: file.name,
+      });
+      setTimeout(() => {
+        setWbsFileImportSuccess((prev) => (prev?.fileName === file.name ? null : prev));
+      }, 4500);
+    } catch (err: any) {
+      console.error('Errore importazione diretta PDF/DCF in WBS:', err);
+      setWbsFileImportStatus(null);
+      alert(err?.message || 'Errore durante la lettura del file trascinato nella WBS.');
+    }
+  };
+
   const handleWorkspaceDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDraggingExternalFile(false);
     if (draggedCategoryCode) {
       setIsWorkspaceDragOver(false);
       return;
@@ -2509,11 +2651,13 @@ function App() {
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile.name.toLowerCase().endsWith('.pdf')) {
-        setIsPdfModalOpen(true);
-        playUISound('toggle');
+      const lowerName = droppedFile.name.toLowerCase();
+      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.dcf') || lowerName.endsWith('.xpwe')) {
+        void handleDirectFileDropIntoWbs(droppedFile);
         return;
       }
+      alert('Formato file non supportato. Puoi trascinare un file .PDF oppure .DCF / .XPWE direttamente dentro la WBS.');
+      return;
     }
 
     const analysisId = e.dataTransfer.getData(MIME_ANALYSIS_DRAG);
@@ -2552,9 +2696,12 @@ function App() {
     if (draggedCategoryCode) {
       e.dataTransfer.dropEffect = 'none';
       if (isWorkspaceDragOver) setIsWorkspaceDragOver(false);
+      if (isDraggingExternalFile) setIsDraggingExternalFile(false);
       return;
     }
-    const isExternal = !e.dataTransfer.types.includes(MIME_ARTICLE) && !e.dataTransfer.types.includes(MIME_MEASUREMENT);
+    const isFiles = e.dataTransfer.types.includes('Files');
+    const isExternal = isFiles || (!e.dataTransfer.types.includes(MIME_ARTICLE) && !e.dataTransfer.types.includes(MIME_MEASUREMENT));
+    if (isFiles && !isDraggingExternalFile) setIsDraggingExternalFile(true);
     if (isExternal && !isWorkspaceDragOver) setIsWorkspaceDragOver(true);
     e.dataTransfer.dropEffect = 'copy';
   };
@@ -4153,9 +4300,29 @@ function App() {
                     }`}
                     onKeyDown={handleInputKeyDown}
                     onDragOver={handleWorkspaceDragOver}
-                    onDragLeave={() => setIsWorkspaceDragOver(false)}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setIsWorkspaceDragOver(false);
+                        setIsDraggingExternalFile(false);
+                      }
+                    }}
                     onDrop={handleWorkspaceDrop}
                   >
+                    {isWorkspaceDragOver && isDraggingExternalFile && (
+                      <div className="sticky top-4 z-[80] mx-6 mt-4 pointer-events-none">
+                        <div className="bg-blue-600/95 text-white px-6 py-4 rounded-2xl shadow-2xl border-2 border-blue-300 flex items-center justify-center gap-3 backdrop-blur-md">
+                          <Upload className="w-6 h-6 animate-bounce" />
+                          <div className="text-left">
+                            <div className="text-xs font-black uppercase tracking-wider">
+                              Rilascia il file .PDF / .DCF dentro {activeCategory.code}
+                            </div>
+                            <div className="text-[11px] text-blue-100 font-medium">
+                              Le voci estratte verranno caricate automaticamente in questa WBS ({activeCategory.name})
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div className="flex-1 flex flex-col min-h-full px-6 pt-0 pb-12 relative">
                       <table className="w-full text-left border-separate border-spacing-0 relative bg-white shadow-sm rounded-b-xl table-fixed">
                         <colgroup>
@@ -4176,7 +4343,7 @@ function App() {
                             <tr>
                               <td colSpan={11} className="py-24">
                                 <div
-                                  className={`flex flex-col items-center gap-8 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed text-center space-y-4 ${
+                                  className={`flex flex-col items-center gap-6 max-w-2xl mx-auto p-12 rounded-[3.5rem] border-4 border-dashed text-center space-y-2 ${
                                     viewMode === 'SICUREZZA' ? 'border-orange-100 bg-orange-50/30' : 'border-blue-100 bg-slate-50/30'
                                   }`}
                                 >
@@ -4188,6 +4355,9 @@ function App() {
                                     <Zap className="w-16 h-16" />
                                   </div>
                                   <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-400">Capitolo Vuoto</h3>
+                                  <p className="text-xs font-bold text-slate-400 max-w-md">
+                                    Trascina qui le voci dal Prezzario oppure rilascia direttamente un file <span className="text-blue-600">.PDF</span> o <span className="text-amber-600">.DCF</span> per caricare tutte le sue voci in questa WBS.
+                                  </p>
                                 </div>
                               </td>
                             </tr>
@@ -4357,6 +4527,47 @@ function App() {
                     Elaborazione rapida di <span className="font-bold text-emerald-700">{pdfGeneratingTitle}</span> con formule dinamiche e calcoli
                     ottimizzati...
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* OVERLAY CARICAMENTO DIRETTO FILE PDF / DCF IN WBS */}
+          {wbsFileImportStatus && (
+            <div className="fixed inset-0 z-[9999] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+              <div className="bg-white rounded-3xl shadow-2xl p-7 max-w-md w-full flex flex-col items-center text-center space-y-4 border border-blue-100">
+                <div className="relative flex items-center justify-center">
+                  <div className="w-16 h-16 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin"></div>
+                  <Upload className="w-6 h-6 text-blue-600 absolute" />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                    Importazione Diretta in WBS
+                  </span>
+                  <h3 className="text-base font-black text-slate-900 pt-1 truncate max-w-[340px]">
+                    {wbsFileImportStatus.fileName}
+                  </h3>
+                  <p className="text-xs font-bold text-slate-600">
+                    Destinazione: <span className="text-blue-700">{wbsFileImportStatus.targetWbsLabel}</span>
+                  </p>
+                  <p className="text-xs text-slate-500 pt-1 animate-pulse">{wbsFileImportStatus.step}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TOAST CONFERMA IMPORTAZIONE DIRETTA IN WBS */}
+          {wbsFileImportSuccess && (
+            <div className="fixed bottom-6 right-6 z-[300] bg-emerald-950/95 text-white px-5 py-3.5 rounded-2xl shadow-2xl border-2 border-emerald-400/70 backdrop-blur-md flex items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+              <div className="p-2 bg-emerald-600 rounded-xl text-white">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-black uppercase tracking-wide text-emerald-300">
+                  +{wbsFileImportSuccess.count} {wbsFileImportSuccess.count === 1 ? 'Voce caricata' : 'Voci caricate'} in WBS
+                </div>
+                <div className="text-[11px] text-slate-200 font-medium truncate max-w-xs">
+                  {wbsFileImportSuccess.fileName} → {wbsFileImportSuccess.targetWbsLabel}
                 </div>
               </div>
             </div>

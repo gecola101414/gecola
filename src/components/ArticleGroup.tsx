@@ -632,6 +632,9 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
   };
 
   const handleTbodyDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const isInternal = e.dataTransfer.types.includes(MIME_ARTICLE);
@@ -663,6 +666,11 @@ const ArticleGroupComponent: React.FC<ArticleGroupProps> = (props) => {
   };
 
   const handleTbodyDrop = (e: React.DragEvent) => {
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      setIsArticleDragOver(false);
+      setArticleDropPosition(null);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     if (isCategoryLocked) {

@@ -63,13 +63,9 @@ export const PdfConverterModal: React.FC<PdfConverterModalProps> = ({
         setConversionResult(result);
       } else {
         setProgressStep('Analisi layout pagine e coordinate tabelle PriMus...');
-        await new Promise(r => setTimeout(r, 60));
-
-        const result = await convertPdfComputo(arrayBuffer, file.name);
-
-        setProgressStep('Finalizzazione voci, misurazioni e gruppi WBS...');
-        await new Promise(r => setTimeout(r, 80));
-
+        const result = await convertPdfComputo(arrayBuffer, file.name, (step) => {
+          setProgressStep(step);
+        });
         setConversionResult(result);
       }
 
