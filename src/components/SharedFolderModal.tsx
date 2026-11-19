@@ -14,8 +14,10 @@ import {
   AlertCircle,
   RefreshCw,
   MessageSquare,
+  Info,
 } from 'lucide-react';
 import {
+  CollabStatusInfo,
   SharedFileMeta,
   fetchSharedFolderListing,
   createSharedSubfolder,
@@ -32,6 +34,7 @@ interface SharedFolderModalProps {
   currentProjectTitle: string;
   currentArticleCount: number;
   refreshSignal: number;
+  collabStatus?: CollabStatusInfo;
 }
 
 const SharedFolderModal: React.FC<SharedFolderModalProps> = ({
@@ -42,6 +45,7 @@ const SharedFolderModal: React.FC<SharedFolderModalProps> = ({
   currentProjectTitle,
   currentArticleCount,
   refreshSignal,
+  collabStatus,
 }) => {
   const [folders, setFolders] = useState<string[]>(['Generale', 'Gare e Appalti', 'Cantieri Attivi', 'Subappalti']);
   const [files, setFiles] = useState<SharedFileMeta[]>([]);
@@ -242,7 +246,12 @@ const SharedFolderModal: React.FC<SharedFolderModalProps> = ({
                 Cartella Condivisa GeCoLa
               </h3>
               <p className="text-slate-400 text-xs truncate">
-                Archivio condiviso di studio · {files.length} {files.length === 1 ? 'progetto salvato' : 'progetti salvati'} · sincronizzato in tempo reale
+                {collabStatus?.mode === 'firebase'
+                  ? 'Cloud Firebase'
+                  : collabStatus?.mode === 'server'
+                    ? 'Server Condiviso'
+                    : 'Archivio Locale Browser'}{' '}
+                · {files.length} {files.length === 1 ? 'progetto salvato' : 'progetti salvati'} · sincronizzato in tempo reale
               </p>
             </div>
           </div>
@@ -348,6 +357,14 @@ const SharedFolderModal: React.FC<SharedFolderModalProps> = ({
               <span>Conferma Salvataggio</span>
             </button>
           </form>
+        )}
+
+        {/* Backend notice (Visitor / Firebase rules) */}
+        {collabStatus?.notice && (
+          <div className="px-6 py-2 text-xs bg-amber-50 text-amber-900 border-b border-amber-200 flex items-center gap-2 shrink-0">
+            <Info className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{collabStatus.notice}</span>
+          </div>
         )}
 
         {/* Notifications */}

@@ -12,8 +12,15 @@ import {
   WifiOff,
   Check,
   Edit3,
+  Info,
+  Copy,
 } from 'lucide-react';
-import { ChatMessage, OnlineOperator } from '../services/teamCollabService';
+import {
+  ChatMessage,
+  CollabStatusInfo,
+  OnlineOperator,
+  RECOMMENDED_FIREBASE_RTDB_RULES,
+} from '../services/teamCollabService';
 
 interface TeamChatDrawerProps {
   isOpen: boolean;
@@ -21,6 +28,7 @@ interface TeamChatDrawerProps {
   messages: ChatMessage[];
   operators: OnlineOperator[];
   isConnected: boolean;
+  collabStatus?: CollabStatusInfo;
   activeChannel: string;
   onChannelChange: (channel: string) => void;
   projectChannelId: string;
@@ -40,6 +48,7 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
   messages,
   operators,
   isConnected,
+  collabStatus,
   activeChannel,
   onChannelChange,
   projectChannelId,
@@ -57,6 +66,8 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
   const [isSharingProject, setIsSharingProject] = useState(false);
   const [openingFileId, setOpeningFileId] = useState<string | null>(null);
   const [showOperators, setShowOperators] = useState(false);
+  const [showRulesHint, setShowRulesHint] = useState(false);
+  const [copiedRules, setCopiedRules] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(currentUserName);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -148,7 +159,15 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
                   ) : (
                     <WifiOff className="w-3 h-3 text-amber-400" />
                   )}
-                  <span>{isConnected ? 'Connesso' : 'Riconnessione...'}</span>
+                  <span>
+                    {!isConnected
+                      ? 'Connessione...'
+                      : collabStatus?.mode === 'firebase'
+                        ? 'Cloud Firebase'
+                        : collabStatus?.mode === 'server'
+                          ? 'Server Studio'
+                          : 'Locale Browser'}
+                  </span>
                 </span>
                 <span aria-hidden="true">·</span>
                 <button
@@ -260,6 +279,44 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
           );
         })}
       </div>
+
+      {/* Optional backend notice (e.g. Visitor on Vercel or Firebase rules needed) */}
+      {collabStatus?.notice && (
+        <div className="px-3.5 py-2 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-900 shrink-0 space-y-1.5">
+          <div className="flex items-start gap-2">
+            <Info className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+            <span className="leading-snug flex-1">{collabStatus.notice}</span>
+          </div>
+          {collabStatus.needsFirebaseRules && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowRulesHint((v) => !v)}
+                className="text-[11px] font-semibold text-amber-800 underline hover:text-amber-950 cursor-pointer"
+              >
+                {showRulesHint ? 'Nascondi regole Firebase RTDB' : 'Mostra regole Firebase RTDB consigliate'}
+              </button>
+              {showRulesHint && (
+                <div className="mt-1.5 bg-slate-900 text-slate-100 rounded-lg p-2 font-mono text-[10px] relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(RECOMMENDED_FIREBASE_RTDB_RULES).catch(() => {});
+                      setCopiedRules(true);
+                      setTimeout(() => setCopiedRules(false), 2000);
+                    }}
+                    className="absolute top-1.5 right-1.5 px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{copiedRules ? 'Copiato' : 'Copia'}</span>
+                  </button>
+                  <pre className="overflow-x-auto pr-14 whitespace-pre">{RECOMMENDED_FIREBASE_RTDB_RULES}</pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Message stream */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">

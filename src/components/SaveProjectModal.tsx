@@ -38,6 +38,7 @@ interface SaveProjectModalProps {
   operatorName?: string;
   operatorId?: string;
   chatChannel?: string;
+  allowSharedFolder?: boolean;
   onOpenSharedFolder?: () => void;
   onSavedToSharedFolder?: () => void;
 }
@@ -54,6 +55,7 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
   operatorName = 'Operatore GeCoLa',
   operatorId,
   chatChannel = 'generale',
+  allowSharedFolder = false,
   onOpenSharedFolder,
   onSavedToSharedFolder,
 }) => {
@@ -78,6 +80,7 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
     if (!isOpen) return;
     setBaseFileName((projectInfo.title || 'Progetto').replace(/\s+/g, '_').replace(/_(CME|CM)$/i, ''));
     setSharedFeedback(null);
+    if (!allowSharedFolder) return;
     fetchSharedFolderListing()
       .then((res) => {
         if (res.folders.length > 0) {
@@ -88,7 +91,7 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
         }
       })
       .catch(() => {});
-  }, [isOpen, projectInfo.title]);
+  }, [isOpen, projectInfo.title, allowSharedFolder]);
 
   if (!isOpen) return null;
 
@@ -329,7 +332,9 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
             <div>
               <h3 className="text-white font-bold text-base">Salva Progetto</h3>
               <p className="text-slate-400 text-xs">
-                Salva nella Cartella Condivisa del team oppure sul computer locale
+                {allowSharedFolder
+                  ? 'Salva nella Cartella Condivisa del team oppure sul computer locale'
+                  : 'Scegli formato e destinazione sul tuo computer (CME / CM)'}
               </p>
             </div>
           </div>
@@ -357,7 +362,8 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
             />
           </div>
 
-          {/* CARTELLA CONDIVISA (TEAM / SERVER) */}
+          {/* CARTELLA CONDIVISA (SOLO UTENTI REGISTRATI) */}
+          {allowSharedFolder && (
           <div className="bg-sky-50/80 border-2 border-sky-300 rounded-2xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2.5">
@@ -523,6 +529,7 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
               </button>
             </div>
           </div>
+          )}
 
           {/* OPZIONE 1: SALVA SUL COMPUTER - COMPUTO METRICO ESTIMATIVO (CME) */}
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
@@ -615,7 +622,9 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
           {/* FOOTER */}
           <div className="flex justify-between items-center pt-2 border-t border-slate-100">
             <span className="text-[11px] text-slate-400 font-medium">
-              Puoi salvare sia in Cartella Condivisa che in locale sul computer
+              {allowSharedFolder
+                ? 'Puoi salvare sia in Cartella Condivisa che in locale sul computer'
+                : 'Salvataggio diretto sul tuo computer in formato .json o Excel .xls'}
             </span>
             <button
               type="button"

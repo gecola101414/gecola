@@ -83,15 +83,16 @@ import {
 } from './utils/planProjectStorage';
 import {
   ChatMessage,
+  CollabSessionHandle,
+  CollabStatusInfo,
   OnlineOperator,
   SharedFileMeta,
-  fetchSharedFolderListing,
-  fetchChatHistory,
-  postChatMessage,
-  deleteChatMessageApi,
   saveProjectToSharedFolder,
   loadProjectFromSharedFolder,
-  getCollabWebSocketUrl,
+  postChatMessage,
+  deleteChatMessageApi,
+  startCollabSession,
+  resetCollabBackendCache,
   getOrCreateLocalOperatorId,
 } from './services/teamCollabService';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
@@ -733,6 +734,7 @@ function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatOperators, setChatOperators] = useState<OnlineOperator[]>([]);
   const [isCollabConnected, setIsCollabConnected] = useState(false);
+  const [collabStatus, setCollabStatus] = useState<CollabStatusInfo>({ mode: 'local', connected: false });
   const [activeChatChannel, setActiveChatChannel] = useState('generale');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [customOperatorName, setCustomOperatorName] = useState<string>(() => {
@@ -743,7 +745,7 @@ function App() {
     }
   });
   const localOperatorIdRef = useRef<string>(getOrCreateLocalOperatorId());
-  const collabWsRef = useRef<WebSocket | null>(null);
+  const collabSessionRef = useRef<CollabSessionHandle | null>(null);
   const isChatOpenRef = useRef(isChatDrawerOpen);
   isChatOpenRef.current = isChatDrawerOpen;
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
@@ -2984,137 +2986,72 @@ function App() {
     try {
       localStorage.setItem('gecola_operator_name', cleaned);
     } catch {}
-    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
-      collabWsRef.current.send(
-        JSON.stringify({
-          type: 'presence:join',
-          userId: localOperatorIdRef.current,
-          userName: cleaned,
-          channel: activeChatChannel,
-        })
-      );
-    }
+    collabSessionRef.current?.updatePresence(cleaned, activeChatChannel);
   };
 
-  // Real-time WebSocket & initial sync for Team Chat + Shared Folder
+  const isRegisteredUser = Boolean(user && user !== 'visitor');
+
+  // Unified real-time sync for Team Chat + Shared Folder (ONLY for registered authenticated users)
   useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const refreshSharedCount = () => {
-      fetchSharedFolderListing()
-        .then((res) => {
-          if (!cancelled) setSharedFilesCount(res.files.length);
-        })
-        .catch(() => {});
-    };
-
-    refreshSharedCount();
-    fetchChatHistory()
-      .then((res) => {
-        if (cancelled) return;
-        setChatMessages(res.messages || []);
-        setChatOperators(res.operators || []);
-      })
-      .catch(() => {});
-
-    const connectWs = () => {
-      if (cancelled) return;
-      try {
-        const ws = new WebSocket(getCollabWebSocketUrl());
-        collabWsRef.current = ws;
-
-        ws.onopen = () => {
-          if (cancelled) return;
-          setIsCollabConnected(true);
-          ws.send(
-            JSON.stringify({
-              type: 'presence:join',
-              userId: localOperatorIdRef.current,
-              userName: currentOperatorName,
-              channel: activeChatChannel,
-            })
-          );
-        };
-
-        ws.onmessage = (event) => {
-          if (cancelled) return;
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'init') {
-              if (Array.isArray(data.messages)) {
-                setChatMessages((prev) => {
-                  const byId = new Map<string, ChatMessage>();
-                  for (const m of prev) byId.set(m.id, m);
-                  for (const m of data.messages as ChatMessage[]) byId.set(m.id, m);
-                  return Array.from(byId.values()).sort(
-                    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-                  );
-                });
-              }
-              if (Array.isArray(data.operators)) setChatOperators(data.operators);
-            } else if (data.type === 'presence:update') {
-              if (Array.isArray(data.operators)) setChatOperators(data.operators);
-            } else if (data.type === 'chat:message' && data.message) {
-              const incoming = data.message as ChatMessage;
-              setChatMessages((prev) => {
-                if (prev.some((m) => m.id === incoming.id)) return prev;
-                return [...prev, incoming];
-              });
-              if (!isChatOpenRef.current && incoming.senderId !== localOperatorIdRef.current) {
-                setUnreadChatCount((c) => c + 1);
-                playUISound('toggle');
-              }
-            } else if (data.type === 'chat:deleted' && data.messageId) {
-              setChatMessages((prev) => prev.filter((m) => m.id !== data.messageId));
-            } else if (data.type === 'shared:updated') {
-              setSharedFolderRefreshSignal((n) => n + 1);
-              refreshSharedCount();
-            }
-          } catch {
-            // ignore malformed frames
-          }
-        };
-
-        ws.onclose = () => {
-          if (cancelled) return;
-          setIsCollabConnected(false);
-          reconnectTimer = setTimeout(connectWs, 2500);
-        };
-
-        ws.onerror = () => {
-          ws.close();
-        };
-      } catch {
-        setIsCollabConnected(false);
-        reconnectTimer = setTimeout(connectWs, 3000);
-      }
-    };
-
-    connectWs();
+    if (!isRegisteredUser) {
+      setIsSharedFolderModalOpen(false);
+      setIsChatDrawerOpen(false);
+      setSharedFilesCount(0);
+      setChatMessages([]);
+      setChatOperators([]);
+      setUnreadChatCount(0);
+      setIsCollabConnected(false);
+      return;
+    }
+    resetCollabBackendCache();
+    const session = startCollabSession({
+      userId: localOperatorIdRef.current,
+      userName: currentOperatorName,
+      channel: activeChatChannel,
+      onStatusChange: (status) => {
+        setCollabStatus(status);
+        setIsCollabConnected(status.connected);
+      },
+      onMessagesReplace: (msgs) => {
+        setChatMessages(
+          [...msgs].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        );
+      },
+      onMessageAdded: (incoming) => {
+        setChatMessages((prev) => {
+          if (prev.some((m) => m.id === incoming.id)) return prev;
+          return [...prev, incoming];
+        });
+        if (!isChatOpenRef.current && incoming.senderId !== localOperatorIdRef.current) {
+          setUnreadChatCount((c) => c + 1);
+          playUISound('toggle');
+        }
+      },
+      onMessageDeleted: (messageId) => {
+        setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
+      },
+      onOperatorsChange: (ops) => {
+        setChatOperators(ops);
+      },
+      onSharedUpdated: (count) => {
+        setSharedFolderRefreshSignal((n) => n + 1);
+        if (typeof count === 'number') {
+          setSharedFilesCount(count);
+        }
+      },
+    });
+    collabSessionRef.current = session;
 
     return () => {
-      cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (collabWsRef.current) {
-        collabWsRef.current.close();
-        collabWsRef.current = null;
+      session.disconnect();
+      if (collabSessionRef.current === session) {
+        collabSessionRef.current = null;
       }
     };
-  }, [user]);
+  }, [isRegisteredUser, user]);
 
   useEffect(() => {
-    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
-      collabWsRef.current.send(
-        JSON.stringify({
-          type: 'presence:join',
-          userId: localOperatorIdRef.current,
-          userName: currentOperatorName,
-          channel: activeChatChannel,
-        })
-      );
-    }
+    collabSessionRef.current?.updatePresence(currentOperatorName, activeChatChannel);
   }, [currentOperatorName, activeChatChannel]);
 
   const applySharedProjectPayload = (data: any, meta?: SharedFileMeta) => {
@@ -3210,16 +3147,14 @@ function App() {
 
   const handleSendChatMessage = async (text: string) => {
     const id = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
-      collabWsRef.current.send(
-        JSON.stringify({
-          type: 'chat:send',
-          id,
-          channel: activeChatChannel,
-          senderName: currentOperatorName,
-          text,
-        })
-      );
+    if (collabSessionRef.current) {
+      const saved = await collabSessionRef.current.sendMessage({
+        id,
+        channel: activeChatChannel,
+        senderName: currentOperatorName,
+        text,
+      });
+      setChatMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
       return;
     }
     const saved = await postChatMessage({
@@ -3234,8 +3169,8 @@ function App() {
 
   const handleDeleteChatMessage = async (messageId: string) => {
     setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
-    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
-      collabWsRef.current.send(JSON.stringify({ type: 'chat:delete', messageId }));
+    if (collabSessionRef.current) {
+      await collabSessionRef.current.deleteMessage(messageId);
     } else {
       await deleteChatMessageApi(messageId);
     }
@@ -3521,24 +3456,26 @@ function App() {
 
                   {isOpenMenuOpen && (
                     <div className="absolute left-0 top-full mt-2 w-80 bg-white shadow-2xl rounded-2xl py-2 z-[150] border border-slate-200 overflow-hidden text-left animate-in fade-in zoom-in-95 duration-150">
-                      <button
-                        onClick={() => {
-                          setIsOpenMenuOpen(false);
-                          setIsSharedFolderModalOpen(true);
-                          playUISound('toggle');
-                        }}
-                        className="w-full text-left px-4 py-2.5 text-xs text-emerald-900 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
-                      >
-                        <FolderSync className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <div>
-                          <div className="text-slate-900">
-                            Apri da Cartella Condivisa ({sharedFilesCount})
+                      {isRegisteredUser && (
+                        <button
+                          onClick={() => {
+                            setIsOpenMenuOpen(false);
+                            setIsSharedFolderModalOpen(true);
+                            playUISound('toggle');
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-xs text-emerald-900 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
+                        >
+                          <FolderSync className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <div>
+                            <div className="text-slate-900">
+                              Apri da Cartella Condivisa ({sharedFilesCount})
+                            </div>
+                            <div className="text-[10px] text-slate-500 font-medium">
+                              Archivio condiviso di studio sincronizzato
+                            </div>
                           </div>
-                          <div className="text-[10px] text-slate-500 font-medium">
-                            Archivio condiviso di studio sincronizzato
-                          </div>
-                        </div>
-                      </button>
+                        </button>
+                      )}
 
                       <button
                         onClick={() => {
@@ -3597,23 +3534,25 @@ function App() {
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSharedFolderModalOpen(true);
-                    playUISound('toggle');
-                  }}
-                  className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-emerald-100 hover:text-white bg-emerald-700/80 hover:bg-emerald-600 border border-emerald-500/70 rounded-lg shadow-xs cursor-pointer whitespace-nowrap shrink-0"
-                  title="Apri o salva progetti nella Cartella Condivisa del team"
-                >
-                  <FolderSync className="w-4 h-4 text-emerald-200 shrink-0" />
-                  <span className="text-xs font-bold">Condivisa</span>
-                  {sharedFilesCount > 0 && (
-                    <span className="text-[10px] font-mono tabular-nums bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200">
-                      {sharedFilesCount}
-                    </span>
-                  )}
-                </button>
+                {isRegisteredUser && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSharedFolderModalOpen(true);
+                      playUISound('toggle');
+                    }}
+                    className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-emerald-100 hover:text-white bg-emerald-700/80 hover:bg-emerald-600 border border-emerald-500/70 rounded-lg shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                    title="Apri o salva progetti nella Cartella Condivisa del team"
+                  >
+                    <FolderSync className="w-4 h-4 text-emerald-200 shrink-0" />
+                    <span className="text-xs font-bold">Condivisa</span>
+                    {sharedFilesCount > 0 && (
+                      <span className="text-[10px] font-mono tabular-nums bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200">
+                        {sharedFilesCount}
+                      </span>
+                    )}
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -3622,37 +3561,39 @@ function App() {
                     playUISound('confirm');
                   }}
                   className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-slate-200 hover:text-white bg-blue-600/80 hover:bg-blue-600 border border-blue-500 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
-                  title="Salva nella Cartella Condivisa o sul PC (CME / CM)"
+                  title={isRegisteredUser ? 'Salva nella Cartella Condivisa o sul PC (CME / CM)' : 'Salva progetto sul PC (CME / CM)'}
                 >
                   <Save className="w-4 h-4 text-white shrink-0" />
                   <span className="text-xs font-bold">Salva</span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsChatDrawerOpen((prev) => {
-                      const next = !prev;
-                      if (next) setUnreadChatCount(0);
-                      return next;
-                    });
-                    playUISound('toggle');
-                  }}
-                  className={`relative px-3 py-1.5 transition-all flex items-center gap-1.5 rounded-lg border shadow-xs cursor-pointer whitespace-nowrap shrink-0 ${
-                    isChatDrawerOpen
-                      ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
-                  }`}
-                  title="Apri Chat Team & Cantiere in tempo reale"
-                >
-                  <MessageSquare className="w-4 h-4 shrink-0" />
-                  <span className="text-xs font-bold">Chat</span>
-                  {unreadChatCount > 0 && !isChatDrawerOpen && (
-                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold tabular-nums bg-red-600 text-white rounded-full leading-none">
-                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
-                    </span>
-                  )}
-                </button>
+                {isRegisteredUser && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsChatDrawerOpen((prev) => {
+                        const next = !prev;
+                        if (next) setUnreadChatCount(0);
+                        return next;
+                      });
+                      playUISound('toggle');
+                    }}
+                    className={`relative px-3 py-1.5 transition-all flex items-center gap-1.5 rounded-lg border shadow-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                      isChatDrawerOpen
+                        ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
+                    }`}
+                    title="Apri Chat Team & Cantiere in tempo reale"
+                  >
+                    <MessageSquare className="w-4 h-4 shrink-0" />
+                    <span className="text-xs font-bold">Chat</span>
+                    {unreadChatCount > 0 && !isChatDrawerOpen && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold tabular-nums bg-red-600 text-white rounded-full leading-none">
+                        {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                      </span>
+                    )}
+                  </button>
+                )}
 
                 <div className="relative">
                   <button
@@ -4964,36 +4905,43 @@ function App() {
             operatorName={currentOperatorName}
             operatorId={localOperatorIdRef.current}
             chatChannel={activeChatChannel}
+            allowSharedFolder={isRegisteredUser}
             onOpenSharedFolder={() => setIsSharedFolderModalOpen(true)}
             onSavedToSharedFolder={() => setSharedFolderRefreshSignal((n) => n + 1)}
           />
-          <SharedFolderModal
-            isOpen={isSharedFolderModalOpen}
-            onClose={() => setIsSharedFolderModalOpen(false)}
-            onOpenProjectPayload={applySharedProjectPayload}
-            onQuickSaveCurrent={handleQuickSaveToSharedFolder}
-            currentProjectTitle={projectInfo.title}
-            currentArticleCount={articles.length}
-            refreshSignal={sharedFolderRefreshSignal}
-          />
-          <TeamChatDrawer
-            isOpen={isChatDrawerOpen}
-            onClose={() => setIsChatDrawerOpen(false)}
-            messages={chatMessages}
-            operators={chatOperators}
-            isConnected={isCollabConnected}
-            activeChannel={activeChatChannel}
-            onChannelChange={setActiveChatChannel}
-            projectChannelId={projectChatChannelId}
-            projectTitle={projectInfo.title}
-            currentUserId={localOperatorIdRef.current}
-            currentUserName={currentOperatorName}
-            onChangeDisplayName={handleChangeOperatorName}
-            onSendMessage={handleSendChatMessage}
-            onDeleteMessage={handleDeleteChatMessage}
-            onShareCurrentProjectInChat={handleShareCurrentProjectInChat}
-            onOpenSharedFileById={handleOpenSharedFileById}
-          />
+          {isRegisteredUser && (
+            <>
+              <SharedFolderModal
+                isOpen={isSharedFolderModalOpen}
+                onClose={() => setIsSharedFolderModalOpen(false)}
+                onOpenProjectPayload={applySharedProjectPayload}
+                onQuickSaveCurrent={handleQuickSaveToSharedFolder}
+                currentProjectTitle={projectInfo.title}
+                currentArticleCount={articles.length}
+                refreshSignal={sharedFolderRefreshSignal}
+                collabStatus={collabStatus}
+              />
+              <TeamChatDrawer
+                isOpen={isChatDrawerOpen}
+                onClose={() => setIsChatDrawerOpen(false)}
+                messages={chatMessages}
+                operators={chatOperators}
+                isConnected={isCollabConnected}
+                collabStatus={collabStatus}
+                activeChannel={activeChatChannel}
+                onChannelChange={setActiveChatChannel}
+                projectChannelId={projectChatChannelId}
+                projectTitle={projectInfo.title}
+                currentUserId={localOperatorIdRef.current}
+                currentUserName={currentOperatorName}
+                onChangeDisplayName={handleChangeOperatorName}
+                onSendMessage={handleSendChatMessage}
+                onDeleteMessage={handleDeleteChatMessage}
+                onShareCurrentProjectInChat={handleShareCurrentProjectInChat}
+                onOpenSharedFileById={handleOpenSharedFileById}
+              />
+            </>
+          )}
           <AnalysisEditorModal
             isOpen={isAnalysisEditorOpen}
             onClose={() => setIsAnalysisEditorOpen(false)}
