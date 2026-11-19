@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Save, FileJson, FileSpreadsheet, Calculator, Briefcase, FolderOpen } from 'lucide-react';
 import { Article, Category, ProjectInfo } from '../types';
+import { SavedPlanSheet } from '../utils/planProjectStorage';
 import { 
   buildComputoExcelXml, 
   buildComputoMetricoSubappaltoExcelXml, 
@@ -14,6 +15,8 @@ interface SaveProjectModalProps {
   articles: Article[];
   categories: Category[];
   projectInfo: ProjectInfo;
+  planSheets?: SavedPlanSheet[];
+  activePlanSheetId?: string | null;
 }
 
 const SaveProjectModal: React.FC<SaveProjectModalProps> = ({ 
@@ -21,7 +24,9 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
   onClose, 
   articles, 
   categories, 
-  projectInfo 
+  projectInfo,
+  planSheets,
+  activePlanSheetId,
 }) => {
   const defaultBaseName = (projectInfo.title || 'Progetto').replace(/\s+/g, '_').replace(/_(CME|CM)$/i, '');
   const [baseFileName, setBaseFileName] = useState(defaultBaseName);
@@ -91,6 +96,8 @@ const SaveProjectModal: React.FC<SaveProjectModalProps> = ({
         },
         categories,
         articles,
+        planSheets: planSheets || [],
+        activePlanSheetId: activePlanSheetId || null,
         version: "12.0"
       },
       exportedAt: new Date().toISOString(),

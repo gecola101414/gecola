@@ -1,11 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import { Article, Category, Measurement, ProjectInfo } from '../types';
-
-// Guarantee worker is available in ANY browser environment (including sandboxed iframes and CSP restrictions)
-if (typeof globalThis !== 'undefined') {
-  (globalThis as any).pdfjsWorker = pdfjsWorker;
-}
 
 if (typeof window !== 'undefined') {
   try {
@@ -482,22 +476,36 @@ export async function convertPdfComputo(
 
   const uint8 = new Uint8Array(arrayBuffer);
 
+  const resolveAssetUrl = (folder: string) =>
+    typeof window !== 'undefined' && /^https?:/.test(window.location?.href || '')
+      ? new URL(`/${folder}/`, window.location.origin).href
+      : `./public/${folder}/`;
+
+  const commonParams = {
+    data: uint8,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    wasmUrl: resolveAssetUrl('pdfjs-wasm'),
+    cMapUrl: resolveAssetUrl('pdfjs-cmaps'),
+    cMapPacked: true,
+    standardFontDataUrl: resolveAssetUrl('pdfjs-fonts'),
+    iccUrl: resolveAssetUrl('pdfjs-iccs'),
+  };
+
   try {
     let doc: any;
     try {
-      const loadingTask = (pdfjsLib as any).getDocument({
-        data: uint8,
-        isEvalSupported: false,
-        useSystemFonts: true,
-      });
+      const loadingTask = (pdfjsLib as any).getDocument(commonParams);
       doc = await loadingTask.promise;
     } catch (workerErr: any) {
       console.warn('Retrying with in-thread worker fallback...', workerErr);
+      if (typeof globalThis !== 'undefined' && !(globalThis as any).pdfjsWorker) {
+        (globalThis as any).pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+      }
       (pdfjsLib as any).GlobalWorkerOptions.workerSrc = '';
       const fallbackTask = (pdfjsLib as any).getDocument({
-        data: uint8,
-        isEvalSupported: false,
-        useSystemFonts: true,
+        ...commonParams,
+        data: uint8.slice(),
       });
       doc = await fallbackTask.promise;
     }

@@ -1,9 +1,4 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
-
-if (typeof globalThis !== 'undefined') {
-  (globalThis as any).pdfjsWorker = pdfjsWorker;
-}
 
 if (typeof window !== 'undefined') {
   try {
@@ -44,6 +39,8 @@ export interface PlanToken {
   angleDeg: number;
   orientation: 'horizontal' | 'vertical' | 'angled';
   bbox: PlanBBox;
+  source?: 'vector' | 'ocr' | 'manual';
+  confidence?: number;
 }
 
 export interface DetectedRoomBlock {
@@ -171,7 +168,7 @@ function normalizeOrientation(angleDeg: number): 'horizontal' | 'vertical' | 'an
   return 'angled';
 }
 
-function classifyPlanToken(
+export function classifyPlanToken(
   rawStr: string,
   quoteUnit: QuoteUnit
 ): { kind: PlanTokenKind; rawValue?: number; numericValue?: number } {
@@ -237,10 +234,19 @@ function classifyPlanToken(
   // Etichetta Vano / Ambiente
   const upper = s.toUpperCase();
   if (
+    upper === 'RIP' ||
     KNOWN_ROOM_KEYWORDS.some((kw) => upper === kw || upper.startsWith(kw + ' ') || upper.endsWith(' ' + kw) || upper.includes(kw))
   ) {
-    // Esclude titoli lunghi di tavola
-    if (s.length <= 32 && !upper.includes('PLANIMETRIA') && !upper.includes('STATO ATTUALE') && !upper.includes('CALCOLO')) {
+    // Esclude titoli lunghi di tavola o diciture di scala
+    if (
+      s.length <= 32 &&
+      !upper.includes('PLANIMETRIA') &&
+      !upper.includes('STATO ATTUALE') &&
+      !upper.includes('CALCOLO') &&
+      !upper.includes('APPARTAMENTO') &&
+      !upper.includes('DISEGNO') &&
+      !/^SCALA\b/.test(upper)
+    ) {
       return { kind: 'room' };
     }
   }
@@ -253,6 +259,13 @@ function classifyPlanToken(
   }
 
   return { kind: 'other' };
+}
+
+function resolvePdfAssetBaseUrl(folder: string): string {
+  if (typeof window !== 'undefined' && /^https?:/.test(window.location?.href || '')) {
+    return new URL(`/${folder}/`, window.location.origin).href;
+  }
+  return `./public/${folder}/`;
 }
 
 export async function loadPdfPlanDocument(fileOrBuffer: File | ArrayBuffer | Uint8Array): Promise<any> {
@@ -268,21 +281,29 @@ export async function loadPdfPlanDocument(fileOrBuffer: File | ArrayBuffer | Uin
   }
 
   const uint8 = new Uint8Array(arrayBuffer);
+  const commonParams = {
+    data: uint8,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    wasmUrl: resolvePdfAssetBaseUrl('pdfjs-wasm'),
+    cMapUrl: resolvePdfAssetBaseUrl('pdfjs-cmaps'),
+    cMapPacked: true,
+    standardFontDataUrl: resolvePdfAssetBaseUrl('pdfjs-fonts'),
+    iccUrl: resolvePdfAssetBaseUrl('pdfjs-iccs'),
+  };
 
   try {
-    const loadingTask = (pdfjsLib as any).getDocument({
-      data: uint8,
-      isEvalSupported: false,
-      useSystemFonts: true,
-    });
+    const loadingTask = (pdfjsLib as any).getDocument(commonParams);
     return await loadingTask.promise;
   } catch (workerErr) {
     console.warn('Plan PDF retry with in-thread worker fallback...', workerErr);
+    if (typeof globalThis !== 'undefined' && !(globalThis as any).pdfjsWorker) {
+      (globalThis as any).pdfjsWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    }
     (pdfjsLib as any).GlobalWorkerOptions.workerSrc = '';
     const fallbackTask = (pdfjsLib as any).getDocument({
-      data: uint8,
-      isEvalSupported: false,
-      useSystemFonts: true,
+      ...commonParams,
+      data: uint8.slice(),
     });
     return await fallbackTask.promise;
   }
@@ -600,7 +621,8 @@ export function buildMeasurementsFromRoom(
         id: uid(),
         description: `${label}`,
         type: 'positive',
-        multiplier: 1,
+        multiplier: undefined,
+        length: 1,
         sourceNote: opts.sourceNote || 'Conteggio da tavola',
       },
     ];

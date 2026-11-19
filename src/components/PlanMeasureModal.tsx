@@ -29,12 +29,22 @@ import {
   Sparkles,
   RotateCcw,
   GripVertical,
+  ScanText,
+  Pencil,
+  PenTool,
+  Type,
+  Eraser,
+  Layers,
+  Lock,
+  Unlock,
+  Bookmark,
 } from 'lucide-react';
 import { Article } from '../types';
 import {
   analyzeHighlightedRegion,
   analyzePdfPlanPage,
   buildMeasurementsFromRoom,
+  classifyPlanToken,
   DetectedRoomBlock,
   inferDefaultModeForArticle,
   loadPdfPlanDocument,
@@ -46,6 +56,25 @@ import {
   QuoteUnit,
   SnapVertex,
 } from '../utils/pdfPlanExtractor';
+import {
+  OcrScanProgress,
+  reclassifyPlanTokens,
+  runPlanPageOcr,
+  runPlanPageOcrFromCanvas,
+  warmupOcrWorkers,
+} from '../utils/pdfPlanOcr';
+import {
+  base64ToUint8,
+  createDefaultPlanLayers,
+  DEFAULT_LAYER_IDS,
+  MeasuredPolygon,
+  MeasuredRulerLine,
+  PenStroke,
+  PlanLayer,
+  PlanTextNote,
+  SavedPlanSheet,
+  uint8ToBase64,
+} from '../utils/planProjectStorage';
 
 export interface PlanMeasureExportRow {
   description: string;
@@ -63,10 +92,55 @@ interface PlanMeasureModalProps {
   articles: Article[];
   targetArticleId: string | null;
   onSelectTargetArticle?: (articleId: string) => void;
+  planSheets?: SavedPlanSheet[];
+  activePlanSheetId?: string | null;
+  onPlanSheetsChange?: React.Dispatch<React.SetStateAction<SavedPlanSheet[]>>;
+  onSelectActivePlanSheet?: (sheetId: string | null) => void;
 }
 
-type ActiveTool = 'highlight' | 'pick' | 'ruler' | 'polygon' | 'calibrate' | 'pan';
+type ActiveTool =
+  | 'highlight'
+  | 'pick'
+  | 'ruler'
+  | 'polygon'
+  | 'calibrate'
+  | 'edit_ocr'
+  | 'pen'
+  | 'text_note'
+  | 'pan';
 type TargetNumericField = 'multiplier' | 'length' | 'width' | 'height';
+
+interface InternalMeasureDraft extends QueuedMeasureDraft {
+  isDirectArea?: boolean;
+  linkedMarkId?: string;
+}
+
+const ANNOTATION_COLORS: Array<{ hex: string; name: string }> = [
+  { hex: '#ef4444', name: 'Rosso' },
+  { hex: '#2563eb', name: 'Blu' },
+  { hex: '#16a34a', name: 'Verde' },
+  { hex: '#f59e0b', name: 'Arancio' },
+  { hex: '#9333ea', name: 'Viola' },
+  { hex: '#0f172a', name: 'Nero' },
+];
+
+const POLYGON_COLORS = ['#4f46e5', '#059669', '#d97706', '#0891b2', '#db2777', '#7c3aed'];
+
+function unitFactorFromMeters(unit: QuoteUnit): number {
+  if (unit === 'cm') return 100;
+  if (unit === 'mm') return 1000;
+  return 1;
+}
+
+function metersToUnit(meters: number, unit: QuoteUnit): number {
+  const val = meters * unitFactorFromMeters(unit);
+  return Math.round(val * 100) / 100;
+}
+
+function formatMeasureVal(val: number, unit: QuoteUnit): string {
+  if (unit === 'm') return val.toFixed(2);
+  return Number.isInteger(val) ? String(val) : String(Math.round(val * 100) / 100);
+}
 
 const MODE_OPTIONS: Array<{ id: MeasureExtractionMode; label: string; hint: string }> = [
   { id: 'area_lw', label: 'Superficie (m²)', hint: 'Lung. × Larg.' },
@@ -130,6 +204,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   articles,
   targetArticleId,
   onSelectTargetArticle,
+  planSheets = [],
+  activePlanSheetId = null,
+  onPlanSheetsChange,
+  onSelectActivePlanSheet,
 }) => {
   const effectiveTargetId = targetArticleId || articles[0]?.id || '';
   const targetArticle = useMemo(
@@ -137,7 +215,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     [articles, effectiveTargetId]
   );
 
-  // Stato documento PDF
+  // Stato documento PDF & archivio tavole del progetto
+  const [currentSheetId, setCurrentSheetId] = useState<string | null>(null);
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [pdfFileName, setPdfFileName] = useState<string>('');
   const [numPages, setNumPages] = useState<number>(0);
@@ -146,36 +225,86 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [isRenderingPage, setIsRenderingPage] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
   const [isDragOverDropzone, setIsDragOverDropzone] = useState(false);
+  const pdfDocCacheRef = useRef<Map<string, any>>(new Map());
+  const pdfBinaryMetaRef = useRef<Map<string, { pdfBase64?: string; fileSizeBytes?: number }>>(new Map());
+  const isHydratingSheetRef = useRef<boolean>(false);
 
   // Parametri estrazione & scala
   const [quoteUnit, setQuoteUnit] = useState<QuoteUnit>('m');
+  const [exportUnit, setExportUnit] = useState<QuoteUnit>('m');
   const [extractionMode, setExtractionMode] = useState<MeasureExtractionMode>('area_lw');
   const [defaultHeightM, setDefaultHeightM] = useState<number>(3.0);
   const [scaleDenominator, setScaleDenominator] = useState<number>(100);
   const [customMetersPerPt, setCustomMetersPerPt] = useState<number | null>(null);
 
-  // Strumenti CAD viewport
+  // Gestione Layer CAD (Misure, Appunti, Promemoria, Varianti)
+  const [layers, setLayers] = useState<PlanLayer[]>(() => createDefaultPlanLayers());
+  const [activeLayerId, setActiveLayerId] = useState<string>(DEFAULT_LAYER_IDS.MEASURES);
+  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState<boolean>(false);
+  const [newLayerName, setNewLayerName] = useState<string>('');
+  const [newLayerColor, setNewLayerColor] = useState<string>('#9333ea');
+
+  // Strumenti CAD viewport & OCR editabile
   const [activeTool, setActiveTool] = useState<ActiveTool>('highlight');
   const [zoom, setZoom] = useState<number>(1);
   const [showOverlayTokens, setShowOverlayTokens] = useState<boolean>(true);
+  const [showEditableOverlay, setShowEditableOverlay] = useState<boolean>(true);
+  const [isScanningOcr, setIsScanningOcr] = useState<boolean>(false);
+  const [ocrProgress, setOcrProgress] = useState<OcrScanProgress | null>(null);
+  const ocrAbortRef = useRef<AbortController | null>(null);
+  const ocrScannedPagesRef = useRef<Set<number>>(new Set());
+  const pageAnalysesRef = useRef<Record<number, PlanPageAnalysis>>({});
+  const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
+  const [editingTokenText, setEditingTokenText] = useState<string>('');
+  const [newTokenDraft, setNewTokenDraft] = useState<{ x: number; y: number; text: string; vertical: boolean } | null>(null);
   const [osnapEnabled, setOsnapEnabled] = useState<boolean>(true);
   const [cursorPt, setCursorPt] = useState<{ x: number; y: number } | null>(null);
   const [snappedVertex, setSnappedVertex] = useState<SnapVertex | null>(null);
 
+  // Stato Pennino (schizzi a mano libera) e Testi/Promemoria sulla piantina
+  const [penStrokesByPage, setPenStrokesByPage] = useState<Record<number, PenStroke[]>>({});
+  const [activePenStroke, setActivePenStroke] = useState<PenStroke | null>(null);
+  const [penColor, setPenColor] = useState<string>('#ef4444');
+  const [penWidth, setPenWidth] = useState<number>(3);
+  const [penIsHighlighter, setPenIsHighlighter] = useState<boolean>(false);
+  const [penEraserMode, setPenEraserMode] = useState<boolean>(false);
+
+  const [textNotesByPage, setTextNotesByPage] = useState<Record<number, PlanTextNote[]>>({});
+  const [textNoteColor, setTextNoteColor] = useState<string>('#2563eb');
+  const [textNoteSize, setTextNoteSize] = useState<number>(13);
+  const [editingTextNote, setEditingTextNote] = useState<{
+    id?: string;
+    x: number;
+    y: number;
+    text: string;
+    color: string;
+    fontSize: number;
+    vertical: boolean;
+    bgOpaque: boolean;
+    isReminder: boolean;
+    layerId: string;
+  } | null>(null);
+  const draggingNoteRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+
   // Stati interazione attiva su canvas
   const [highlightDrag, setHighlightDrag] = useState<PlanBBox | null>(null);
   const [flashTokenIds, setFlashTokenIds] = useState<Set<string>>(new Set());
+  const [flashMarkIds, setFlashMarkIds] = useState<Set<string>>(new Set());
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const [lastFeedback, setLastFeedback] = useState<string | null>(null);
 
   // Quota picker singolo (L + W pairing quando nessuna casella è evidenziata)
   const [pendingLengthPick, setPendingLengthPick] = useState<{ val: number; label: string } | null>(null);
 
-  // Righello & Calibrazione & Poligono
+  // Righello & Calibrazione & Poligono + Superfici/Linee persistenti per pagina
   const [rulerStart, setRulerStart] = useState<{ x: number; y: number } | null>(null);
   const [polygonPts, setPolygonPts] = useState<Array<{ x: number; y: number }>>([]);
   const [calibrationDraft, setCalibrationDraft] = useState<{ distPt: number; realMetersStr: string } | null>(null);
+  const [measuredPolygonsByPage, setMeasuredPolygonsByPage] = useState<Record<number, MeasuredPolygon[]>>({});
+  const [measuredLinesByPage, setMeasuredLinesByPage] = useState<Record<number, MeasuredRulerLine[]>>({});
+  const [showMeasuredMarks, setShowMeasuredMarks] = useState<boolean>(true);
 
   // Pan & Resizer split
   const [isPanning, setIsPanning] = useState(false);
@@ -186,7 +315,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const [isRoomsDrawerOpen, setIsRoomsDrawerOpen] = useState<boolean>(false);
 
   // Coda misure stile Elenco Misure Computo + Casella Evidenziata & Lampeggiamento
-  const [queuedRows, setQueuedRows] = useState<QueuedMeasureDraft[]>([]);
+  const [queuedRows, setQueuedRows] = useState<InternalMeasureDraft[]>([]);
   const [activeCell, setActiveCell] = useState<{ rowId: string; field: TargetNumericField } | null>(null);
   const [flashingCell, setFlashingCell] = useState<{ rowId: string; field: TargetNumericField; on: boolean } | null>(null);
   const flashTimerRef = useRef<number | null>(null);
@@ -198,11 +327,48 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const renderTaskRef = useRef<any>(null);
   const rowInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
+  const layerMap = useMemo(() => {
+    const map = new Map<string, PlanLayer>();
+    for (const l of layers) map.set(l.id, l);
+    return map;
+  }, [layers]);
+
+  const isLayerVisible = useCallback(
+    (layerId?: string) => {
+      if (!layerId) return true;
+      const layer = layerMap.get(layerId);
+      return layer ? layer.visible : true;
+    },
+    [layerMap]
+  );
+
+  const isLayerLocked = useCallback(
+    (layerId?: string) => {
+      if (!layerId) return false;
+      const layer = layerMap.get(layerId);
+      return layer ? layer.locked : false;
+    },
+    [layerMap]
+  );
+
   // Sincronizza modalità predefinita da articolo
   useEffect(() => {
     if (!isOpen || !targetArticle) return;
     setExtractionMode(inferDefaultModeForArticle(targetArticle.unit, targetArticle.description));
   }, [isOpen, targetArticle?.id]);
+
+  // Sincronizza ref delle analisi pagina
+  useEffect(() => {
+    pageAnalysesRef.current = pageAnalyses;
+  }, [pageAnalyses]);
+
+  // Pre-riscalda i 2 worker OCR paralleli appena si apre il modal per OCR istantaneo in fase di rendering
+  useEffect(() => {
+    if (!isOpen) return;
+    warmupOcrWorkers().catch(() => {
+      // Fallback gestito al momento della scansione
+    });
+  }, [isOpen]);
 
   // Reset temporanei al cambio pagina
   useEffect(() => {
@@ -212,12 +378,18 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     setCalibrationDraft(null);
     setPendingLengthPick(null);
     setSnappedVertex(null);
+    setEditingTokenId(null);
+    setNewTokenDraft(null);
+    setActivePenStroke(null);
+    setEditingTextNote(null);
+    draggingNoteRef.current = null;
   }, [currentPage]);
 
-  // Cleanup timer lampeggio
+  // Cleanup timer lampeggio & eventuale OCR attivo
   useEffect(() => {
     return () => {
       if (flashTimerRef.current) window.clearInterval(flashTimerRef.current);
+      if (ocrAbortRef.current) ocrAbortRef.current.abort();
     };
   }, []);
 
@@ -264,42 +436,139 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     }, 220);
   }, []);
 
-  // Inserisce un valore misurato nella casella evidenziata (activeCell) e lampeggia
+  const focusCellInput = useCallback((rowId: string, field: TargetNumericField) => {
+    requestAnimationFrame(() => {
+      const el = rowInputRefs.current.get(`cell_${rowId}_${field}`);
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    });
+  }, []);
+
+  // Inserisce un valore misurato nella casella evidenziata (activeCell) con eventuale conversione m -> cm/mm e lampeggio
   const insertValueIntoActiveCell = useCallback(
-    (numericValue: number, sourceLabel?: string) => {
+    (numericValue: number, sourceLabel?: string, isAreaValue = false) => {
       if (!activeCell) return false;
       const targetRow = queuedRows.find((r) => r.id === activeCell.rowId && r.type !== 'subtotal');
       if (!targetRow) return false;
 
-      const rounded = Math.round(numericValue * 100) / 100;
       const { rowId, field } = activeCell;
+      const shouldConvertLinear =
+        !isAreaValue && field !== 'multiplier' && extractionMode !== 'count';
+      const convertedVal = shouldConvertLinear
+        ? metersToUnit(numericValue, exportUnit)
+        : Math.round(numericValue * 100) / 100;
+
+      const convNote =
+        shouldConvertLinear && exportUnit !== 'm'
+          ? `${numericValue.toFixed(2)}m→${formatMeasureVal(convertedVal, exportUnit)}${exportUnit}`
+          : isAreaValue
+          ? `${convertedVal.toFixed(2)} m² (superficie)`
+          : undefined;
 
       setQueuedRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, [field]: rounded } : r))
+        prev.map((r) =>
+          r.id === rowId
+            ? {
+                ...r,
+                [field]: convertedVal,
+                ...(isAreaValue ? { isDirectArea: true } : {}),
+                ...(convNote ? { sourceNote: convNote } : {}),
+              }
+            : r
+        )
       );
       triggerCellBlink(rowId, field);
 
-      // Avanzamento intelligente alla prossima cella vuota dello stesso rigo (es. Lung. -> Larg.)
-      if (field === 'length' && targetRow.width === undefined && extractionMode !== 'linear') {
+      const formattedVal = isAreaValue ? convertedVal.toFixed(2) : formatMeasureVal(convertedVal, shouldConvertLinear ? exportUnit : 'm');
+      const unitSuffix = isAreaValue ? ' m²' : shouldConvertLinear ? ` ${exportUnit}` : '';
+
+      // Avanzamento automatico saltando Par.Ug.: Par.Ug. -> Lung. -> Larg. -> H/Peso
+      if (field === 'multiplier') {
+        setActiveCell({ rowId, field: 'length' });
+        setLastFeedback(
+          `${FIELD_LABEL_IT[field]} = ${formattedVal} inserito${sourceLabel ? ` (${sourceLabel})` : ''} · Prossima casella evidenziata: Lung.`
+        );
+      } else if (
+        field === 'length' &&
+        !isAreaValue &&
+        !targetRow.isDirectArea &&
+        targetRow.width === undefined &&
+        extractionMode !== 'linear' &&
+        extractionMode !== 'count'
+      ) {
         setActiveCell({ rowId, field: 'width' });
         setLastFeedback(
-          `${FIELD_LABEL_IT[field]} = ${rounded.toFixed(2)} inserito${sourceLabel ? ` (${sourceLabel})` : ''} · Prossima casella evidenziata: Larg.`
+          `${FIELD_LABEL_IT[field]} = ${formattedVal}${unitSuffix} inserito${sourceLabel ? ` (${sourceLabel})` : ''} · Prossima casella evidenziata: Larg.`
         );
-      } else if (field === 'width' && targetRow.height === undefined && (extractionMode === 'volume' || extractionMode === 'walls_perim_h')) {
+      } else if (
+        field === 'width' &&
+        targetRow.height === undefined &&
+        (extractionMode === 'volume' || extractionMode === 'walls_perim_h')
+      ) {
         setActiveCell({ rowId, field: 'height' });
         setLastFeedback(
-          `${FIELD_LABEL_IT[field]} = ${rounded.toFixed(2)} inserito${sourceLabel ? ` (${sourceLabel})` : ''} · Prossima casella evidenziata: H/Peso`
+          `${FIELD_LABEL_IT[field]} = ${formattedVal}${unitSuffix} inserito${sourceLabel ? ` (${sourceLabel})` : ''} · Prossima casella evidenziata: H/Peso`
         );
       } else {
         setActiveCell(null);
         setLastFeedback(
-          `${FIELD_LABEL_IT[field]} = ${rounded.toFixed(2)} inserito nella casella evidenziata${sourceLabel ? ` (${sourceLabel})` : ''}`
+          `${FIELD_LABEL_IT[field]} = ${formattedVal}${unitSuffix} inserito nella casella evidenziata${sourceLabel ? ` (${sourceLabel})` : ''}`
         );
       }
 
       return true;
     },
-    [activeCell, queuedRows, extractionMode, triggerCellBlink]
+    [activeCell, queuedRows, extractionMode, exportUnit, triggerCellBlink]
+  );
+
+  // Cambio unità riportata nelle caselle del computo (m / cm / mm) riconvertendo le misure già presenti
+  const handleChangeExportUnit = useCallback(
+    (newUnit: QuoteUnit) => {
+      if (newUnit === exportUnit) return;
+      const oldFactor = unitFactorFromMeters(exportUnit);
+      const newFactor = unitFactorFromMeters(newUnit);
+      const ratio = newFactor / oldFactor;
+      const conv = (v?: number) => (v !== undefined ? Math.round(v * ratio * 100) / 100 : undefined);
+
+      setQueuedRows((prev) =>
+        prev.map((row) => {
+          if (row.type === 'subtotal' || row.isDirectArea || extractionMode === 'count') return row;
+          const length = conv(row.length);
+          const width = conv(row.width);
+          const height = conv(row.height);
+
+          let sourceNote = row.sourceNote;
+          if (newUnit !== 'm' && length !== undefined) {
+            const lenM = length / newFactor;
+            const parts = [`${lenM.toFixed(2)}m→${formatMeasureVal(length, newUnit)}${newUnit}`];
+            if (width !== undefined) {
+              const widM = width / newFactor;
+              parts.push(`${widM.toFixed(2)}m→${formatMeasureVal(width, newUnit)}${newUnit}`);
+            }
+            sourceNote = parts.join(' × ');
+          } else if (newUnit === 'm' && row.sourceNote?.includes('→')) {
+            sourceNote = undefined;
+          }
+
+          return {
+            ...row,
+            length,
+            width,
+            height,
+            sourceNote,
+          };
+        })
+      );
+      setExportUnit(newUnit);
+      setLastFeedback(
+        newUnit === 'm'
+          ? 'Unità riportata sul computo impostata in metri (m)'
+          : `Unità riportata sul computo impostata in ${newUnit} (es. 3,40 m → ${formatMeasureVal(metersToUnit(3.4, newUnit), newUnit)} ${newUnit})`
+      );
+    },
+    [exportUnit, extractionMode]
   );
 
   // Analizza una pagina PDF
@@ -332,36 +601,375 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     [customMetersPerPt]
   );
 
-  // Carica nuovo PDF
+  // Esegue scansione OCR parallela (0° + 90°) sulla pagina corrente riusando il canvas renderizzato quando possibile
+  const handleRunOcrForPage = useCallback(
+    async (docToScan: any, pageNum: number, unit: QuoteUnit, preRenderedCanvas?: HTMLCanvasElement | null) => {
+      if (!docToScan) return;
+      if (ocrAbortRef.current) {
+        ocrAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      ocrAbortRef.current = controller;
+      ocrScannedPagesRef.current.add(pageNum);
+
+      setIsScanningOcr(true);
+      setOcrProgress({ phase: 'prepare', label: 'OCR rapido durante il rendering...', progress: 10 });
+      setEditingTokenId(null);
+      setNewTokenDraft(null);
+
+      try {
+        const baseAnalysis = pageAnalysesRef.current[pageNum];
+        const canReuseCanvas =
+          preRenderedCanvas &&
+          preRenderedCanvas.width >= 1500 &&
+          baseAnalysis &&
+          baseAnalysis.width > 0;
+
+        const result = canReuseCanvas
+          ? await runPlanPageOcrFromCanvas(
+              preRenderedCanvas,
+              baseAnalysis.width,
+              pageNum,
+              unit,
+              (prog) => setOcrProgress(prog),
+              controller.signal
+            )
+          : await runPlanPageOcr(
+              docToScan,
+              pageNum,
+              unit,
+              (prog) => setOcrProgress(prog),
+              controller.signal
+            );
+
+        if (controller.signal.aborted) return;
+
+        setPageAnalyses((prev) => {
+          const base = prev[pageNum];
+          if (!base) return prev;
+          return {
+            ...prev,
+            [pageNum]: {
+              ...base,
+              tokens: result.tokens,
+              rooms: result.rooms,
+              detectedScaleDenominator: result.detectedScaleDenominator ?? base.detectedScaleDenominator,
+              detectedHeightM: result.detectedHeightM ?? base.detectedHeightM,
+              pageTitle: result.pageTitle ?? base.pageTitle,
+            },
+          };
+        });
+
+        if (result.detectedScaleDenominator && customMetersPerPt === null) {
+          setScaleDenominator(result.detectedScaleDenominator);
+        }
+        if (result.detectedHeightM && result.detectedHeightM > 0) {
+          setDefaultHeightM(result.detectedHeightM);
+        }
+
+        setShowEditableOverlay(true);
+        setShowOverlayTokens(true);
+        if (result.tokens.length > 0) {
+          const vertCount = result.tokens.filter((t) => t.orientation === 'vertical').length;
+          setLastFeedback(
+            `OCR completato: ${result.tokens.length} campi editabili (${vertCount} verticali) e ${result.rooms.length} vani riconosciuti. Doppio clic su qualsiasi quota per modificarla.`
+          );
+        } else {
+          setLastFeedback('Nessun numero o testo nitido rilevato: usa Modifica/Testo per aggiungerli oppure Righello / Poligono.');
+        }
+      } catch (err: any) {
+        if (err?.message === 'Scansione annullata' || controller.signal.aborted) {
+          ocrScannedPagesRef.current.delete(pageNum);
+        } else {
+          console.error('Errore scansione OCR:', err);
+          setLastFeedback(`Scansione OCR non riuscita: ${err?.message || 'errore sconosciuto'}`);
+        }
+      } finally {
+        if (ocrAbortRef.current === controller) {
+          ocrAbortRef.current = null;
+        }
+        setIsScanningOcr(false);
+        setOcrProgress(null);
+      }
+    },
+    [customMetersPerPt]
+  );
+
+  // Salva modifica su un token OCR/manuale e ricalcola vani e quote
+  const handleSaveTokenEdit = useCallback(
+    (tokenId: string, rawNewText: string) => {
+      const trimmed = rawNewText.trim();
+      setEditingTokenId(null);
+      if (!trimmed) return;
+
+      setPageAnalyses((prev) => {
+        const cur = prev[currentPage];
+        if (!cur) return prev;
+        const updatedRaw = cur.tokens.map((t) => {
+          if (t.id !== tokenId) return t;
+          const growth = Math.max(1, trimmed.length / Math.max(1, t.str.length));
+          const newW = t.orientation === 'vertical' ? t.w : Math.max(t.w, Math.round(t.w * growth));
+          return {
+            ...t,
+            str: trimmed,
+            w: newW,
+            bbox: t.orientation === 'vertical' ? t.bbox : { ...t.bbox, x2: Math.max(t.bbox.x2, t.bbox.x1 + newW) },
+            source: (t.source || 'ocr') as 'vector' | 'ocr' | 'manual',
+          };
+        });
+        const reclass = reclassifyPlanTokens(updatedRaw, quoteUnit, cur.detectedHeightM);
+        return {
+          ...prev,
+          [currentPage]: {
+            ...cur,
+            tokens: reclass.tokens,
+            rooms: reclass.rooms,
+            detectedScaleDenominator: reclass.detectedScaleDenominator ?? cur.detectedScaleDenominator,
+          },
+        };
+      });
+      setLastFeedback(`Testo/Quota aggiornato in "${trimmed}"`);
+    },
+    [currentPage, quoteUnit]
+  );
+
+  const handleDeleteToken = useCallback(
+    (tokenId: string) => {
+      setEditingTokenId(null);
+      setPageAnalyses((prev) => {
+        const cur = prev[currentPage];
+        if (!cur) return prev;
+        const filtered = cur.tokens.filter((t) => t.id !== tokenId);
+        const reclass = reclassifyPlanTokens(filtered, quoteUnit, cur.detectedHeightM);
+        return {
+          ...prev,
+          [currentPage]: {
+            ...cur,
+            tokens: reclass.tokens,
+            rooms: reclass.rooms,
+          },
+        };
+      });
+    },
+    [currentPage, quoteUnit]
+  );
+
+  const handleCreateManualToken = useCallback(
+    (x: number, y: number, rawText: string, vertical = false) => {
+      const trimmed = rawText.trim();
+      setNewTokenDraft(null);
+      if (!trimmed) return;
+
+      const classified = classifyPlanToken(trimmed, quoteUnit);
+      const estW = Math.max(18, trimmed.length * 6.5);
+      const estH = 12;
+      const boxW = vertical ? estH : estW;
+      const boxH = vertical ? estW : estH;
+      const x1 = Math.max(0, x - boxW / 2);
+      const y1 = Math.max(0, y - boxH / 2);
+      const x2 = x1 + boxW;
+      const y2 = y1 + boxH;
+
+      const newTok: PlanToken = {
+        id: `man_${uid()}`,
+        str: trimmed,
+        kind: classified.kind,
+        rawValue: classified.rawValue,
+        numericValue: classified.numericValue,
+        x: x1,
+        y: y1,
+        cx: x,
+        cy: y,
+        w: boxW,
+        h: boxH,
+        angleDeg: vertical ? -90 : 0,
+        orientation: vertical ? 'vertical' : 'horizontal',
+        bbox: { x1, y1, x2, y2 },
+        source: 'manual',
+      };
+
+      setPageAnalyses((prev) => {
+        const cur = prev[currentPage];
+        if (!cur) return prev;
+        const reclass = reclassifyPlanTokens([...cur.tokens, newTok], quoteUnit, cur.detectedHeightM);
+        return {
+          ...prev,
+          [currentPage]: {
+            ...cur,
+            tokens: reclass.tokens,
+            rooms: reclass.rooms,
+            detectedScaleDenominator: reclass.detectedScaleDenominator ?? cur.detectedScaleDenominator,
+          },
+        };
+      });
+      setShowEditableOverlay(true);
+      setShowOverlayTokens(true);
+      setLastFeedback(`Aggiunto campo editabile "${trimmed}"`);
+    },
+    [currentPage, quoteUnit]
+  );
+
+  const activateSavedSheet = useCallback(
+    async (sheet: SavedPlanSheet, fitViewport = false) => {
+      if (ocrAbortRef.current) {
+        ocrAbortRef.current.abort();
+        ocrAbortRef.current = null;
+      }
+      isHydratingSheetRef.current = true;
+      setIsLoadingPdf(true);
+      setPdfError(null);
+      setRenderError(null);
+      setEditingTokenId(null);
+      setNewTokenDraft(null);
+      setEditingTextNote(null);
+      setHighlightDrag(null);
+      setRulerStart(null);
+      setPolygonPts([]);
+      setCalibrationDraft(null);
+      setPendingLengthPick(null);
+      ocrScannedPagesRef.current.clear();
+
+      try {
+        let doc = pdfDocCacheRef.current.get(sheet.id);
+        if (!doc) {
+          if (!sheet.pdfBase64) {
+            throw new Error(`La tavola "${sheet.name}" non ha il PDF incorporato. Carica nuovamente il file PDF.`);
+          }
+          const bytes = base64ToUint8(sheet.pdfBase64);
+          doc = await loadPdfPlanDocument(bytes);
+          pdfDocCacheRef.current.set(sheet.id, doc);
+        }
+        pdfBinaryMetaRef.current.set(sheet.id, {
+          pdfBase64: sheet.pdfBase64,
+          fileSizeBytes: sheet.fileSizeBytes,
+        });
+
+        const safeLayers = sheet.layers?.length ? sheet.layers : createDefaultPlanLayers();
+        const safeActiveLayer = safeLayers.some((l) => l.id === sheet.activeLayerId)
+          ? sheet.activeLayerId
+          : safeLayers[0].id;
+
+        setCurrentSheetId(sheet.id);
+        onSelectActivePlanSheet?.(sheet.id);
+        setPdfFileName(sheet.name);
+        setNumPages(doc.numPages || sheet.numPages);
+        setQuoteUnit(sheet.quoteUnit || 'm');
+        setExportUnit(sheet.exportUnit || 'm');
+        setScaleDenominator(sheet.scaleDenominator || 100);
+        setCustomMetersPerPt(sheet.customMetersPerPt ?? null);
+        setDefaultHeightM(sheet.defaultHeightM || 3.0);
+        setLayers(safeLayers);
+        setActiveLayerId(safeActiveLayer);
+        setMeasuredPolygonsByPage(sheet.measuredPolygonsByPage || {});
+        setMeasuredLinesByPage(sheet.measuredLinesByPage || {});
+        setPenStrokesByPage(sheet.penStrokesByPage || {});
+        setTextNotesByPage(sheet.textNotesByPage || {});
+
+        const targetPage = Math.max(1, Math.min(sheet.currentPage || 1, doc.numPages || 1));
+        const baseAnalysis = await analyzePdfPlanPage(doc, targetPage, sheet.quoteUnit || 'm');
+        const analysesMap: Record<number, PlanPageAnalysis> = { [targetPage]: baseAnalysis };
+
+        if (sheet.customTokensByPage) {
+          for (const [pageStr, customToks] of Object.entries(sheet.customTokensByPage)) {
+            const pNum = parseInt(pageStr, 10);
+            if (!Number.isFinite(pNum) || !Array.isArray(customToks) || customToks.length === 0) continue;
+            const pageBase =
+              pNum === targetPage ? baseAnalysis : await analyzePdfPlanPage(doc, pNum, sheet.quoteUnit || 'm');
+            const vectorOnly = pageBase.tokens.filter((t) => t.source !== 'ocr' && t.source !== 'manual');
+            const reclass = reclassifyPlanTokens(
+              [...vectorOnly, ...customToks],
+              sheet.quoteUnit || 'm',
+              pageBase.detectedHeightM
+            );
+            analysesMap[pNum] = {
+              ...pageBase,
+              tokens: reclass.tokens,
+              rooms: reclass.rooms,
+              detectedScaleDenominator: reclass.detectedScaleDenominator ?? pageBase.detectedScaleDenominator,
+            };
+            ocrScannedPagesRef.current.add(pNum);
+          }
+        }
+
+        pageAnalysesRef.current = analysesMap;
+        setPageAnalyses(analysesMap);
+        setPdfDoc(doc);
+        setCurrentPage(targetPage);
+
+        const activeAnalysis = analysesMap[targetPage];
+        if (fitViewport && activeAnalysis) {
+          requestAnimationFrame(() => {
+            if (scrollContainerRef.current) {
+              const rect = scrollContainerRef.current.getBoundingClientRect();
+              if (rect.width > 100 && rect.height > 100) {
+                const fitZ = Math.min((rect.width - 32) / activeAnalysis.width, (rect.height - 32) / activeAnalysis.height);
+                setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
+              }
+            }
+          });
+        }
+        setLastFeedback(`Tavola "${sheet.name}" caricata dalla memoria di progetto`);
+      } catch (err: any) {
+        console.error('Errore ripristino tavola salvata:', err);
+        setPdfError(err?.message || 'Impossibile ripristinare la tavola salvata.');
+      } finally {
+        setIsLoadingPdf(false);
+        setTimeout(() => {
+          isHydratingSheetRef.current = false;
+        }, 80);
+      }
+    },
+    [onSelectActivePlanSheet]
+  );
+
+  // Carica nuovo PDF e lo salva nell'archivio tavole del progetto
   const handleLoadPdfFile = useCallback(
     async (file: File) => {
       if (!file.name.toLowerCase().endsWith('.pdf')) {
         setPdfError('Seleziona un file .PDF contenente una tavola planimetrica.');
         return;
       }
+      if (ocrAbortRef.current) {
+        ocrAbortRef.current.abort();
+        ocrAbortRef.current = null;
+      }
+      isHydratingSheetRef.current = true;
       setIsLoadingPdf(true);
       setPdfError(null);
+      setRenderError(null);
+      setEditingTokenId(null);
+      setNewTokenDraft(null);
+      setEditingTextNote(null);
+      setPenStrokesByPage({});
+      setTextNotesByPage({});
+      setMeasuredPolygonsByPage({});
+      setMeasuredLinesByPage({});
+      ocrScannedPagesRef.current.clear();
       setPageAnalyses({});
       setCustomMetersPerPt(null);
       setLastFeedback(null);
 
       try {
-        const doc = await loadPdfPlanDocument(file);
-        setPdfDoc(doc);
-        setPdfFileName(file.name);
-        setNumPages(doc.numPages);
-
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const pdfBase64 = bytes.byteLength <= 18 * 1024 * 1024 ? uint8ToBase64(bytes) : undefined;
+        const doc = await loadPdfPlanDocument(bytes);
         const initialScanCount = Math.min(doc.numPages, 8);
+        const analysesMap: Record<number, PlanPageAnalysis> = {};
         let firstRichPage = 1;
         let foundRich = false;
+        let detectedScale = 100;
+        let detectedH = 3.0;
 
         for (let p = 1; p <= initialScanCount; p++) {
           const analysis = await analyzePdfPlanPage(doc, p, quoteUnit);
-          setPageAnalyses((prev) => ({ ...prev, [p]: analysis }));
+          analysesMap[p] = analysis;
           if (analysis.detectedHeightM && analysis.detectedHeightM > 0) {
+            detectedH = analysis.detectedHeightM;
             setDefaultHeightM(analysis.detectedHeightM);
           }
           if (analysis.detectedScaleDenominator) {
+            detectedScale = analysis.detectedScaleDenominator;
             setScaleDenominator(analysis.detectedScaleDenominator);
           }
           if (!foundRich && (analysis.rooms.length > 0 || analysis.tokens.length > 5)) {
@@ -370,40 +978,204 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           }
         }
 
+        const newSheetId = `sheet_${uid()}_${Date.now().toString(36)}`;
+        const initLayers = createDefaultPlanLayers();
+        pdfDocCacheRef.current.set(newSheetId, doc);
+        pdfBinaryMetaRef.current.set(newSheetId, { pdfBase64, fileSizeBytes: bytes.byteLength });
+
+        const targetAnalysis = analysesMap[firstRichPage];
+        pageAnalysesRef.current = analysesMap;
+        setCurrentSheetId(newSheetId);
+        onSelectActivePlanSheet?.(newSheetId);
+        setLayers(initLayers);
+        setActiveLayerId(DEFAULT_LAYER_IDS.MEASURES);
+        setPdfDoc(doc);
+        setPdfFileName(file.name);
+        setNumPages(doc.numPages);
+        setPageAnalyses(analysesMap);
         setCurrentPage(firstRichPage);
-        requestAnimationFrame(() => {
-          if (scrollContainerRef.current) {
-            setPageAnalyses((prev) => {
-              const targetA = prev[firstRichPage];
-              if (targetA && scrollContainerRef.current) {
-                const rect = scrollContainerRef.current.getBoundingClientRect();
-                if (rect.width > 100 && rect.height > 100) {
-                  const fitZ = Math.min((rect.width - 32) / targetA.width, (rect.height - 32) / targetA.height);
-                  setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
-                }
+
+        const newSheet: SavedPlanSheet = {
+          id: newSheetId,
+          name: file.name,
+          numPages: doc.numPages,
+          currentPage: firstRichPage,
+          quoteUnit,
+          exportUnit,
+          scaleDenominator: detectedScale,
+          customMetersPerPt: null,
+          defaultHeightM: detectedH,
+          layers: initLayers,
+          activeLayerId: DEFAULT_LAYER_IDS.MEASURES,
+          measuredPolygonsByPage: {},
+          measuredLinesByPage: {},
+          penStrokesByPage: {},
+          textNotesByPage: {},
+          pdfBase64,
+          fileSizeBytes: bytes.byteLength,
+          updatedAt: new Date().toISOString(),
+        };
+        onPlanSheetsChange?.((prev) => [...prev, newSheet]);
+
+        if (targetAnalysis) {
+          requestAnimationFrame(() => {
+            if (scrollContainerRef.current) {
+              const rect = scrollContainerRef.current.getBoundingClientRect();
+              if (rect.width > 100 && rect.height > 100) {
+                const fitZ = Math.min((rect.width - 32) / targetAnalysis.width, (rect.height - 32) / targetAnalysis.height);
+                setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
               }
-              return prev;
-            });
-          }
-        });
+            }
+          });
+        }
+        setLastFeedback(
+          pdfBase64
+            ? `Tavola "${file.name}" caricata e memorizzata nel progetto`
+            : `Tavola "${file.name}" caricata (file >18MB: memorizzata solo in sessione locale)`
+        );
       } catch (err: any) {
         console.error('Errore apertura PDF:', err);
         setPdfError(err?.message || 'Impossibile aprire il documento PDF.');
       } finally {
         setIsLoadingPdf(false);
+        setTimeout(() => {
+          isHydratingSheetRef.current = false;
+        }, 80);
       }
     },
-    [quoteUnit]
+    [quoteUnit, exportUnit, onPlanSheetsChange, onSelectActivePlanSheet]
   );
 
-  // Rianalizza pagina al cambio unità (m/cm/mm)
+  const handleRemoveSavedSheet = useCallback(
+    (sheetId: string) => {
+      pdfDocCacheRef.current.delete(sheetId);
+      pdfBinaryMetaRef.current.delete(sheetId);
+      const remaining = planSheets.filter((s) => s.id !== sheetId);
+      onPlanSheetsChange?.(remaining);
+      if (currentSheetId === sheetId) {
+        if (remaining.length > 0) {
+          void activateSavedSheet(remaining[0], true);
+        } else {
+          setCurrentSheetId(null);
+          onSelectActivePlanSheet?.(null);
+          setPdfDoc(null);
+          setPdfFileName('');
+          setPageAnalyses({});
+          setMeasuredPolygonsByPage({});
+          setMeasuredLinesByPage({});
+          setPenStrokesByPage({});
+          setTextNotesByPage({});
+        }
+      }
+    },
+    [planSheets, currentSheetId, onPlanSheetsChange, onSelectActivePlanSheet, activateSavedSheet]
+  );
+
+  // Ripristina automaticamente l'ultima tavola lavorata quando si riapre il modal o si carica un progetto
+  useEffect(() => {
+    if (!isOpen || isLoadingPdf) return;
+    if (planSheets.length === 0) {
+      if (pdfDoc && currentSheetId) {
+        setPdfDoc(null);
+        setCurrentSheetId(null);
+        setPdfFileName('');
+        setPageAnalyses({});
+      }
+      return;
+    }
+    const stillExists = currentSheetId && planSheets.some((s) => s.id === currentSheetId);
+    if (!pdfDoc || !stillExists) {
+      const target = planSheets.find((s) => s.id === activePlanSheetId) || planSheets[0];
+      if (target) {
+        void activateSavedSheet(target, true);
+      }
+    }
+  }, [isOpen, planSheets, activePlanSheetId, pdfDoc, currentSheetId, isLoadingPdf, activateSavedSheet]);
+
+  // Sincronizza tutte le modifiche (misure, poligoni, layer, appunti, scala, OCR editato) nella tavola di progetto
+  useEffect(() => {
+    if (!currentSheetId || !pdfDoc || isHydratingSheetRef.current || !onPlanSheetsChange) return;
+    const customTokensByPage: Record<number, PlanToken[]> = {};
+    for (const [pStr, analysis] of Object.entries(pageAnalyses)) {
+      const pNum = parseInt(pStr, 10);
+      const custom = (analysis?.tokens || []).filter((t) => t.source === 'ocr' || t.source === 'manual');
+      if (custom.length > 0) customTokensByPage[pNum] = custom;
+    }
+    const meta = pdfBinaryMetaRef.current.get(currentSheetId);
+    onPlanSheetsChange((prev) =>
+      prev.map((s) => {
+        if (s.id !== currentSheetId) return s;
+        return {
+          ...s,
+          name: pdfFileName || s.name,
+          numPages: numPages || s.numPages,
+          currentPage,
+          quoteUnit,
+          exportUnit,
+          scaleDenominator,
+          customMetersPerPt,
+          defaultHeightM,
+          layers,
+          activeLayerId,
+          measuredPolygonsByPage,
+          measuredLinesByPage,
+          penStrokesByPage,
+          textNotesByPage,
+          customTokensByPage,
+          pdfBase64: meta?.pdfBase64 ?? s.pdfBase64,
+          fileSizeBytes: meta?.fileSizeBytes ?? s.fileSizeBytes,
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+  }, [
+    currentSheetId,
+    pdfDoc,
+    pdfFileName,
+    numPages,
+    currentPage,
+    quoteUnit,
+    exportUnit,
+    scaleDenominator,
+    customMetersPerPt,
+    defaultHeightM,
+    layers,
+    activeLayerId,
+    measuredPolygonsByPage,
+    measuredLinesByPage,
+    penStrokesByPage,
+    textNotesByPage,
+    pageAnalyses,
+    onPlanSheetsChange,
+  ]);
+
+  // Rianalizza pagina al cambio unità (m/cm/mm), preservando eventuali token OCR o manuali già estratti
   useEffect(() => {
     if (!pdfDoc) return;
     let cancelled = false;
     (async () => {
+      const existing = pageAnalyses[currentPage];
+      if (existing && existing.tokens.some((t) => t.source === 'ocr' || t.source === 'manual')) {
+        const reclass = reclassifyPlanTokens(existing.tokens, quoteUnit, existing.detectedHeightM);
+        setPageAnalyses((prev) => {
+          const cur = prev[currentPage];
+          if (!cur) return prev;
+          return {
+            ...prev,
+            [currentPage]: { ...cur, tokens: reclass.tokens, rooms: reclass.rooms },
+          };
+        });
+        return;
+      }
       const analyzed = await analyzePdfPlanPage(pdfDoc, currentPage, quoteUnit);
       if (!cancelled) {
-        setPageAnalyses((prev) => ({ ...prev, [currentPage]: analyzed }));
+        setPageAnalyses((prev) => {
+          const cur = prev[currentPage];
+          if (cur && cur.tokens.some((t) => t.source === 'ocr' || t.source === 'manual')) {
+            return prev;
+          }
+          return { ...prev, [currentPage]: analyzed };
+        });
       }
     })();
     return () => {
@@ -411,13 +1183,14 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     };
   }, [pdfDoc, currentPage, quoteUnit]);
 
-  // Render pagina su canvas
+  // Render pagina su canvas + avvio OCR automatico direttamente nella fase di rendering per tavole scansionate
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || !isOpen) return;
+    if (!pdfDoc || isLoadingPdf || !canvasRef.current || !isOpen) return;
     let cancelled = false;
 
     const renderPage = async () => {
       setIsRenderingPage(true);
+      setRenderError(null);
       try {
         if (renderTaskRef.current) {
           try {
@@ -428,6 +1201,15 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         const page = await pdfDoc.getPage(currentPage);
         if (cancelled) return;
 
+        // Assicura analisi della pagina anche per pagine > 8 in PDF lunghi
+        let pageAnalysis = pageAnalysesRef.current[currentPage];
+        if (!pageAnalysis) {
+          pageAnalysis = await analyzePdfPlanPage(pdfDoc, currentPage, quoteUnit);
+          if (cancelled) return;
+          pageAnalysesRef.current = { ...pageAnalysesRef.current, [currentPage]: pageAnalysis };
+          setPageAnalyses((prev) => ({ ...prev, [currentPage]: pageAnalysis! }));
+        }
+
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         const renderScale = Math.min(3.5, zoom * dpr);
         const viewport = page.getViewport({ scale: renderScale });
@@ -437,17 +1219,31 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        canvas.style.width = `${Math.floor(viewport.width / dpr)}px`;
-        canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
+        canvas.width = Math.max(1, Math.floor(viewport.width));
+        canvas.height = Math.max(1, Math.floor(viewport.height));
+        canvas.style.width = `${Math.max(1, Math.floor(viewport.width / dpr))}px`;
+        canvas.style.height = `${Math.max(1, Math.floor(viewport.height / dpr))}px`;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         const task = page.render({ canvasContext: ctx, viewport });
         renderTaskRef.current = task;
         await task.promise;
+
+        if (cancelled) return;
+
+        // OCR integrato nella fase di rendering: parte subito riusando il canvas se ad alta risoluzione
+        const hasOcrTokens = pageAnalysis.tokens.some((t) => t.source === 'ocr');
+        if (pageAnalysis.isLikelyScanned && !hasOcrTokens && !ocrScannedPagesRef.current.has(currentPage)) {
+          void handleRunOcrForPage(pdfDoc, currentPage, quoteUnit, canvas);
+        }
       } catch (err: any) {
         if (err?.name !== 'RenderingCancelledException') {
           console.warn('Render page warning:', err);
+          if (!cancelled) {
+            setRenderError(err?.message || 'Errore durante la visualizzazione della tavola PDF.');
+          }
         }
       } finally {
         if (!cancelled) setIsRenderingPage(false);
@@ -463,7 +1259,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         } catch {}
       }
     };
-  }, [pdfDoc, currentPage, zoom, isOpen]);
+  }, [pdfDoc, isLoadingPdf, currentPage, zoom, isOpen, quoteUnit, handleRunOcrForPage]);
 
   // Scorciatoie tastiera
   useEffect(() => {
@@ -476,7 +1272,15 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         e.preventDefault();
         setIsSpacePressed(true);
       } else if (e.key === 'Escape') {
-        if (highlightDrag) {
+        if (editingTextNote) {
+          setEditingTextNote(null);
+        } else if (editingTokenId) {
+          setEditingTokenId(null);
+        } else if (newTokenDraft) {
+          setNewTokenDraft(null);
+        } else if (activePenStroke) {
+          setActivePenStroke(null);
+        } else if (highlightDrag) {
           setHighlightDrag(null);
         } else if (rulerStart) {
           setRulerStart(null);
@@ -491,7 +1295,15 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !isInput) {
         e.preventDefault();
-        setQueuedRows((prev) => prev.slice(0, -1));
+        if (activeTool === 'pen') {
+          setPenStrokesByPage((prev) => {
+            const list = prev[currentPage] || [];
+            if (list.length === 0) return prev;
+            return { ...prev, [currentPage]: list.slice(0, -1) };
+          });
+        } else {
+          setQueuedRows((prev) => prev.slice(0, -1));
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -503,7 +1315,21 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [isOpen, highlightDrag, rulerStart, polygonPts.length, calibrationDraft, activeCell, onClose]);
+  }, [
+    isOpen,
+    editingTextNote,
+    editingTokenId,
+    newTokenDraft,
+    activePenStroke,
+    highlightDrag,
+    rulerStart,
+    polygonPts.length,
+    calibrationDraft,
+    activeCell,
+    activeTool,
+    currentPage,
+    onClose,
+  ]);
 
   const handleFitToViewport = useCallback(() => {
     if (!currentAnalysis || !scrollContainerRef.current) return;
@@ -513,13 +1339,61 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
   }, [currentAnalysis]);
 
-  const appendDrafts = useCallback(
-    (drafts: QueuedMeasureDraft[], flashIds?: string[], feedback?: string) => {
-      if (drafts.length === 0) return;
-      setQueuedRows((prev) => [...prev, ...drafts]);
+  const convertDraftToExportUnit = useCallback(
+    (d: QueuedMeasureDraft): InternalMeasureDraft => {
+      const isDirectArea =
+        d.width === undefined &&
+        d.height === undefined &&
+        !!d.sourceNote &&
+        (d.sourceNote.includes('Superfici') || d.sourceNote.includes('mq ') || d.sourceNote.includes('Poligono'));
 
-      // Lampeggia il primo campo numerico valorizzato dell'ultimo rigo aggiunto
-      const last = drafts[drafts.length - 1];
+      if (isDirectArea || extractionMode === 'count') {
+        return {
+          ...d,
+          multiplier: d.multiplier === 1 ? undefined : d.multiplier,
+          isDirectArea,
+        };
+      }
+
+      const conv = (v?: number) => (v !== undefined ? metersToUnit(v, exportUnit) : undefined);
+      const lengthConv = conv(d.length);
+      const widthConv = conv(d.width);
+      const heightConv = conv(d.height);
+
+      let extraNote = d.sourceNote;
+      if (exportUnit !== 'm' && d.length !== undefined) {
+        const parts = [`${d.length.toFixed(2)}m→${formatMeasureVal(lengthConv!, exportUnit)}${exportUnit}`];
+        if (d.width !== undefined && widthConv !== undefined) {
+          parts.push(`${d.width.toFixed(2)}m→${formatMeasureVal(widthConv, exportUnit)}${exportUnit}`);
+        }
+        extraNote = parts.join(' × ');
+      }
+
+      return {
+        ...d,
+        multiplier: d.multiplier === 1 ? undefined : d.multiplier,
+        length: lengthConv,
+        width: widthConv,
+        height: heightConv,
+        sourceNote: extraNote,
+      };
+    },
+    [exportUnit, extractionMode]
+  );
+
+  const appendDrafts = useCallback(
+    (drafts: QueuedMeasureDraft[], flashIds?: string[], feedback?: string, extraMeta?: { linkedMarkId?: string; isDirectArea?: boolean }) => {
+      if (drafts.length === 0) return;
+      const converted = drafts.map((d) => {
+        const c = convertDraftToExportUnit(d);
+        if (extraMeta?.isDirectArea !== undefined) c.isDirectArea = extraMeta.isDirectArea;
+        if (extraMeta?.linkedMarkId) c.linkedMarkId = extraMeta.linkedMarkId;
+        return c;
+      });
+      setQueuedRows((prev) => [...prev, ...converted]);
+
+      // Lampeggia Lung. (saltando Par.Ug.) e se manca Larg. su misura lineare/2D, pre-seleziona automaticamente Larg.
+      const last = converted[converted.length - 1];
       if (last.type !== 'subtotal') {
         const blinkField: TargetNumericField =
           last.length !== undefined
@@ -528,8 +1402,19 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             ? 'width'
             : last.height !== undefined
             ? 'height'
-            : 'multiplier';
+            : 'length';
         triggerCellBlink(last.id, blinkField);
+
+        if (
+          converted.length === 1 &&
+          last.length !== undefined &&
+          last.width === undefined &&
+          !last.isDirectArea &&
+          extractionMode !== 'linear' &&
+          extractionMode !== 'count'
+        ) {
+          setActiveCell({ rowId: last.id, field: 'width' });
+        }
       }
 
       if (flashIds && flashIds.length > 0) {
@@ -540,24 +1425,27 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         setLastFeedback(feedback);
       }
     },
-    [triggerCellBlink]
+    [convertDraftToExportUnit, extractionMode, triggerCellBlink]
   );
 
-  // Aggiunge un nuovo rigo vuoto pronto per scrivere a mano o misurare con casella evidenziata
+  // Aggiunge un nuovo rigo vuoto saltando Par.Ug. e andando subito su Lung.
   const handleAddEmptyRow = useCallback(
-    (type: 'positive' | 'deduction' = 'positive') => {
+    (type: 'positive' | 'deduction' = 'positive', focusLengthDirectly = false) => {
       const id = uid();
-      const newRow: QueuedMeasureDraft = {
+      const newRow: InternalMeasureDraft = {
         id,
         description: type === 'deduction' ? 'A detrarre ' : '',
         type,
+        multiplier: undefined,
       };
       setQueuedRows((prev) => [...prev, newRow]);
       setActiveCell({ rowId: id, field: 'length' });
       requestAnimationFrame(() => {
-        const descInput = rowInputRefs.current.get(`desc_${id}`);
-        if (descInput) {
-          descInput.focus();
+        const target = focusLengthDirectly
+          ? rowInputRefs.current.get(`cell_${id}_length`)
+          : rowInputRefs.current.get(`desc_${id}`);
+        if (target) {
+          target.focus();
         }
       });
     },
@@ -601,7 +1489,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       if (activeCell && token.numericValue && (token.kind === 'dimension' || token.kind === 'surface' || token.kind === 'perimeter' || token.kind === 'height')) {
         setFlashTokenIds(new Set([token.id]));
         setTimeout(() => setFlashTokenIds(new Set()), 900);
-        insertValueIntoActiveCell(token.numericValue, `Quota ${token.str}`);
+        insertValueIntoActiveCell(token.numericValue, `Quota ${token.str}`, token.kind === 'surface');
         return;
       }
 
@@ -632,7 +1520,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           defaultHeightM,
           sourceNote: token.str,
         });
-        appendDrafts(rows, [token.id], `Estratta superficie ${token.str}`);
+        appendDrafts(rows, [token.id], `Estratta superficie ${token.str}`, { isDirectArea: true });
         return;
       }
 
@@ -693,7 +1581,103 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     [currentAnalysis, activeCell, insertValueIntoActiveCell, extractionMode, defaultHeightM, pendingLengthPick, appendDrafts]
   );
 
-  // Finalizza poligono CAD
+  const triggerMarkFlash = useCallback((markId: string) => {
+    setFlashMarkIds(new Set([markId]));
+    setTimeout(() => setFlashMarkIds(new Set()), 850);
+  }, []);
+
+  // Riutilizza una linea righello già segnata sulla tavola cliccandoci sopra
+  const handleReuseLine = useCallback(
+    (ln: MeasuredRulerLine) => {
+      triggerMarkFlash(ln.id);
+      if (insertValueIntoActiveCell(ln.meters, `Misura salvata ${ln.meters.toFixed(2)}m`, false)) {
+        return;
+      }
+      const newId = uid();
+      const exportVal = metersToUnit(ln.meters, exportUnit);
+      const convNote =
+        exportUnit !== 'm'
+          ? `${ln.meters.toFixed(2)} m → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}`
+          : undefined;
+      const newDraft: InternalMeasureDraft = {
+        id: newId,
+        description: ln.label || 'Misura da tavola salvata',
+        type: 'positive',
+        multiplier: undefined,
+        length: exportVal,
+        height:
+          extractionMode === 'walls_perim_h' || extractionMode === 'volume'
+            ? metersToUnit(defaultHeightM, exportUnit)
+            : undefined,
+        sourceNote: convNote,
+      };
+      setQueuedRows((prev) => [...prev, newDraft]);
+      triggerCellBlink(newId, 'length');
+      if (extractionMode !== 'linear' && extractionMode !== 'count') {
+        setActiveCell({ rowId: newId, field: 'width' });
+        setLastFeedback(
+          `Inserito ${ln.meters.toFixed(2)} m${exportUnit !== 'm' ? ` → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : ''} in Lung. · Passato a Larg.`
+        );
+      } else {
+        setLastFeedback(
+          `Inserito ${ln.meters.toFixed(2)} m${exportUnit !== 'm' ? ` → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : ''} dalla misura salvata`
+        );
+      }
+    },
+    [triggerMarkFlash, insertValueIntoActiveCell, exportUnit, extractionMode, defaultHeightM, triggerCellBlink]
+  );
+
+  // Riutilizza un'area (o perimetro) di un poligono già segnato cliccandoci sopra
+  const handleReusePolygon = useCallback(
+    (poly: MeasuredPolygon, kind: 'area' | 'perimeter' = 'area') => {
+      triggerMarkFlash(poly.id);
+      if (kind === 'perimeter') {
+        if (insertValueIntoActiveCell(poly.perimM, `Perimetro ${poly.label}`, false)) {
+          return;
+        }
+        const newId = uid();
+        const exportPerim = metersToUnit(poly.perimM, exportUnit);
+        const newDraft: InternalMeasureDraft = {
+          id: newId,
+          description: `${poly.label} (Perimetro)`,
+          type: 'positive',
+          multiplier: undefined,
+          length: exportPerim,
+          height:
+            extractionMode === 'walls_perim_h' ? metersToUnit(defaultHeightM, exportUnit) : undefined,
+          sourceNote:
+            exportUnit !== 'm'
+              ? `${poly.perimM.toFixed(2)} m → ${formatMeasureVal(exportPerim, exportUnit)} ${exportUnit}`
+              : `Perimetro ${poly.perimM.toFixed(2)} m`,
+        };
+        setQueuedRows((prev) => [...prev, newDraft]);
+        triggerCellBlink(newId, 'length');
+        setLastFeedback(`Riportato perimetro ${poly.label}: ${poly.perimM.toFixed(2)} m`);
+        return;
+      }
+
+      if (insertValueIntoActiveCell(poly.areaM2, `Area ${poly.label}`, true)) {
+        return;
+      }
+      const newId = uid();
+      const newDraft: InternalMeasureDraft = {
+        id: newId,
+        description: poly.label,
+        type: 'positive',
+        multiplier: undefined,
+        length: poly.areaM2,
+        height: extractionMode === 'volume' ? metersToUnit(defaultHeightM, exportUnit) : undefined,
+        isDirectArea: true,
+        sourceNote: `Da area ${poly.label} (${poly.areaM2.toFixed(2)} m²)`,
+      };
+      setQueuedRows((prev) => [...prev, newDraft]);
+      triggerCellBlink(newId, 'length');
+      setLastFeedback(`Inserita area ${poly.label}: ${poly.areaM2.toFixed(2)} m²`);
+    },
+    [triggerMarkFlash, insertValueIntoActiveCell, exportUnit, extractionMode, defaultHeightM, triggerCellBlink]
+  );
+
+  // Finalizza poligono CAD -> misura la superficie e lascia il segno persistente (cancellabile & riutilizzabile) sulla tavola
   const finalizePolygon = useCallback(
     (pts: Array<{ x: number; y: number }>) => {
       if (pts.length < 3) {
@@ -705,17 +1689,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       const areaM2 = Math.round(areaPt2 * metersPerPt * metersPerPt * 100) / 100;
       const perimM = Math.round(perimPt * metersPerPt * 100) / 100;
 
-      // Se c'è una casella attiva, inserisce l'area o il perimetro a seconda della modalità
-      if (activeCell) {
-        const valToInsert = extractionMode === 'linear' || extractionMode === 'walls_perim_h' ? perimM : areaM2;
-        setPolygonPts([]);
-        insertValueIntoActiveCell(valToInsert, 'Poligono CAD');
-        return;
-      }
-
       const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
       const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-      let roomName = 'Poligono da tavola';
+      let roomName = 'Superficie da poligono';
       if (currentAnalysis) {
         let bestD = 90;
         for (const rt of currentAnalysis.tokens) {
@@ -728,17 +1704,60 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         }
       }
 
+      const existingCount = (measuredPolygonsByPage[currentPage] || []).length;
+      const polyColor = POLYGON_COLORS[existingCount % POLYGON_COLORS.length];
+      const polyId = `poly_${uid()}`;
+      const newPoly: MeasuredPolygon = {
+        id: polyId,
+        points: pts,
+        centroid: { x: cx, y: cy },
+        label: roomName === 'Superficie da poligono' ? `Sup. ${existingCount + 1}` : roomName,
+        areaM2,
+        perimM,
+        color: polyColor,
+        layerId: activeLayerId,
+      };
+      setMeasuredPolygonsByPage((prev) => ({
+        ...prev,
+        [currentPage]: [...(prev[currentPage] || []), newPoly],
+      }));
+      setShowMeasuredMarks(true);
+      setPolygonPts([]);
+
+      // Se c'è una casella attiva, inserisce la superficie (o il perimetro se modalità lineare/pareti)
+      if (activeCell) {
+        const isPerimMode = extractionMode === 'linear' || extractionMode === 'walls_perim_h';
+        insertValueIntoActiveCell(isPerimMode ? perimM : areaM2, 'Poligono superficie', !isPerimMode);
+        return;
+      }
+
+      const isPerimMode = extractionMode === 'linear' || extractionMode === 'walls_perim_h';
       const rows = buildMeasurementsFromRoom(roomName, {
         areaMq: areaM2,
         perimeterM: perimM,
         mode: extractionMode === 'area_lw' ? 'area_lw' : extractionMode,
         defaultHeightM,
-        sourceNote: `Poligono ${pts.length} vertici`,
+        sourceNote: `Poligono ${areaM2.toFixed(2)} m² (${pts.length} vertici)`,
       });
-      setPolygonPts([]);
-      appendDrafts(rows, undefined, `Poligono ${roomName}: ${areaM2.toFixed(2)} m² · Perim. ${perimM.toFixed(2)} m`);
+      appendDrafts(
+        rows,
+        undefined,
+        `Superficie ${newPoly.label}: ${areaM2.toFixed(2)} m² (Perim. ${perimM.toFixed(2)} m) · Segno cliccabile salvato sulla tavola`,
+        { linkedMarkId: polyId, isDirectArea: !isPerimMode && extractionMode !== 'volume' }
+      );
     },
-    [metersPerPt, activeCell, insertValueIntoActiveCell, currentAnalysis, extractionMode, defaultHeightM, appendDrafts]
+    [
+      metersPerPt,
+      currentAnalysis,
+      measuredPolygonsByPage,
+      currentPage,
+      activeLayerId,
+      activeCell,
+      extractionMode,
+      defaultHeightM,
+      appendDrafts,
+      insertValueIntoActiveCell,
+    ]
   );
 
   // Eventi Mouse sul Canvas PDF
@@ -779,29 +1798,53 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       } else {
         const distPt = Math.hypot(pt.x - rulerStart.x, pt.y - rulerStart.y);
         const distM = Math.round(distPt * metersPerPt * 100) / 100;
+        const p1 = rulerStart;
         setRulerStart(null);
         if (distM > 0.01) {
-          // Priorità assoluta: se c'è una casella evidenziata nel computo, inserisci dentro e lampeggia!
+          const lineId = `line_${uid()}`;
+          setMeasuredLinesByPage((prev) => ({
+            ...prev,
+            [currentPage]: [
+              ...(prev[currentPage] || []),
+              { id: lineId, p1, p2: pt, meters: distM, layerId: activeLayerId },
+            ],
+          }));
+          setShowMeasuredMarks(true);
+
+          // Priorità assoluta: se c'è una casella evidenziata nel computo, inserisci dentro e avanza!
           if (insertValueIntoActiveCell(distM, 'Righello')) {
             return;
           }
-          // Altrimenti crea un nuovo rigo con Parti Uguali saltato e Lunghezza valorizzata (e pre-seleziona Larghezza!)
+          // Altrimenti crea un nuovo rigo saltando Par.Ug., inserendo Lung. (convertita in exportUnit) e passando subito a Larg.!
           const newId = uid();
-          const newDraft: QueuedMeasureDraft = {
+          const exportVal = metersToUnit(distM, exportUnit);
+          const convNote =
+            exportUnit !== 'm' ? `${distM.toFixed(2)} m → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : undefined;
+
+          const newDraft: InternalMeasureDraft = {
             id: newId,
             description: 'Misura da righello',
             type: 'positive',
             multiplier: undefined,
-            length: distM,
-            height: extractionMode === 'walls_perim_h' || extractionMode === 'volume' ? defaultHeightM : undefined,
+            length: exportVal,
+            height:
+              extractionMode === 'walls_perim_h' || extractionMode === 'volume'
+                ? metersToUnit(defaultHeightM, exportUnit)
+                : undefined,
+            sourceNote: convNote,
+            linkedMarkId: lineId,
           };
           setQueuedRows((prev) => [...prev, newDraft]);
           triggerCellBlink(newId, 'length');
-          if (extractionMode !== 'linear') {
+          if (extractionMode !== 'linear' && extractionMode !== 'count') {
             setActiveCell({ rowId: newId, field: 'width' });
-            setLastFeedback(`Misurato ${distM.toFixed(2)} m in Lung. · Casella Larg. pronta per la seconda misura`);
+            setLastFeedback(
+              `Misurato ${distM.toFixed(2)} m${exportUnit !== 'm' ? ` → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : ''} in Lung. · Passato automaticamente a Larg.`
+            );
           } else {
-            setLastFeedback(`Misurato ${distM.toFixed(2)} m`);
+            setLastFeedback(
+              `Misurato ${distM.toFixed(2)} m${exportUnit !== 'm' ? ` → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : ''}`
+            );
           }
         }
       }
@@ -820,6 +1863,72 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           setCalibrationDraft({ distPt, realMetersStr: '4.50' });
         }
       }
+      return;
+    }
+
+    if (activeTool === 'edit_ocr') {
+      if (editingTokenId) {
+        setEditingTokenId(null);
+        return;
+      }
+      setNewTokenDraft({ x: pt.x, y: pt.y, text: '', vertical: false });
+      return;
+    }
+
+    if (activeTool === 'pen') {
+      if (penEraserMode) {
+        const tol = 10 / zoom;
+        setPenStrokesByPage((prev) => {
+          const list = prev[currentPage] || [];
+          const filtered = list.filter(
+            (st) =>
+              isLayerLocked(st.layerId) ||
+              !isLayerVisible(st.layerId) ||
+              !st.points.some((p) => Math.hypot(p.x - pt.x, p.y - pt.y) <= tol + st.width / 2)
+          );
+          return filtered.length === list.length ? prev : { ...prev, [currentPage]: filtered };
+        });
+        return;
+      }
+      if (isLayerLocked(activeLayerId)) {
+        setLastFeedback('Il layer attivo è bloccato: sbloccalo dal pannello Layer per disegnare');
+        return;
+      }
+      setActivePenStroke({
+        id: `pen_${uid()}`,
+        points: [pt],
+        color: penColor,
+        width: penIsHighlighter ? 11 : penWidth,
+        isHighlighter: penIsHighlighter,
+        layerId: activeLayerId,
+      });
+      return;
+    }
+
+    if (activeTool === 'text_note') {
+      if (editingTextNote) {
+        setEditingTextNote(null);
+        return;
+      }
+      const noteLayerId =
+        activeLayerId === DEFAULT_LAYER_IDS.MEASURES && layers.some((l) => l.id === DEFAULT_LAYER_IDS.NOTES)
+          ? DEFAULT_LAYER_IDS.NOTES
+          : activeLayerId;
+      if (isLayerLocked(noteLayerId)) {
+        setLastFeedback('Il layer degli appunti è bloccato: sbloccalo dal pannello Layer');
+        return;
+      }
+      setEditingTextNote({
+        x: pt.x,
+        y: pt.y,
+        text: '',
+        color: textNoteColor,
+        fontSize: textNoteSize,
+        vertical: false,
+        bgOpaque: true,
+        isReminder: noteLayerId === DEFAULT_LAYER_IDS.NOTES || noteLayerId === DEFAULT_LAYER_IDS.SITE,
+        layerId: noteLayerId,
+      });
       return;
     }
 
@@ -849,6 +1958,47 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     setCursorPt(pt);
     setSnappedVertex(snap);
 
+    if (draggingNoteRef.current) {
+      const drag = draggingNoteRef.current;
+      setTextNotesByPage((prev) => {
+        const list = prev[currentPage] || [];
+        return {
+          ...prev,
+          [currentPage]: list.map((n) =>
+            n.id === drag.id && !isLayerLocked(n.layerId)
+              ? { ...n, x: pt.x - drag.offsetX, y: pt.y - drag.offsetY }
+              : n
+          ),
+        };
+      });
+      return;
+    }
+
+    if (activeTool === 'pen' && penEraserMode && (e.buttons & 1) === 1) {
+      const tol = 10 / zoom;
+      setPenStrokesByPage((prev) => {
+        const list = prev[currentPage] || [];
+        const filtered = list.filter(
+          (st) =>
+            isLayerLocked(st.layerId) ||
+            !isLayerVisible(st.layerId) ||
+            !st.points.some((p) => Math.hypot(p.x - pt.x, p.y - pt.y) <= tol + st.width / 2)
+        );
+        return filtered.length === list.length ? prev : { ...prev, [currentPage]: filtered };
+      });
+      return;
+    }
+
+    if (activePenStroke) {
+      setActivePenStroke((prev) => {
+        if (!prev) return null;
+        const last = prev.points[prev.points.length - 1];
+        if (last && Math.hypot(pt.x - last.x, pt.y - last.y) < 1.2) return prev;
+        return { ...prev, points: [...prev.points, pt] };
+      });
+      return;
+    }
+
     if (highlightDrag) {
       setHighlightDrag((prev) => (prev ? { ...prev, x2: pt.x, y2: pt.y } : null));
     }
@@ -861,13 +2011,34 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       return;
     }
 
+    if (draggingNoteRef.current) {
+      draggingNoteRef.current = null;
+      return;
+    }
+
+    if (activePenStroke) {
+      const finished = activePenStroke;
+      setActivePenStroke(null);
+      if (finished.points.length >= 1) {
+        const finalPts =
+          finished.points.length === 1
+            ? [finished.points[0], { x: finished.points[0].x + 0.5, y: finished.points[0].y + 0.5 }]
+            : finished.points;
+        setPenStrokesByPage((prev) => ({
+          ...prev,
+          [currentPage]: [...(prev[currentPage] || []), { ...finished, points: finalPts }],
+        }));
+      }
+      return;
+    }
+
     if (activeTool === 'highlight' && highlightDrag && currentAnalysis) {
       const w = Math.abs(highlightDrag.x2 - highlightDrag.x1);
       const h = Math.abs(highlightDrag.y2 - highlightDrag.y1);
       const box = highlightDrag;
       setHighlightDrag(null);
 
-      // Clic rapido (< 5pt): seleziona eventuale quota/vano sotto al cursore
+      // Clic rapido (< 5pt): carica automaticamente qualsiasi quota colorata/vano sotto al cursore
       if (w < 5 && h < 5) {
         const cx = (box.x1 + box.x2) / 2;
         const cy = (box.y1 + box.y2) / 2;
@@ -875,10 +2046,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           (t) =>
             t.kind !== 'other' &&
             t.kind !== 'scale' &&
-            cx >= t.bbox.x1 - 3 &&
-            cx <= t.bbox.x2 + 3 &&
-            cy >= t.bbox.y1 - 3 &&
-            cy <= t.bbox.y2 + 3
+            cx >= t.bbox.x1 - 5 &&
+            cx <= t.bbox.x2 + 5 &&
+            cy >= t.bbox.y1 - 5 &&
+            cy <= t.bbox.y2 + 5
         );
         if (hit) {
           handlePickToken(hit);
@@ -895,7 +2066,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       if (activeCell && numericMatches.length === 1 && numericMatches[0].numericValue) {
         setFlashTokenIds(new Set([numericMatches[0].id]));
         setTimeout(() => setFlashTokenIds(new Set()), 900);
-        insertValueIntoActiveCell(numericMatches[0].numericValue, `Evidenziato ${numericMatches[0].str}`);
+        insertValueIntoActiveCell(
+          numericMatches[0].numericValue,
+          `Evidenziato ${numericMatches[0].str}`,
+          numericMatches[0].kind === 'surface'
+        );
         return;
       }
 
@@ -964,7 +2139,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       (activeCell && queuedRows.find((r) => r.id === activeCell.rowId && r.type !== 'subtotal')) ||
       [...queuedRows].reverse().find((r) => r.type !== 'subtotal');
     if (!refRow) return;
-    const cloned: QueuedMeasureDraft = { ...refRow, id: uid() };
+    const { linkedMarkId: _omitMark, ...rest } = refRow;
+    const cloned: InternalMeasureDraft = { ...rest, id: uid() };
     setQueuedRows((prev) => [...prev, cloned]);
     triggerCellBlink(cloned.id, 'length');
   };
@@ -1120,7 +2296,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-100 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
           >
             <Upload className="w-3.5 h-3.5 text-amber-400" />
-            <span>{pdfDoc ? 'Cambia PDF' : 'Apri Tavola PDF'}</span>
+            <span>{pdfDoc ? '+ Aggiungi Tavola PDF' : 'Apri Tavola PDF'}</span>
           </button>
 
           <button
@@ -1133,6 +2309,61 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           </button>
         </div>
       </header>
+
+      {/* BARRA TAVOLE IN MEMORIA NEL PROGETTO */}
+      {planSheets.length > 0 && (
+        <div className="bg-slate-900/95 border-b border-slate-800 px-3 py-1 flex items-center gap-1.5 overflow-x-auto shrink-0">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap mr-1">
+            Tavole Progetto ({planSheets.length}):
+          </span>
+          {planSheets.map((sheet) => {
+            const isActive = sheet.id === currentSheetId;
+            const polyCnt = Object.values(sheet.measuredPolygonsByPage || {}).reduce((s, a) => s + (a?.length || 0), 0);
+            const lineCnt = Object.values(sheet.measuredLinesByPage || {}).reduce((s, a) => s + (a?.length || 0), 0);
+            const noteCnt = Object.values(sheet.textNotesByPage || {}).reduce((s, a) => s + (a?.length || 0), 0);
+            const totalMarks = polyCnt + lineCnt + noteCnt;
+
+            return (
+              <div
+                key={sheet.id}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md border text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                  isActive
+                    ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sheet.id !== currentSheetId) void activateSavedSheet(sheet, true);
+                  }}
+                  className="inline-flex items-center gap-1.5 text-left"
+                  title={`Passa alla tavola ${sheet.name} (${sheet.numPages} pag.)`}
+                >
+                  <FileText className="w-3 h-3 shrink-0 text-amber-400" />
+                  <span className="max-w-[180px] truncate">{sheet.name}</span>
+                  {totalMarks > 0 && (
+                    <span className="px-1 rounded bg-slate-950/70 text-[10px] font-mono text-emerald-300">
+                      {totalMarks}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveSavedSheet(sheet.id);
+                  }}
+                  className="p-0.5 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40"
+                  title="Rimuovi tavola dalla memoria del progetto"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* WORKSPACE A TUTTO SCHERMO: TAVOLA PDF (SINISTRA) + ELENCO MISURE COMPUTO (DESTRA) */}
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
@@ -1218,6 +2449,62 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setActiveTool('edit_ocr');
+                    setRulerStart(null);
+                    setPolygonPts([]);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    activeTool === 'edit_ocr'
+                      ? 'bg-violet-500 text-white shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="Clicca qualsiasi numero o testo OCR per modificarlo"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Modifica</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('pen');
+                    setPenEraserMode(false);
+                    setRulerStart(null);
+                    setPolygonPts([]);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    activeTool === 'pen'
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="Pennino colorato a mano libera per fare schizzi sulla piantina mentre prendi misure"
+                >
+                  <PenTool className="w-3.5 h-3.5" />
+                  <span>Pennino</span>
+                  <span
+                    className="w-2 h-2 rounded-full border border-white/70 shrink-0"
+                    style={{ backgroundColor: penColor }}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTool('text_note');
+                    setRulerStart(null);
+                    setPolygonPts([]);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    activeTool === 'text_note'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="Scrivi testi o note direttamente sulla piantina"
+                >
+                  <Type className="w-3.5 h-3.5" />
+                  <span>Testo</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setActiveTool('pan')}
                   className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
                     activeTool === 'pan' ? 'bg-slate-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'
@@ -1228,8 +2515,57 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 </button>
               </div>
 
-              {/* Controlli Overlay, OSNAP, Unità Quote & Zoom */}
+              {/* Controlli OCR, Sostituzione Editabile, Overlay, OSNAP, Unità Quote & Zoom */}
               <div className="flex items-center gap-1.5 flex-wrap">
+                {isScanningOcr ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      ocrAbortRef.current?.abort();
+                      setIsScanningOcr(false);
+                      setOcrProgress(null);
+                    }}
+                    className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-500 text-slate-950 flex items-center gap-1.5 whitespace-nowrap shrink-0 animate-pulse"
+                    title="Clicca per annullare la scansione OCR"
+                  >
+                    <ScanText className="w-3.5 h-3.5" />
+                    <span>OCR {ocrProgress ? `${ocrProgress.progress}%` : '...'} · Annulla</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      ocrScannedPagesRef.current.delete(currentPage);
+                      void handleRunOcrForPage(pdfDoc, currentPage, quoteUnit, canvasRef.current);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold border flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      currentAnalysis?.isLikelyScanned && !currentAnalysis.tokens.some((t) => t.source === 'ocr')
+                        ? 'bg-amber-500 hover:bg-amber-400 border-amber-400 text-slate-950 shadow-sm'
+                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-300'
+                    }`}
+                    title="Esegui / ripeti scansione OCR orizzontale e verticale sulla tavola"
+                  >
+                    <ScanText className="w-3.5 h-3.5" />
+                    <span>Scansiona OCR</span>
+                  </button>
+                )}
+
+                {currentAnalysis?.tokens.some((t) => t.source === 'ocr' || t.source === 'manual') && (
+                  <button
+                    type="button"
+                    onClick={() => setShowEditableOverlay((v) => !v)}
+                    className={`px-2 py-1 rounded-md text-xs font-semibold border flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
+                      showEditableOverlay
+                        ? 'bg-violet-500/20 border-violet-400/60 text-violet-200'
+                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                    title="Mostra/nascondi la sostituzione digitale dei numeri e testi editabili sopra l'immagine"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>Editabili</span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setShowOverlayTokens((v) => !v)}
@@ -1241,6 +2577,27 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 >
                   {showOverlayTokens ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
                   <span>Rilevamenti</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsLayerPanelOpen((v) => !v)}
+                  className={`px-2 py-1 rounded-md text-xs font-semibold border flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    isLayerPanelOpen
+                      ? 'bg-sky-500/20 border-sky-400/60 text-sky-200'
+                      : 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="Gestione Layer CAD, Appunti e Promemoria"
+                >
+                  <Layers className="w-3.5 h-3.5 text-sky-400" />
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: layerMap.get(activeLayerId)?.color || '#38bdf8' }}
+                  />
+                  <span>Layer</span>
+                  <span className="text-[10px] font-mono text-slate-400">
+                    ({layers.filter((l) => l.visible).length}/{layers.length})
+                  </span>
                 </button>
 
                 <button
@@ -1257,7 +2614,44 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   <span>Snap</span>
                 </button>
 
-                <div className="flex items-center bg-slate-900 rounded-md border border-slate-700 p-0.5 text-[11px]">
+                {((measuredPolygonsByPage[currentPage]?.length || 0) > 0 ||
+                  (measuredLinesByPage[currentPage]?.length || 0) > 0) && (
+                  <div className="flex items-center bg-slate-900 rounded-md border border-slate-700 p-0.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setShowMeasuredMarks((v) => !v)}
+                      className={`px-2 py-0.5 rounded font-semibold transition-colors flex items-center gap-1 ${
+                        showMeasuredMarks ? 'bg-indigo-500/25 text-indigo-200' : 'text-slate-400 hover:text-white'
+                      }`}
+                      title="Mostra/nascondi superfici poligoni e linee righello segnate sulla tavola"
+                    >
+                      <span>
+                        Segni (
+                        {(measuredPolygonsByPage[currentPage]?.length || 0) +
+                          (measuredLinesByPage[currentPage]?.length || 0)}
+                        )
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMeasuredPolygonsByPage((prev) => ({ ...prev, [currentPage]: [] }));
+                        setMeasuredLinesByPage((prev) => ({ ...prev, [currentPage]: [] }));
+                      }}
+                      className="px-1.5 py-0.5 rounded text-rose-400 hover:bg-rose-950/60 hover:text-rose-200"
+                      title="Cancella tutti i segni di superfici e linee da questa pagina"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+
+                {/* UNITÀ TAVOLA + UNITÀ RIPORTATA SUL COMPUTO */}
+                <div
+                  className="flex items-center bg-slate-900 rounded-md border border-slate-700 p-0.5 text-[11px]"
+                  title="Unità delle quote scritte sulla tavola PDF"
+                >
+                  <span className="px-1.5 text-[10px] font-semibold text-slate-400">Tavola:</span>
                   {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
                     <button
                       key={u}
@@ -1265,6 +2659,25 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       onClick={() => setQuoteUnit(u)}
                       className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${
                         quoteUnit === u ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+
+                <div
+                  className="flex items-center bg-slate-900 rounded-md border border-emerald-500/40 p-0.5 text-[11px]"
+                  title="Unità riportata nelle caselle del computo (es. misuri 3,40 m e riporti 340 in cm)"
+                >
+                  <span className="px-1.5 text-[10px] font-semibold text-emerald-300">Riporta:</span>
+                  {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => handleChangeExportUnit(u)}
+                      className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${
+                        exportUnit === u ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
                       {u}
@@ -1305,11 +2718,196 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* BARRA CONTESTUALE ATTIVA (Casella Evidenziata / Calibrazione / Poligono / Feedback) */}
-          {pdfDoc && (calibrationDraft || polygonPts.length > 0 || pendingLengthPick || activeCell || lastFeedback) && (
+          {/* SUB-BAR CONTESTUALE PENNINO COLORATO / TESTO SU PIANTINA */}
+          {pdfDoc && (activeTool === 'pen' || activeTool === 'text_note') && (
+            <div className="bg-slate-900/95 border-b border-slate-700/80 px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
+              {activeTool === 'pen' ? (
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-[11px] font-bold text-rose-300 flex items-center gap-1">
+                    <PenTool className="w-3 h-3" />
+                    Colore pennino:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {ANNOTATION_COLORS.map((c) => (
+                      <button
+                        key={c.hex}
+                        type="button"
+                        onClick={() => {
+                          setPenColor(c.hex);
+                          setPenEraserMode(false);
+                        }}
+                        style={{ backgroundColor: c.hex }}
+                        className={`w-5 h-5 rounded-full border-2 transition-transform ${
+                          !penEraserMode && penColor === c.hex
+                            ? 'border-white scale-110 ring-2 ring-rose-400'
+                            : 'border-slate-600 hover:scale-105'
+                        }`}
+                        title={c.name}
+                      />
+                    ))}
+                  </div>
+                  <div className="h-4 w-px bg-slate-700" />
+                  <div className="flex items-center gap-1 bg-slate-800 rounded-md p-0.5 border border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPenIsHighlighter(false);
+                        setPenWidth(2.2);
+                        setPenEraserMode(false);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                        !penEraserMode && !penIsHighlighter && penWidth <= 2.5
+                          ? 'bg-slate-600 text-white'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Fine
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPenIsHighlighter(false);
+                        setPenWidth(4.5);
+                        setPenEraserMode(false);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                        !penEraserMode && !penIsHighlighter && penWidth > 2.5
+                          ? 'bg-slate-600 text-white'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      Medio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPenIsHighlighter(true);
+                        setPenEraserMode(false);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                        !penEraserMode && penIsHighlighter
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                      title="Tratto semi-trasparente stile evidenziatore"
+                    >
+                      Evidenz.
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPenEraserMode((v) => !v)}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border flex items-center gap-1 ${
+                      penEraserMode
+                        ? 'bg-rose-500/20 border-rose-400 text-rose-200'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                    title="Clicca o passa sopra un tratto per cancellarlo"
+                  >
+                    <Eraser className="w-3 h-3" />
+                    <span>Gomma</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-[11px] font-bold text-sky-300 flex items-center gap-1">
+                    <Type className="w-3 h-3" />
+                    Stile testo:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {ANNOTATION_COLORS.map((c) => (
+                      <button
+                        key={c.hex}
+                        type="button"
+                        onClick={() => setTextNoteColor(c.hex)}
+                        style={{ backgroundColor: c.hex }}
+                        className={`w-5 h-5 rounded-full border-2 transition-transform ${
+                          textNoteColor === c.hex
+                            ? 'border-white scale-110 ring-2 ring-sky-400'
+                            : 'border-slate-600 hover:scale-105'
+                        }`}
+                        title={c.name}
+                      />
+                    ))}
+                  </div>
+                  <div className="h-4 w-px bg-slate-700" />
+                  <div className="flex items-center gap-1 bg-slate-800 rounded-md p-0.5 border border-slate-700">
+                    {[
+                      { sz: 10, label: 'S' },
+                      { sz: 13, label: 'M' },
+                      { sz: 17, label: 'L' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => setTextNoteSize(opt.sz)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                          textNoteSize === opt.sz ? 'bg-sky-500 text-slate-950' : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    Clicca un punto sulla piantina per scrivere · Trascina per spostare
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5">
+                {activeTool === 'pen' && (penStrokesByPage[currentPage]?.length || 0) > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPenStrokesByPage((prev) => ({
+                          ...prev,
+                          [currentPage]: (prev[currentPage] || []).slice(0, -1),
+                        }))
+                      }
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] flex items-center gap-1"
+                    >
+                      <Undo2 className="w-3 h-3" />
+                      <span>Annulla tratto</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPenStrokesByPage((prev) => ({ ...prev, [currentPage]: [] }))}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950/60 border border-slate-700 text-rose-300 text-[11px]"
+                    >
+                      Pulisci schizzi ({penStrokesByPage[currentPage]?.length || 0})
+                    </button>
+                  </>
+                )}
+                {activeTool === 'text_note' && (textNotesByPage[currentPage]?.length || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTextNotesByPage((prev) => ({ ...prev, [currentPage]: [] }))}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950/60 border border-slate-700 text-rose-300 text-[11px]"
+                  >
+                    Cancella testi ({textNotesByPage[currentPage]?.length || 0})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* BARRA CONTESTUALE ATTIVA (OCR Progress / Casella Evidenziata / Calibrazione / Poligono / Feedback) */}
+          {pdfDoc && (isScanningOcr || calibrationDraft || polygonPts.length > 0 || pendingLengthPick || activeCell || lastFeedback) && (
             <div className="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-3 text-xs shrink-0">
-              <div className="flex items-center gap-2.5 min-w-0 text-slate-200 flex-wrap">
-                {calibrationDraft ? (
+              <div className="flex items-center gap-2.5 min-w-0 text-slate-200 flex-wrap flex-1">
+                {isScanningOcr && ocrProgress ? (
+                  <div className="flex items-center gap-2.5 w-full max-w-lg">
+                    <span className="text-amber-300 font-semibold whitespace-nowrap">{ocrProgress.label}</span>
+                    <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden min-w-[100px]">
+                      <div
+                        className="h-full bg-amber-400 transition-all duration-200"
+                        style={{ width: `${Math.min(100, Math.max(5, ocrProgress.progress))}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : calibrationDraft ? (
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold text-rose-300">Calibra misura reale (m):</span>
                     <input
@@ -1410,32 +3008,283 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           )}
 
           {/* VIEWPORT PDF */}
-          <div
-            ref={scrollContainerRef}
-            onWheel={handleWheelZoom}
-            onDragOver={(e) => {
-              if (e.dataTransfer.types.includes('Files')) {
+          <div className="flex-1 relative flex min-h-0 overflow-hidden">
+            {/* PANNELLO FLUTTUANTE LAYER & APPUNTI / PROMEMORIA */}
+            {pdfDoc && isLayerPanelOpen && (
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                className="absolute top-3 left-3 z-40 w-80 max-h-[calc(100%-24px)] bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl text-slate-100 flex flex-col overflow-hidden"
+              >
+                <div className="px-3 py-2 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <Layers className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Layer, Appunti &amp; Promemoria</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsLayerPanelOpen(false)}
+                    className="p-0.5 text-slate-400 hover:text-white rounded"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="p-2.5 space-y-2 overflow-y-auto text-xs">
+                  <div className="space-y-1">
+                    {layers.map((layer) => {
+                      const isActive = layer.id === activeLayerId;
+                      const polyCount = (measuredPolygonsByPage[currentPage] || []).filter(
+                        (p) => (p.layerId || DEFAULT_LAYER_IDS.MEASURES) === layer.id
+                      ).length;
+                      const lineCount = (measuredLinesByPage[currentPage] || []).filter(
+                        (l) => (l.layerId || DEFAULT_LAYER_IDS.MEASURES) === layer.id
+                      ).length;
+                      const noteCount = (textNotesByPage[currentPage] || []).filter(
+                        (n) => (n.layerId || DEFAULT_LAYER_IDS.NOTES) === layer.id
+                      ).length;
+                      const penCount = (penStrokesByPage[currentPage] || []).filter(
+                        (s) => (s.layerId || DEFAULT_LAYER_IDS.NOTES) === layer.id
+                      ).length;
+                      const itemCount = polyCount + lineCount + noteCount + penCount;
+
+                      return (
+                        <div
+                          key={layer.id}
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-colors ${
+                            isActive
+                              ? 'bg-sky-500/15 border-sky-400/60'
+                              : 'bg-slate-800/60 border-slate-700/70 hover:bg-slate-800'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setActiveLayerId(layer.id)}
+                            className="flex-1 min-w-0 flex items-center gap-2 text-left"
+                            title="Clicca per rendere questo layer attivo"
+                          >
+                            <span
+                              className={`w-3 h-3 rounded-full shrink-0 border ${
+                                isActive ? 'border-white ring-2 ring-sky-400' : 'border-slate-500'
+                              }`}
+                              style={{ backgroundColor: layer.color }}
+                            />
+                            <span className={`truncate font-semibold ${layer.visible ? 'text-white' : 'text-slate-500 line-through'}`}>
+                              {layer.name}
+                            </span>
+                            {itemCount > 0 && (
+                              <span className="ml-auto px-1.5 py-0.2 rounded bg-slate-950/70 text-[10px] font-mono text-slate-300">
+                                {itemCount}
+                              </span>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLayers((prev) =>
+                                prev.map((l) => (l.id === layer.id ? { ...l, visible: !l.visible } : l))
+                              )
+                            }
+                            className={`p-1 rounded ${
+                              layer.visible ? 'text-sky-300 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-700'
+                            }`}
+                            title={layer.visible ? 'Nascondi layer' : 'Mostra layer'}
+                          >
+                            {layer.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setLayers((prev) =>
+                                prev.map((l) => (l.id === layer.id ? { ...l, locked: !l.locked } : l))
+                              )
+                            }
+                            className={`p-1 rounded ${
+                              layer.locked ? 'text-amber-400 hover:bg-slate-700' : 'text-slate-400 hover:bg-slate-700'
+                            }`}
+                            title={layer.locked ? 'Sblocca layer' : 'Blocca layer da modifiche'}
+                          >
+                            {layer.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                          </button>
+
+                          {layers.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const nextLayers = layers.filter((l) => l.id !== layer.id);
+                                setLayers(nextLayers);
+                                if (activeLayerId === layer.id && nextLayers[0]) {
+                                  setActiveLayerId(nextLayers[0].id);
+                                }
+                              }}
+                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-700"
+                              title="Elimina layer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* CREA NUOVO LAYER */}
+                  <div className="pt-1.5 border-t border-slate-800 flex items-center gap-1.5">
+                    <input
+                      type="color"
+                      value={newLayerColor}
+                      onChange={(e) => setNewLayerColor(e.target.value)}
+                      className="w-6 h-6 rounded bg-transparent border border-slate-700 cursor-pointer shrink-0"
+                      title="Colore del nuovo layer"
+                    />
+                    <input
+                      type="text"
+                      value={newLayerName}
+                      onChange={(e) => setNewLayerName(e.target.value)}
+                      placeholder="Nuovo layer (es. Impianti)..."
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newLayerName.trim()) {
+                          const created: PlanLayer = {
+                            id: `layer_${uid()}`,
+                            name: newLayerName.trim(),
+                            color: newLayerColor,
+                            visible: true,
+                            locked: false,
+                          };
+                          setLayers((prev) => [...prev, created]);
+                          setActiveLayerId(created.id);
+                          setNewLayerName('');
+                        }
+                      }}
+                      className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={!newLayerName.trim()}
+                      onClick={() => {
+                        if (!newLayerName.trim()) return;
+                        const created: PlanLayer = {
+                          id: `layer_${uid()}`,
+                          name: newLayerName.trim(),
+                          color: newLayerColor,
+                          visible: true,
+                          locked: false,
+                        };
+                        setLayers((prev) => [...prev, created]);
+                        setActiveLayerId(created.id);
+                        setNewLayerName('');
+                      }}
+                      className="px-2 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold text-[11px]"
+                    >
+                      + Layer
+                    </button>
+                  </div>
+
+                  {/* ELENCO RAPIDO APPUNTI & PROMEMORIA PAGINA CORRENTE */}
+                  <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Appunti &amp; Promemoria (Pag. {currentPage})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('text_note');
+                          if (layers.some((l) => l.id === DEFAULT_LAYER_IDS.NOTES)) {
+                            setActiveLayerId(DEFAULT_LAYER_IDS.NOTES);
+                          }
+                          setLastFeedback('Clicca sulla tavola per inserire un nuovo Appunto / Promemoria');
+                        }}
+                        className="text-[10px] font-bold text-sky-400 hover:text-sky-300"
+                      >
+                        + Scrivi sulla tavola
+                      </button>
+                    </div>
+
+                    {(textNotesByPage[currentPage] || []).length === 0 ? (
+                      <p className="text-[11px] text-slate-500 italic py-1">
+                        Nessun appunto o promemoria su questa pagina. Usa lo strumento Testo.
+                      </p>
+                    ) : (
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {(textNotesByPage[currentPage] || []).map((note) => {
+                          const lyr = layerMap.get(note.layerId || DEFAULT_LAYER_IDS.NOTES);
+                          return (
+                            <div
+                              key={note.id}
+                              onClick={() =>
+                                setEditingTextNote({
+                                  id: note.id,
+                                  x: note.x,
+                                  y: note.y,
+                                  text: note.text,
+                                  color: note.color,
+                                  fontSize: note.fontSize,
+                                  vertical: !!note.vertical,
+                                  bgOpaque: note.bgOpaque !== false,
+                                  isReminder: !!note.isReminder,
+                                  layerId: note.layerId || DEFAULT_LAYER_IDS.NOTES,
+                                })
+                              }
+                              className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 cursor-pointer"
+                            >
+                              {note.isReminder ? (
+                                <Bookmark className="w-3 h-3 text-amber-400 shrink-0" />
+                              ) : (
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: note.color }}
+                                />
+                              )}
+                              <span className="truncate flex-1 text-[11px] text-slate-200">{note.text}</span>
+                              {lyr && (
+                                <span className="text-[9px] px-1 rounded bg-slate-950/70 text-slate-400 truncate max-w-[70px]">
+                                  {lyr.name}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div
+              ref={scrollContainerRef}
+              onWheel={handleWheelZoom}
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes('Files')) {
+                  e.preventDefault();
+                  setIsDragOverDropzone(true);
+                }
+              }}
+              onDragLeave={() => setIsDragOverDropzone(false)}
+              onDrop={(e) => {
                 e.preventDefault();
-                setIsDragOverDropzone(true);
-              }
-            }}
-            onDragLeave={() => setIsDragOverDropzone(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragOverDropzone(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file) void handleLoadPdfFile(file);
-            }}
-            className={`flex-1 overflow-auto relative flex items-start justify-center p-4 select-none ${
-              isPanning || isSpacePressed || activeTool === 'pan'
-                ? isPanning
-                  ? 'cursor-grabbing'
-                  : 'cursor-grab'
-                : activeTool === 'highlight' || activeTool === 'ruler' || activeTool === 'polygon' || activeTool === 'calibrate'
-                ? 'cursor-crosshair'
-                : 'cursor-default'
-            }`}
-          >
+                setIsDragOverDropzone(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) void handleLoadPdfFile(file);
+              }}
+              className={`flex-1 overflow-auto relative flex items-start justify-center p-4 select-none ${
+                isPanning || isSpacePressed || activeTool === 'pan'
+                  ? isPanning
+                    ? 'cursor-grabbing'
+                    : 'cursor-grab'
+                  : activeTool === 'highlight' ||
+                    activeTool === 'ruler' ||
+                    activeTool === 'polygon' ||
+                    activeTool === 'calibrate' ||
+                    activeTool === 'pen'
+                  ? 'cursor-crosshair'
+                  : activeTool === 'text_note'
+                  ? 'cursor-text'
+                  : 'cursor-default'
+              }`}
+            >
             {isLoadingPdf ? (
               <div className="m-auto flex flex-col items-center gap-3 text-slate-200">
                 <div className="w-12 h-12 border-4 border-slate-700 border-t-amber-400 rounded-full animate-spin" />
@@ -1469,9 +3318,28 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
-                onDoubleClick={() => {
+                onMouseLeave={() => {
+                  if (activePenStroke) handleCanvasMouseUp();
+                }}
+                onDoubleClick={(e) => {
                   if (activeTool === 'polygon' && polygonPts.length >= 3) {
                     finalizePolygon(polygonPts);
+                    return;
+                  }
+                  if (currentAnalysis && showEditableOverlay) {
+                    const { pt } = getPdfCoords(e.clientX, e.clientY, false);
+                    const hit = currentAnalysis.tokens.find(
+                      (t) =>
+                        (t.source === 'ocr' || t.source === 'manual') &&
+                        pt.x >= t.bbox.x1 - 4 &&
+                        pt.x <= t.bbox.x2 + 4 &&
+                        pt.y >= t.bbox.y1 - 4 &&
+                        pt.y <= t.bbox.y2 + 4
+                    );
+                    if (hit) {
+                      setEditingTokenId(hit.id);
+                      setEditingTokenText(hit.str);
+                    }
                   }
                 }}
                 style={{
@@ -1488,6 +3356,12 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   </div>
                 )}
 
+                {renderError && (
+                  <div className="absolute inset-x-4 top-4 bg-rose-950/95 border border-rose-500/60 text-rose-100 text-xs px-3 py-2 rounded-lg shadow-lg pointer-events-none">
+                    {renderError}
+                  </div>
+                )}
+
                 {currentAnalysis && (
                   <svg
                     viewBox={`0 0 ${currentAnalysis.width} ${currentAnalysis.height}`}
@@ -1497,53 +3371,71 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       currentAnalysis.tokens.map((tok) => {
                         if (tok.kind === 'other' || tok.kind === 'scale') return null;
                         const isFlashed = flashTokenIds.has(tok.id);
-                        const fill = isFlashed
-                          ? 'rgba(245, 158, 11, 0.55)'
-                          : tok.kind === 'surface'
-                          ? 'rgba(16, 185, 129, 0.16)'
-                          : tok.kind === 'perimeter'
-                          ? 'rgba(245, 158, 11, 0.16)'
-                          : tok.kind === 'dimension'
-                          ? 'rgba(6, 182, 212, 0.14)'
-                          : tok.kind === 'room'
-                          ? 'rgba(99, 102, 241, 0.13)'
-                          : 'rgba(148, 163, 184, 0.15)';
-                        const stroke = isFlashed
+                        const accentColor = isFlashed
                           ? '#f59e0b'
                           : tok.kind === 'surface'
-                          ? 'rgba(16, 185, 129, 0.65)'
+                          ? '#059669'
                           : tok.kind === 'perimeter'
-                          ? 'rgba(245, 158, 11, 0.65)'
+                          ? '#d97706'
                           : tok.kind === 'dimension'
-                          ? 'rgba(6, 182, 212, 0.55)'
+                          ? '#0284c7'
                           : tok.kind === 'room'
-                          ? 'rgba(99, 102, 241, 0.55)'
-                          : 'rgba(148, 163, 184, 0.5)';
+                          ? '#4f46e5'
+                          : '#64748b';
+                        const isVert = tok.orientation === 'vertical';
 
                         return (
-                          <rect
-                            key={tok.id}
-                            x={tok.bbox.x1}
-                            y={tok.bbox.y1}
-                            width={tok.bbox.x2 - tok.bbox.x1}
-                            height={tok.bbox.y2 - tok.bbox.y1}
-                            rx={1.5}
-                            fill={fill}
-                            stroke={stroke}
-                            strokeWidth={isFlashed ? 1.5 : 0.7}
-                            className={activeTool === 'pick' ? 'pointer-events-auto cursor-pointer hover:opacity-90' : ''}
-                            onClick={(ev) => {
-                              if (activeTool === 'pick') {
-                                ev.stopPropagation();
-                                handlePickToken(tok);
+                          <g key={tok.id}>
+                            {/* Area click/hover completamente trasparente — zero rettangolo ingombrante */}
+                            <rect
+                              x={tok.bbox.x1}
+                              y={tok.bbox.y1}
+                              width={Math.max(6, tok.bbox.x2 - tok.bbox.x1)}
+                              height={Math.max(6, tok.bbox.y2 - tok.bbox.y1)}
+                              fill={isFlashed ? 'rgba(245, 158, 11, 0.25)' : 'transparent'}
+                              stroke="none"
+                              className={
+                                activeTool === 'pick' || activeTool === 'highlight'
+                                  ? 'pointer-events-auto cursor-pointer hover:fill-cyan-500/15'
+                                  : ''
                               }
-                            }}
-                          >
-                            <title>
-                              {tok.str}
-                              {tok.numericValue !== undefined ? ` (${tok.numericValue})` : ''}
-                            </title>
-                          </rect>
+                              onClick={(ev) => {
+                                if (activeTool === 'pick') {
+                                  ev.stopPropagation();
+                                  handlePickToken(tok);
+                                }
+                              }}
+                            >
+                              <title>
+                                {tok.str}
+                                {tok.numericValue !== undefined ? ` (${tok.numericValue}) · Clicca per caricare` : ''}
+                              </title>
+                            </rect>
+                            {/* Sottile sottolineatura colorata solo per token vettoriali (quelli OCR usano caratteri colorati diretti) */}
+                            {tok.source !== 'ocr' && tok.source !== 'manual' && (
+                              isVert ? (
+                                <line
+                                  x1={tok.bbox.x2 + 0.8}
+                                  y1={tok.bbox.y1}
+                                  x2={tok.bbox.x2 + 0.8}
+                                  y2={tok.bbox.y2}
+                                  stroke={accentColor}
+                                  strokeWidth={isFlashed ? 1.8 / zoom : 0.9 / zoom}
+                                  strokeOpacity={isFlashed ? 1 : 0.72}
+                                />
+                              ) : (
+                                <line
+                                  x1={tok.bbox.x1}
+                                  y1={tok.bbox.y2 + 0.8}
+                                  x2={tok.bbox.x2}
+                                  y2={tok.bbox.y2 + 0.8}
+                                  stroke={accentColor}
+                                  strokeWidth={isFlashed ? 1.8 / zoom : 0.9 / zoom}
+                                  strokeOpacity={isFlashed ? 1 : 0.72}
+                                />
+                              )
+                            )}
+                          </g>
                         );
                       })}
 
@@ -1578,6 +3470,92 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       />
                     )}
 
+                    {/* SUPERFICI POLIGONI PERSISTENTI & LINEE RIGHELLO SALVATE (CLICCABILI PER RIUTILIZZARE LA MISURA) */}
+                    {showMeasuredMarks &&
+                      (measuredPolygonsByPage[currentPage] || [])
+                        .filter((poly) => isLayerVisible(poly.layerId))
+                        .map((poly) => {
+                          const isFlashed = flashMarkIds.has(poly.id);
+                          const canClickShape = activeTool === 'pick' || activeTool === 'highlight';
+                          return (
+                            <g key={poly.id}>
+                              <polygon
+                                points={poly.points.map((p) => `${p.x},${p.y}`).join(' ')}
+                                fill={poly.color}
+                                fillOpacity={isFlashed ? 0.42 : 0.18}
+                                stroke={isFlashed ? '#f59e0b' : poly.color}
+                                strokeWidth={(isFlashed ? 2.8 : 1.7) / zoom}
+                                className={canClickShape ? 'pointer-events-auto cursor-pointer hover:fill-opacity-30' : ''}
+                                onMouseDown={(e) => {
+                                  if (activeTool === 'pick') e.stopPropagation();
+                                }}
+                                onClick={(e) => {
+                                  if (canClickShape) {
+                                    e.stopPropagation();
+                                    handleReusePolygon(poly, 'area');
+                                  }
+                                }}
+                              >
+                                <title>{`${poly.label}: ${poly.areaM2.toFixed(2)} m² (clicca per inserire nel computo)`}</title>
+                              </polygon>
+                              {poly.points.map((p, idx) => (
+                                <circle
+                                  key={idx}
+                                  cx={p.x}
+                                  cy={p.y}
+                                  r={2.5 / zoom}
+                                  fill={poly.color}
+                                  stroke="#ffffff"
+                                  strokeWidth={0.8 / zoom}
+                                />
+                              ))}
+                            </g>
+                          );
+                        })}
+
+                    {showMeasuredMarks &&
+                      (measuredLinesByPage[currentPage] || [])
+                        .filter((ln) => isLayerVisible(ln.layerId))
+                        .map((ln) => {
+                          const isFlashed = flashMarkIds.has(ln.id);
+                          const canClickLine = activeTool === 'pick' || activeTool === 'highlight';
+                          return (
+                            <g key={ln.id}>
+                              <line
+                                x1={ln.p1.x}
+                                y1={ln.p1.y}
+                                x2={ln.p2.x}
+                                y2={ln.p2.y}
+                                stroke={isFlashed ? '#f59e0b' : '#10b981'}
+                                strokeWidth={(isFlashed ? 2.8 : 1.6) / zoom}
+                                strokeDasharray={`${4 / zoom} ${2 / zoom}`}
+                              />
+                              <line
+                                x1={ln.p1.x}
+                                y1={ln.p1.y}
+                                x2={ln.p2.x}
+                                y2={ln.p2.y}
+                                stroke="transparent"
+                                strokeWidth={10 / zoom}
+                                className={canClickLine ? 'pointer-events-auto cursor-pointer' : ''}
+                                onMouseDown={(e) => {
+                                  if (activeTool === 'pick') e.stopPropagation();
+                                }}
+                                onClick={(e) => {
+                                  if (canClickLine) {
+                                    e.stopPropagation();
+                                    handleReuseLine(ln);
+                                  }
+                                }}
+                              >
+                                <title>{`Misura ${ln.meters.toFixed(2)} m — Clicca per inserire nel computo`}</title>
+                              </line>
+                              <circle cx={ln.p1.x} cy={ln.p1.y} r={2.6 / zoom} fill={isFlashed ? '#f59e0b' : '#10b981'} />
+                              <circle cx={ln.p2.x} cy={ln.p2.y} r={2.6 / zoom} fill={isFlashed ? '#f59e0b' : '#10b981'} />
+                            </g>
+                          );
+                        })}
+
                     {rulerStart && cursorPt && (
                       <g>
                         <line
@@ -1590,18 +3568,28 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                         />
                         <circle cx={rulerStart.x} cy={rulerStart.y} r={3.5 / zoom} fill="#10b981" />
                         <circle cx={cursorPt.x} cy={cursorPt.y} r={3.5 / zoom} fill="#10b981" />
-                        <g transform={`translate(${(rulerStart.x + cursorPt.x) / 2}, ${(rulerStart.y + cursorPt.y) / 2 - 8 / zoom})`}>
-                          <rect x={-26 / zoom} y={-10 / zoom} width={52 / zoom} height={14 / zoom} rx={3 / zoom} fill="#0f172a" opacity={0.9} />
+                        <g transform={`translate(${(rulerStart.x + cursorPt.x) / 2}, ${(rulerStart.y + cursorPt.y) / 2 - 10 / zoom})`}>
+                          <rect
+                            x={(exportUnit !== 'm' ? -52 : -28) / zoom}
+                            y={-10 / zoom}
+                            width={(exportUnit !== 'm' ? 104 : 56) / zoom}
+                            height={15 / zoom}
+                            rx={3 / zoom}
+                            fill="#0f172a"
+                            opacity={0.92}
+                          />
                           <text
                             textAnchor="middle"
                             dominantBaseline="central"
-                            y={-3 / zoom}
+                            y={-2.5 / zoom}
                             fill="#ffffff"
-                            fontSize={9 / zoom}
+                            fontSize={8.5 / zoom}
                             fontFamily="monospace"
                             fontWeight="bold"
                           >
-                            {liveRulerMeters.toFixed(2)} m
+                            {exportUnit !== 'm'
+                              ? `${liveRulerMeters.toFixed(2)}m → ${formatMeasureVal(metersToUnit(liveRulerMeters, exportUnit), exportUnit)}${exportUnit}`
+                              : `${liveRulerMeters.toFixed(2)} m`}
                           </text>
                         </g>
                       </g>
@@ -1611,9 +3599,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       <g>
                         <polygon
                           points={[...polygonPts, ...(cursorPt ? [cursorPt] : [])].map((p) => `${p.x},${p.y}`).join(' ')}
-                          fill="rgba(79, 70, 229, 0.18)"
+                          fill="rgba(79, 70, 229, 0.22)"
                           stroke="#4f46e5"
-                          strokeWidth={1.6 / zoom}
+                          strokeWidth={1.8 / zoom}
                         />
                         {polygonPts.map((p, idx) => (
                           <circle
@@ -1643,10 +3631,604 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                         <circle cx={snappedVertex.x} cy={snappedVertex.y} r={2 / zoom} fill="#06b6d4" />
                       </g>
                     )}
+
+                    {/* SCHIZZI CON PENNINO COLORATO (FILTRATI PER LAYER VISIBILE) */}
+                    {[
+                      ...(penStrokesByPage[currentPage] || []).filter((st) => isLayerVisible(st.layerId)),
+                      ...(activePenStroke ? [activePenStroke] : []),
+                    ].map((st) => {
+                      const d = st.points
+                        .map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+                        .join(' ');
+                      return (
+                        <path
+                          key={st.id}
+                          d={d}
+                          fill="none"
+                          stroke={st.color}
+                          strokeWidth={st.width}
+                          strokeOpacity={st.isHighlighter ? 0.42 : 0.92}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      );
+                    })}
                   </svg>
+                )}
+
+                {/* ETICHETTE CLICCABILI PER RIUTILIZZARE SUPERFICI POLIGONI & LINEE RIGHELLO + CANCELLAZIONE */}
+                {currentAnalysis && showMeasuredMarks && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {(measuredPolygonsByPage[currentPage] || [])
+                      .filter((poly) => isLayerVisible(poly.layerId))
+                      .map((poly) => {
+                        const isFlashed = flashMarkIds.has(poly.id);
+                        const locked = isLayerLocked(poly.layerId);
+                        return (
+                          <div
+                            key={poly.id}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{
+                              left: `${poly.centroid.x * zoom}px`,
+                              top: `${poly.centroid.y * zoom}px`,
+                              transform: 'translate(-50%, -50%)',
+                              borderColor: isFlashed ? '#f59e0b' : poly.color,
+                            }}
+                            className={`absolute z-[15] pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white/92 border shadow-sm text-[11px] font-bold text-slate-900 whitespace-nowrap transition-transform ${
+                              isFlashed ? 'ring-2 ring-amber-400 scale-105' : 'hover:scale-[1.03]'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReusePolygon(poly, 'area');
+                              }}
+                              className="inline-flex items-center gap-1 cursor-pointer hover:text-indigo-700"
+                              title={`Clicca per inserire ${poly.areaM2.toFixed(2)} m² nel computo`}
+                            >
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: poly.color }} />
+                              <span>{poly.label}</span>
+                              <span className="font-mono text-indigo-800">{poly.areaM2.toFixed(2)} m²</span>
+                            </button>
+
+                            {(extractionMode === 'walls_perim_h' || extractionMode === 'linear') && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleReusePolygon(poly, 'perimeter');
+                                }}
+                                className="px-1 rounded bg-amber-100 hover:bg-amber-200 text-[10px] font-mono text-amber-900"
+                                title={`Clicca per inserire il perimetro (${poly.perimM.toFixed(2)} m)`}
+                              >
+                                P:{poly.perimM.toFixed(2)}m
+                              </button>
+                            )}
+
+                            {!locked && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMeasuredPolygonsByPage((prev) => ({
+                                    ...prev,
+                                    [currentPage]: (prev[currentPage] || []).filter((p) => p.id !== poly.id),
+                                  }));
+                                }}
+                                className="p-0.5 rounded hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition-colors"
+                                title="Cancella questa superficie segnata"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                    {(measuredLinesByPage[currentPage] || [])
+                      .filter((ln) => isLayerVisible(ln.layerId))
+                      .map((ln) => {
+                        const mx = ((ln.p1.x + ln.p2.x) / 2) * zoom;
+                        const my = ((ln.p1.y + ln.p2.y) / 2) * zoom;
+                        const conv = metersToUnit(ln.meters, exportUnit);
+                        const isFlashed = flashMarkIds.has(ln.id);
+                        const locked = isLayerLocked(ln.layerId);
+                        return (
+                          <div
+                            key={ln.id}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{ left: `${mx}px`, top: `${my}px`, transform: 'translate(-50%, -50%)' }}
+                            className={`absolute z-[15] pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/90 border text-white shadow text-[10px] font-mono font-bold whitespace-nowrap transition-transform ${
+                              isFlashed
+                                ? 'border-amber-400 ring-2 ring-amber-400 scale-105'
+                                : 'border-emerald-400/70 hover:border-amber-300 hover:scale-105'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReuseLine(ln);
+                              }}
+                              className="cursor-pointer hover:text-amber-300"
+                              title="Clicca per inserire questa misura nel computo"
+                            >
+                              {exportUnit !== 'm'
+                                ? `${ln.meters.toFixed(2)}m → ${formatMeasureVal(conv, exportUnit)}${exportUnit}`
+                                : `${ln.meters.toFixed(2)} m`}
+                            </button>
+                            {!locked && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMeasuredLinesByPage((prev) => ({
+                                    ...prev,
+                                    [currentPage]: (prev[currentPage] || []).filter((x) => x.id !== ln.id),
+                                  }));
+                                }}
+                                className="p-0.5 rounded hover:bg-rose-500/30 text-emerald-300 hover:text-rose-200"
+                                title="Cancella questa linea"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {/* STRATO SOSTITUZIONE DIGITALE EDITABILE PER NUMERI E TESTI SCANSIONATI */}
+                {currentAnalysis && showEditableOverlay && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {currentAnalysis.tokens
+                      .filter((tok) => tok.source === 'ocr' || tok.source === 'manual')
+                      .map((tok) => {
+                        const isVert = tok.orientation === 'vertical';
+                        const isEditing = editingTokenId === tok.id;
+                        const boxW = Math.max(12, (tok.bbox.x2 - tok.bbox.x1) * zoom);
+                        const boxH = Math.max(10, (tok.bbox.y2 - tok.bbox.y1) * zoom);
+                        const unrotW = isVert ? boxH : boxW;
+                        const unrotH = isVert ? boxW : boxH;
+                        const fontSizePx = Math.max(8, Math.min(15, Math.round(unrotH * 0.72)));
+                        const isFlashed = flashTokenIds.has(tok.id);
+                        const canClickBadge = activeTool === 'edit_ocr' || activeTool === 'pick';
+
+                        if (isEditing) {
+                          return (
+                            <div
+                              key={tok.id}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              style={{
+                                left: `${tok.cx * zoom}px`,
+                                top: `${tok.cy * zoom}px`,
+                                transform: 'translate(-50%, -50%)',
+                              }}
+                              className="absolute z-30 pointer-events-auto flex items-center gap-1 bg-white border-2 border-violet-600 rounded-md shadow-xl p-1"
+                            >
+                              <input
+                                type="text"
+                                value={editingTokenText}
+                                autoFocus
+                                onChange={(e) => setEditingTokenText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSaveTokenEdit(tok.id, editingTokenText);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingTokenId(null);
+                                  }
+                                }}
+                                className="w-28 px-1.5 py-0.5 text-xs font-mono font-bold text-slate-950 bg-violet-50 rounded border border-violet-200 focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleSaveTokenEdit(tok.id, editingTokenText)}
+                                className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white"
+                                title="Salva (Invio)"
+                              >
+                                <Check className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteToken(tok.id)}
+                                className="p-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-700"
+                                title="Elimina elemento"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        const coloredTextClass = isFlashed
+                          ? 'bg-amber-200/95 text-slate-950 border-b-2 border-amber-600'
+                          : tok.kind === 'surface'
+                          ? 'bg-white/75 text-emerald-700 font-mono font-bold border-b border-dotted border-emerald-500/80'
+                          : tok.kind === 'dimension'
+                          ? 'bg-white/75 text-sky-700 font-mono font-bold border-b border-dotted border-sky-500/80'
+                          : tok.kind === 'perimeter' || tok.kind === 'height'
+                          ? 'bg-white/75 text-amber-700 font-mono font-bold border-b border-dotted border-amber-500/80'
+                          : tok.kind === 'room'
+                          ? 'bg-white/75 text-indigo-700 font-sans font-bold border-b border-dotted border-indigo-400/70'
+                          : 'bg-white/75 text-violet-700 font-semibold border-b border-dotted border-violet-400/60';
+
+                        return (
+                          <div
+                            key={tok.id}
+                            onMouseDown={(e) => {
+                              if (canClickBadge) e.stopPropagation();
+                            }}
+                            onClick={(e) => {
+                              if (activeTool === 'edit_ocr') {
+                                e.stopPropagation();
+                                setEditingTokenId(tok.id);
+                                setEditingTokenText(tok.str);
+                              } else if (activeTool === 'pick') {
+                                e.stopPropagation();
+                                handlePickToken(tok);
+                              }
+                            }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTokenId(tok.id);
+                              setEditingTokenText(tok.str);
+                            }}
+                            style={{
+                              left: `${tok.cx * zoom}px`,
+                              top: `${tok.cy * zoom}px`,
+                              minWidth: `${unrotW}px`,
+                              height: `${Math.max(11, unrotH)}px`,
+                              fontSize: `${fontSizePx}px`,
+                              lineHeight: 1.0,
+                              transform: isVert
+                                ? `translate(-50%, -50%) rotate(${tok.angleDeg || -90}deg)`
+                                : 'translate(-50%, -50%)',
+                            }}
+                            className={`absolute z-10 inline-flex items-center justify-center px-[1px] rounded-[2px] whitespace-nowrap select-none transition-transform ${coloredTextClass} ${
+                              activeTool === 'edit_ocr'
+                                ? 'pointer-events-auto cursor-text hover:scale-105 hover:bg-violet-50/90'
+                                : activeTool === 'pick'
+                                ? 'pointer-events-auto cursor-pointer hover:scale-105 hover:bg-cyan-50/90'
+                                : 'pointer-events-none'
+                            }`}
+                            title={
+                              activeTool === 'edit_ocr'
+                                ? `Clicca per modificare "${tok.str}"`
+                                : `${tok.str}${tok.numericValue !== undefined ? ` (${tok.numericValue})` : ''} · Carattere colorato = editabile (doppio clic) e caricabile (clic)`
+                            }
+                          >
+                            {tok.str}
+                          </div>
+                        );
+                        })}
+
+                    {/* Nuovo campo manuale OCR in posizionamento */}
+                    {newTokenDraft && (
+                      <div
+                        onMouseDown={(e) => e.stopPropagation()}
+                        style={{
+                          left: `${newTokenDraft.x * zoom}px`,
+                          top: `${newTokenDraft.y * zoom}px`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="absolute z-30 pointer-events-auto flex items-center gap-1 bg-white border-2 border-violet-600 rounded-md shadow-xl p-1"
+                      >
+                        <input
+                          type="text"
+                          placeholder="Es. 3,55 o Bagno"
+                          value={newTokenDraft.text}
+                          autoFocus
+                          onChange={(e) => setNewTokenDraft({ ...newTokenDraft, text: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleCreateManualToken(newTokenDraft.x, newTokenDraft.y, newTokenDraft.text, newTokenDraft.vertical);
+                            } else if (e.key === 'Escape') {
+                              setNewTokenDraft(null);
+                            }
+                          }}
+                          className="w-28 px-1.5 py-0.5 text-xs font-mono font-bold text-slate-950 bg-violet-50 rounded border border-violet-200 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setNewTokenDraft({ ...newTokenDraft, vertical: !newTokenDraft.vertical })}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                            newTokenDraft.vertical ? 'bg-violet-600 text-white border-violet-600' : 'bg-slate-100 text-slate-700 border-slate-300'
+                          }`}
+                          title="Orientamento verticale (-90°) / orizzontale"
+                        >
+                          {newTokenDraft.vertical ? '↕' : '↔'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCreateManualToken(newTokenDraft.x, newTokenDraft.y, newTokenDraft.text, newTokenDraft.vertical)
+                          }
+                          className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white"
+                          title="Aggiungi"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewTokenDraft(null)}
+                          className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
+                          title="Annulla"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* STRATO ANNOTAZIONI TESTUALI & PROMEMORIA SULLA PIANTINA (FILTRATO PER LAYER) */}
+                {currentAnalysis && (
+                  <div className="absolute inset-0 pointer-events-none">
+                    {(textNotesByPage[currentPage] || [])
+                      .filter((note) => isLayerVisible(note.layerId))
+                      .map((note) => {
+                        const isEditingThis = editingTextNote?.id === note.id;
+                        if (isEditingThis) return null;
+                        const locked = isLayerLocked(note.layerId);
+                        return (
+                          <div
+                            key={note.id}
+                            onMouseDown={(e) => {
+                              if (activeTool === 'text_note' && e.button === 0 && !locked) {
+                                e.stopPropagation();
+                                const { pt } = getPdfCoords(e.clientX, e.clientY, false);
+                                draggingNoteRef.current = {
+                                  id: note.id,
+                                  offsetX: pt.x - note.x,
+                                  offsetY: pt.y - note.y,
+                                };
+                              }
+                            }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              if (locked) {
+                                setLastFeedback('Layer bloccato: sbloccalo dal pannello Layer per modificare la nota');
+                                return;
+                              }
+                              setEditingTextNote({
+                                id: note.id,
+                                x: note.x,
+                                y: note.y,
+                                text: note.text,
+                                color: note.color,
+                                fontSize: note.fontSize,
+                                vertical: !!note.vertical,
+                                bgOpaque: note.bgOpaque !== false,
+                                isReminder: !!note.isReminder,
+                                layerId: note.layerId || DEFAULT_LAYER_IDS.NOTES,
+                              });
+                            }}
+                            style={{
+                              left: `${note.x * zoom}px`,
+                              top: `${note.y * zoom}px`,
+                              color: note.color,
+                              borderColor: note.bgOpaque !== false ? note.color : 'transparent',
+                              fontSize: `${Math.max(9, Math.round(note.fontSize * zoom))}px`,
+                              lineHeight: 1.15,
+                              transform: note.vertical
+                                ? 'translate(-50%, -50%) rotate(-90deg)'
+                                : 'translate(-50%, -50%)',
+                            }}
+                            className={`absolute z-20 inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-bold whitespace-pre-wrap max-w-[260px] select-none ${
+                              note.bgOpaque !== false
+                                ? 'bg-white/92 border shadow-sm'
+                                : 'bg-transparent border-0 drop-shadow-[0_1px_1px_rgba(255,255,255,0.95)]'
+                            } ${
+                              activeTool === 'text_note' && !locked
+                                ? 'pointer-events-auto cursor-move hover:ring-2 hover:ring-sky-400'
+                                : 'pointer-events-none'
+                            }`}
+                            title="Doppio clic per modificare o eliminare l'appunto"
+                          >
+                            {note.isReminder && <Bookmark className="w-3 h-3 shrink-0 text-amber-500" />}
+                            <span>{note.text}</span>
+                          </div>
+                        );
+                      })}
+
+                    {editingTextNote && (
+                      <div
+                        onMouseDown={(e) => e.stopPropagation()}
+                        style={{
+                          left: `${editingTextNote.x * zoom}px`,
+                          top: `${editingTextNote.y * zoom}px`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                        className="absolute z-40 pointer-events-auto bg-white border-2 border-sky-600 rounded-lg shadow-2xl p-2 flex flex-col gap-1.5 min-w-[260px]"
+                      >
+                        <input
+                          type="text"
+                          placeholder="Scrivi appunto, promemoria o nota..."
+                          value={editingTextNote.text}
+                          autoFocus
+                          onChange={(e) => setEditingTextNote({ ...editingTextNote, text: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const trimmed = editingTextNote.text.trim();
+                              if (trimmed) {
+                                const saved: PlanTextNote = {
+                                  id: editingTextNote.id || `txt_${uid()}`,
+                                  x: editingTextNote.x,
+                                  y: editingTextNote.y,
+                                  text: trimmed,
+                                  color: editingTextNote.color,
+                                  fontSize: editingTextNote.fontSize,
+                                  vertical: editingTextNote.vertical,
+                                  bgOpaque: editingTextNote.bgOpaque,
+                                  isReminder: editingTextNote.isReminder,
+                                  layerId: editingTextNote.layerId,
+                                };
+                                setTextNotesByPage((prev) => {
+                                  const list = prev[currentPage] || [];
+                                  const exists = list.some((n) => n.id === saved.id);
+                                  return {
+                                    ...prev,
+                                    [currentPage]: exists
+                                      ? list.map((n) => (n.id === saved.id ? saved : n))
+                                      : [...list, saved],
+                                  };
+                                });
+                              }
+                              setEditingTextNote(null);
+                            } else if (e.key === 'Escape') {
+                              setEditingTextNote(null);
+                            }
+                          }}
+                          style={{ color: editingTextNote.color }}
+                          className="w-full px-2 py-1 text-xs font-bold bg-slate-50 rounded border border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                        />
+                        <div className="flex items-center justify-between gap-1.5 text-[10px]">
+                          <select
+                            value={editingTextNote.layerId}
+                            onChange={(e) => setEditingTextNote({ ...editingTextNote, layerId: e.target.value })}
+                            className="bg-slate-100 border border-slate-300 rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 max-w-[145px]"
+                            title="Assegna layer all'appunto"
+                          >
+                            {layers.map((l) => (
+                              <option key={l.id} value={l.id}>
+                                Layer: {l.name}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingTextNote({ ...editingTextNote, isReminder: !editingTextNote.isReminder })
+                            }
+                            className={`px-1.5 py-0.5 rounded font-bold border inline-flex items-center gap-1 ${
+                              editingTextNote.isReminder
+                                ? 'bg-amber-100 border-amber-400 text-amber-800'
+                                : 'bg-slate-100 border-slate-300 text-slate-600'
+                            }`}
+                            title="Segna come Promemoria"
+                          >
+                            <Bookmark className="w-2.5 h-2.5" />
+                            <span>Promemoria</span>
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1">
+                            {ANNOTATION_COLORS.map((c) => (
+                              <button
+                                key={c.hex}
+                                type="button"
+                                onClick={() => setEditingTextNote({ ...editingTextNote, color: c.hex })}
+                                style={{ backgroundColor: c.hex }}
+                                className={`w-4 h-4 rounded-full border ${
+                                  editingTextNote.color === c.hex ? 'border-slate-900 ring-2 ring-sky-400 scale-110' : 'border-slate-300'
+                                }`}
+                                title={c.name}
+                              />
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingTextNote({ ...editingTextNote, vertical: !editingTextNote.vertical })
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                editingTextNote.vertical
+                                  ? 'bg-sky-600 text-white border-sky-600'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                              title="Ruota testo orizzontale / verticale"
+                            >
+                              {editingTextNote.vertical ? '↕' : '↔'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingTextNote({ ...editingTextNote, bgOpaque: !editingTextNote.bgOpaque })
+                              }
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                editingTextNote.bgOpaque
+                                  ? 'bg-slate-800 text-white border-slate-800'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                              title="Sfondo bianco leggibile / trasparente"
+                            >
+                              Sfondo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const trimmed = editingTextNote.text.trim();
+                                if (trimmed) {
+                                  const saved: PlanTextNote = {
+                                    id: editingTextNote.id || `txt_${uid()}`,
+                                    x: editingTextNote.x,
+                                    y: editingTextNote.y,
+                                    text: trimmed,
+                                    color: editingTextNote.color,
+                                    fontSize: editingTextNote.fontSize,
+                                    vertical: editingTextNote.vertical,
+                                    bgOpaque: editingTextNote.bgOpaque,
+                                    isReminder: editingTextNote.isReminder,
+                                    layerId: editingTextNote.layerId,
+                                  };
+                                  setTextNotesByPage((prev) => {
+                                    const list = prev[currentPage] || [];
+                                    const exists = list.some((n) => n.id === saved.id);
+                                    return {
+                                      ...prev,
+                                      [currentPage]: exists
+                                        ? list.map((n) => (n.id === saved.id ? saved : n))
+                                        : [...list, saved],
+                                    };
+                                  });
+                                }
+                                setEditingTextNote(null);
+                              }}
+                              className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white"
+                              title="Salva appunto (Invio)"
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+                            {editingTextNote.id && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const targetId = editingTextNote.id;
+                                  setTextNotesByPage((prev) => ({
+                                    ...prev,
+                                    [currentPage]: (prev[currentPage] || []).filter((n) => n.id !== targetId),
+                                  }));
+                                  setEditingTextNote(null);
+                                }}
+                                className="p-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-700"
+                                title="Elimina appunto"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setEditingTextNote(null)}
+                              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600"
+                              title="Annulla"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
+            </div>
           </div>
 
           {/* FOOTER PAGINE PDF */}
@@ -1698,7 +4280,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       <span>Tav. {p}</span>
                       {pa && (
                         <span className={`font-mono text-[10px] ${active ? 'text-slate-900' : 'text-slate-400'}`}>
-                          {pa.isLikelyScanned ? '(Cop.)' : roomCount > 0 ? `(${roomCount} vani)` : ''}
+                          {pa.isLikelyScanned ? '(Img)' : roomCount > 0 ? `(${roomCount} vani)` : ''}
                         </span>
                       )}
                     </button>
@@ -1994,7 +4576,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                           </button>
                         </td>
 
-                        {/* DESCRIZIONE */}
+                        {/* DESCRIZIONE (+ badge conversione m -> cm/mm se attiva) */}
                         <td className="border-r border-slate-200 p-0.5">
                           <input
                             ref={(el) => {
@@ -2009,12 +4591,21 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                               isDeduction ? 'bg-rose-50/40 text-rose-800 italic placeholder:text-rose-300' : 'bg-transparent text-slate-800 font-medium placeholder:text-slate-300'
                             }`}
                           />
+                          {row.sourceNote && (exportUnit !== 'm' || row.isDirectArea) && (
+                            <div className="px-1.5 pb-0.5 text-[10px] font-mono text-emerald-700 truncate">
+                              {row.sourceNote}
+                            </div>
+                          )}
                         </td>
 
-                        {/* PAR.UG. | LUNG. | LARG. | H/PESO (Clicca per evidenziare come target misura!) */}
+                        {/* PAR.UG. | LUNG. | LARG. | H/PESO (Salta Par.Ug., avanza automaticamente Lung. -> Larg. -> H/Peso!) */}
                         {(['multiplier', 'length', 'width', 'height'] as TargetNumericField[]).map((field) => (
                           <td key={field} className="border-r border-slate-200 p-0.5">
                             <input
+                              ref={(el) => {
+                                if (el) rowInputRefs.current.set(`cell_${row.id}_${field}`, el);
+                                else rowInputRefs.current.delete(`cell_${row.id}_${field}`);
+                              }}
                               type="number"
                               step="0.01"
                               value={row[field] ?? ''}
@@ -2024,7 +4615,26 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
-                                  handleAddEmptyRow('positive');
+                                  if (field === 'multiplier') {
+                                    setActiveCell({ rowId: row.id, field: 'length' });
+                                    focusCellInput(row.id, 'length');
+                                  } else if (
+                                    field === 'length' &&
+                                    !row.isDirectArea &&
+                                    extractionMode !== 'linear' &&
+                                    extractionMode !== 'count'
+                                  ) {
+                                    setActiveCell({ rowId: row.id, field: 'width' });
+                                    focusCellInput(row.id, 'width');
+                                  } else if (
+                                    field === 'width' &&
+                                    (extractionMode === 'volume' || extractionMode === 'walls_perim_h')
+                                  ) {
+                                    setActiveCell({ rowId: row.id, field: 'height' });
+                                    focusCellInput(row.id, 'height');
+                                  } else {
+                                    handleAddEmptyRow('positive', true);
+                                  }
                                 }
                               }}
                               onChange={(e) => {
@@ -2055,6 +4665,16 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                             type="button"
                             onClick={() => {
                               setQueuedRows((prev) => prev.filter((r) => r.id !== row.id));
+                              if (row.linkedMarkId) {
+                                setMeasuredPolygonsByPage((prev) => ({
+                                  ...prev,
+                                  [currentPage]: (prev[currentPage] || []).filter((p) => p.id !== row.linkedMarkId),
+                                }));
+                                setMeasuredLinesByPage((prev) => ({
+                                  ...prev,
+                                  [currentPage]: (prev[currentPage] || []).filter((l) => l.id !== row.linkedMarkId),
+                                }));
+                              }
                               if (activeCell?.rowId === row.id) setActiveCell(null);
                             }}
                             className="p-1 text-slate-400 hover:text-rose-600 rounded"

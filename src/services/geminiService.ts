@@ -3,7 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Article, Measurement, Category } from '../types';
 
 const getAiClient = () => {
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = typeof process !== 'undefined' ? process.env?.API_KEY : undefined;
+  return new GoogleGenAI({ apiKey });
 };
 
 const cleanAndParseJson = (text: string) => {

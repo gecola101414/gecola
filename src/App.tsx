@@ -72,6 +72,11 @@ import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
 import PlanMeasureModal, { PlanMeasureExportRow } from './components/PlanMeasureModal';
+import {
+  SavedPlanSheet,
+  loadPlanWorkspaceFromIdb,
+  savePlanWorkspaceToIdb,
+} from './utils/planProjectStorage';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { ArticleGroup, TableHeader, RebarCagePillarIcon } from './components/ArticleGroup';
@@ -151,6 +156,9 @@ function App() {
   const [paintingTargetArticleId, setPaintingTargetArticleId] = useState<string | null>(null);
   const [isPlanMeasureModalOpen, setIsPlanMeasureModalOpen] = useState(false);
   const [planMeasureTargetArticleId, setPlanMeasureTargetArticleId] = useState<string | null>(null);
+  const [planSheets, setPlanSheets] = useState<SavedPlanSheet[]>([]);
+  const [activePlanSheetId, setActivePlanSheetId] = useState<string | null>(null);
+  const planWorkspaceHydratedRef = useRef(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [smartRepeatActiveId, setSmartRepeatActiveId] = useState<string | null>(null);
   const [recordingArticleId, setRecordingArticleId] = useState<string | null>(null);
@@ -186,20 +194,48 @@ function App() {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const scrollFrameRef = useRef<number | null>(null);
 
-  // Pre-caricamento parallelo in memoria del motore PDF per generazioni immediate
+  // Pre-caricamento parallelo in memoria del motore PDF per generazioni immediate + idratazione tavole da IndexedDB
   useEffect(() => {
     const timer = setTimeout(() => {
       preloadPdfLibs().catch(() => {});
     }, 1200);
+
+    if (!isNewProjectTab) {
+      loadPlanWorkspaceFromIdb()
+        .then((ws) => {
+          if (ws.sheets.length > 0) {
+            setPlanSheets(ws.sheets);
+            setActivePlanSheetId(ws.activeSheetId || ws.sheets[0].id);
+          }
+        })
+        .finally(() => {
+          planWorkspaceHydratedRef.current = true;
+        });
+    } else {
+      planWorkspaceHydratedRef.current = true;
+    }
+
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!planWorkspaceHydratedRef.current) return;
+    const t = setTimeout(() => {
+      void savePlanWorkspaceToIdb(planSheets, activePlanSheetId);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [planSheets, activePlanSheetId]);
 
   useEffect(() => {
     if (!auth) {
       setAuthLoading(false);
       return;
     }
+    const failsafeTimer = setTimeout(() => {
+      setAuthLoading(false);
+    }, 2500);
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      clearTimeout(failsafeTimer);
       if (firebaseUser) {
         setUser(firebaseUser as FirebaseUser);
       } else if (isNewProjectTab) {
@@ -207,7 +243,10 @@ function App() {
       }
       setAuthLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(failsafeTimer);
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -2764,7 +2803,18 @@ function App() {
 
   const getFullProjectExportData = () => {
     return JSON.stringify(
-      { gecolaData: { projectInfo, categories, articles, analyses }, exportedAt: new Date().toISOString(), app: 'GeCoLa Cloud' },
+      {
+        gecolaData: {
+          projectInfo,
+          categories,
+          articles,
+          analyses,
+          planSheets,
+          activePlanSheetId,
+        },
+        exportedAt: new Date().toISOString(),
+        app: 'GeCoLa Cloud',
+      },
       null,
       2
     );
@@ -2807,7 +2857,7 @@ function App() {
       handleSmartSave(true, false);
     }, 3000);
     return () => clearTimeout(timeoutId);
-  }, [articles, categories, projectInfo, analyses, currentFileHandle]);
+  }, [articles, categories, projectInfo, analyses, planSheets, activePlanSheetId, currentFileHandle]);
 
   const handleOpenProject = async () => {
     if ('showOpenFilePicker' in window) {
@@ -2822,6 +2872,11 @@ function App() {
         if (data.gecolaData) {
           setProjectInfo(data.gecolaData.projectInfo);
           updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []);
+          const loadedSheets: SavedPlanSheet[] = Array.isArray(data.gecolaData.planSheets) ? data.gecolaData.planSheets : [];
+          const loadedActiveId: string | null = data.gecolaData.activePlanSheetId || loadedSheets[0]?.id || null;
+          setPlanSheets(loadedSheets);
+          setActivePlanSheetId(loadedActiveId);
+          void savePlanWorkspaceToIdb(loadedSheets, loadedActiveId);
           setCurrentFileHandle(handle);
           const pickedName = handle.name.replace(/\.json$/i, '');
           setProjectInfo((prev) => ({ ...prev, title: pickedName }));
@@ -2849,6 +2904,11 @@ function App() {
         if (data.gecolaData) {
           setProjectInfo(data.gecolaData.projectInfo);
           updateState(data.gecolaData.articles, data.gecolaData.categories, data.gecolaData.analyses || []);
+          const loadedSheets: SavedPlanSheet[] = Array.isArray(data.gecolaData.planSheets) ? data.gecolaData.planSheets : [];
+          const loadedActiveId: string | null = data.gecolaData.activePlanSheetId || loadedSheets[0]?.id || null;
+          setPlanSheets(loadedSheets);
+          setActivePlanSheetId(loadedActiveId);
+          void savePlanWorkspaceToIdb(loadedSheets, loadedActiveId);
         } else {
           alert('Formato non valido.');
         }
@@ -4495,7 +4555,15 @@ function App() {
             nextWbsCode={generateNextWbsCode(categories)}
             forcedIsSuper={creatingForcedIsSuper}
           />
-          <SaveProjectModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} articles={articles} categories={categories} projectInfo={projectInfo} />
+          <SaveProjectModal
+            isOpen={isSaveModalOpen}
+            onClose={() => setIsSaveModalOpen(false)}
+            articles={articles}
+            categories={categories}
+            projectInfo={projectInfo}
+            planSheets={planSheets}
+            activePlanSheetId={activePlanSheetId}
+          />
           <AnalysisEditorModal
             isOpen={isAnalysisEditorOpen}
             onClose={() => setIsAnalysisEditorOpen(false)}
@@ -4552,6 +4620,10 @@ function App() {
             articles={articles}
             targetArticleId={planMeasureTargetArticleId}
             onSelectTargetArticle={(id) => setPlanMeasureTargetArticleId(id)}
+            planSheets={planSheets}
+            activePlanSheetId={activePlanSheetId}
+            onPlanSheetsChange={setPlanSheets}
+            onSelectActivePlanSheet={setActivePlanSheetId}
           />
 
           {/* MODALE CON ROTELLINA CHE GIRA DURANTE LA GENERAZIONE PDF */}

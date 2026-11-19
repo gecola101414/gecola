@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Sparkles, Cpu, Activity, Zap, PlayCircle, Building } from 'lucide-react';
-import IntranetSpotPlayer from './IntranetSpotPlayer';
+import { Lock, Calculator, AlertCircle, Loader2, UserCircle, ShieldAlert, ShieldCheck, CheckCircle2, Phone, Mail, Sparkles, Cpu, Activity, Zap, Building } from 'lucide-react';
 
 interface LoginProps {
   onVisitorLogin: () => void;
@@ -25,7 +24,6 @@ const Login: React.FC<LoginProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showVideo, setShowVideo] = useState(true);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,56 +128,45 @@ const Login: React.FC<LoginProps> = ({
             )}
           </div>
 
-          {/* AREA ANIMAZIONE AI - NEURAL DATA FLOW (SOSTITUISCE IMMAGINE) */}
+          {/* AREA ANIMAZIONE AI - NEURAL DATA FLOW */}
           <div className="flex-1 relative bg-slate-950 overflow-hidden border-t border-slate-800">
-              {showVideo ? (
-                  <IntranetSpotPlayer
-                      localVideoUrl="/assets/aistudio/GECOLA_2026__4__b05bd9dd.mp4"
-                      onClose={() => setShowVideo(false)}
-                      onTryDemo={onMilanoDemoLogin}
-                      onVisitorEnter={onVisitorLogin}
-                  />
-              ) : (
-                  <>
-                      {/* Background Grid */}
-                      <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#1e293b 1px, transparent 1px), linear-gradient(90deg, #1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
-                      
-                      {/* Animazione Nodi Pulsanti */}
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="relative">
-                              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-600/10 blur-[100px] animate-pulse"></div>
-                              <Cpu className="w-32 h-32 text-blue-500/20 animate-spin-slow" />
-                              <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
-                                  <Activity className="w-16 h-16 text-blue-400 animate-pulse" />
-                              </div>
-                          </div>
+              {/* Background Grid */}
+              <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#1e293b 1px, transparent 1px), linear-gradient(90deg, #1e293b 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
+              
+              {/* Animazione Nodi Pulsanti */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="relative">
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-600/10 blur-[100px] animate-pulse"></div>
+                      <Cpu className="w-32 h-32 text-blue-500/20 animate-spin-slow" />
+                      <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+                          <Activity className="w-16 h-16 text-blue-400 animate-pulse" />
                       </div>
+                  </div>
+              </div>
 
-                      {/* Data Streams (Righi di computo che scorrono) */}
-                      <div className="absolute top-0 left-10 bottom-0 w-64 opacity-30 select-none overflow-hidden flex flex-col justify-center gap-2 font-mono text-[8px] text-blue-400/50 italic">
-                          {[...Array(15)].map((_, i) => (
-                              <div key={i} className={`whitespace-nowrap animate-slide-left`} style={{ animationDelay: `${i * 0.5}s`, animationDuration: '10s' }}>
-                                WBS.{String(i+1).padStart(2,'0')} - ANALISI PREZZO UNITARIO - CALCOLO VOLUMI IN CORSO... 125,45 mc x 142,50 €
-                              </div>
-                          ))}
+              {/* Data Streams (Righi di computo che scorrono) */}
+              <div className="absolute top-0 left-10 bottom-0 w-64 opacity-30 select-none overflow-hidden flex flex-col justify-center gap-2 font-mono text-[8px] text-blue-400/50 italic">
+                  {[...Array(15)].map((_, i) => (
+                      <div key={i} className={`whitespace-nowrap animate-slide-left`} style={{ animationDelay: `${i * 0.5}s`, animationDuration: '10s' }}>
+                        WBS.{String(i+1).padStart(2,'0')} - ANALISI PREZZO UNITARIO - CALCOLO VOLUMI IN CORSO... 125,45 mc x 142,50 €
                       </div>
+                  ))}
+              </div>
 
-                      {/* Scanning Laser Line */}
-                      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500/50 to-transparent animate-scan z-10 shadow-[0_0_20px_rgba(59,130,246,0.5)]"></div>
+              {/* Scanning Laser Line */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500/50 to-transparent animate-scan z-10 shadow-[0_0_20px_rgba(59,130,246,0.5)]"></div>
 
-                      {/* Badge Informativo in basso */}
-                      <div className="absolute bottom-8 left-10 z-20 space-y-3">
-                         <div className="inline-flex items-center gap-2 bg-blue-600 px-4 py-1.5 rounded-full border border-blue-400 shadow-2xl animate-in slide-in-from-bottom-4">
-                            <Sparkles className="w-3 h-3 text-yellow-300" />
-                            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white">GeCoLa AI Engine Active</span>
-                         </div>
-                         <h2 className="text-3xl font-black text-white italic tracking-tighter leading-none drop-shadow-2xl">
-                            L'intelligenza al servizio<br/>
-                            <span className="text-blue-400">del computo moderno.</span>
-                         </h2>
-                      </div>
-                  </>
-              )}
+              {/* Badge Informativo in basso */}
+              <div className="absolute bottom-8 left-10 z-20 space-y-3">
+                 <div className="inline-flex items-center gap-2 bg-blue-600 px-4 py-1.5 rounded-full border border-blue-400 shadow-2xl animate-in slide-in-from-bottom-4">
+                    <Sparkles className="w-3 h-3 text-yellow-300" />
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-white">GeCoLa AI Engine Active</span>
+                 </div>
+                 <h2 className="text-3xl font-black text-white italic tracking-tighter leading-none drop-shadow-2xl">
+                    L'intelligenza al servizio<br/>
+                    <span className="text-blue-400">del computo moderno.</span>
+                 </h2>
+              </div>
           </div>
         </div>
 
@@ -239,15 +226,6 @@ const Login: React.FC<LoginProps> = ({
 
                 {/* PULSANTI DI ACCESSO */}
                 <div className="mt-auto pt-2 flex flex-col items-center shrink-0">
-                    <button
-                        type="button"
-                        onClick={() => setShowVideo(true)}
-                        className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-2.5 px-4 rounded-[1.6rem] shadow-md transform transition-all active:scale-95 flex items-center justify-center gap-2 mb-2.5 group"
-                    >
-                        <PlayCircle className="w-4 h-4 text-white" /> 
-                        <span className="text-[10px] uppercase tracking-widest">Guarda Spot 2026</span>
-                    </button>
-
                     {/* PULSANTE ENTRA COME VISITATORE */}
                     <button
                         type="button"
