@@ -50,6 +50,8 @@ import {
   GripHorizontal,
   Upload,
   CheckCircle2,
+  MessageSquare,
+  FolderSync,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -64,6 +66,8 @@ import LinkArticleModal from './components/LinkArticleModal';
 import ArticleEditModal from './components/ArticleEditModal';
 import CategoryEditModal from './components/CategoryEditModal';
 import SaveProjectModal from './components/SaveProjectModal';
+import SharedFolderModal from './components/SharedFolderModal';
+import TeamChatDrawer from './components/TeamChatDrawer';
 import AnalysisEditorModal from './components/AnalysisEditorModal';
 import { PriceAnalysisWorkspace } from './components/PriceAnalysisWorkspace';
 import ImportAnalysisModal from './components/ImportAnalysisModal';
@@ -77,6 +81,19 @@ import {
   loadPlanWorkspaceFromIdb,
   savePlanWorkspaceToIdb,
 } from './utils/planProjectStorage';
+import {
+  ChatMessage,
+  OnlineOperator,
+  SharedFileMeta,
+  fetchSharedFolderListing,
+  fetchChatHistory,
+  postChatMessage,
+  deleteChatMessageApi,
+  saveProjectToSharedFolder,
+  loadProjectFromSharedFolder,
+  getCollabWebSocketUrl,
+  getOrCreateLocalOperatorId,
+} from './services/teamCollabService';
 import BulkGeneratorModal from './components/BulkGeneratorModal';
 import { ComputoContextMenu } from './components/ComputoContextMenu';
 import { ArticleGroup, TableHeader, RebarCagePillarIcon } from './components/ArticleGroup';
@@ -709,6 +726,26 @@ function App() {
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isSharedFolderModalOpen, setIsSharedFolderModalOpen] = useState(false);
+  const [isChatDrawerOpen, setIsChatDrawerOpen] = useState(false);
+  const [sharedFilesCount, setSharedFilesCount] = useState(0);
+  const [sharedFolderRefreshSignal, setSharedFolderRefreshSignal] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatOperators, setChatOperators] = useState<OnlineOperator[]>([]);
+  const [isCollabConnected, setIsCollabConnected] = useState(false);
+  const [activeChatChannel, setActiveChatChannel] = useState('generale');
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [customOperatorName, setCustomOperatorName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('gecola_operator_name') || '';
+    } catch {
+      return '';
+    }
+  });
+  const localOperatorIdRef = useRef<string>(getOrCreateLocalOperatorId());
+  const collabWsRef = useRef<WebSocket | null>(null);
+  const isChatOpenRef = useRef(isChatDrawerOpen);
+  isChatOpenRef.current = isChatDrawerOpen;
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [linkTarget, setLinkTarget] = useState<{ articleId: string; measurementId: string } | null>(null);
   const [isEditArticleModalOpen, setIsEditArticleModalOpen] = useState(false);
@@ -2921,6 +2958,302 @@ function App() {
     e.target.value = '';
   };
 
+  const currentOperatorName = useMemo(() => {
+    if (customOperatorName.trim()) return customOperatorName.trim();
+    if (user && user !== 'visitor' && (user as FirebaseUser).email) {
+      return (user as FirebaseUser).email as string;
+    }
+    if (projectInfo.designer && projectInfo.designer.trim() && projectInfo.designer !== 'Ing. Progettista') {
+      return projectInfo.designer.trim();
+    }
+    return isArmedForcesIp ? 'Operatore Forze Armate' : 'Operatore GeCoLa';
+  }, [customOperatorName, user, projectInfo.designer, isArmedForcesIp]);
+
+  const projectChatChannelId = useMemo(() => {
+    const slug = (projectInfo.title || 'progetto')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+    return `proj_${slug || 'corrente'}`;
+  }, [projectInfo.title]);
+
+  const handleChangeOperatorName = (name: string) => {
+    const cleaned = name.trim() || 'Operatore GeCoLa';
+    setCustomOperatorName(cleaned);
+    try {
+      localStorage.setItem('gecola_operator_name', cleaned);
+    } catch {}
+    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
+      collabWsRef.current.send(
+        JSON.stringify({
+          type: 'presence:join',
+          userId: localOperatorIdRef.current,
+          userName: cleaned,
+          channel: activeChatChannel,
+        })
+      );
+    }
+  };
+
+  // Real-time WebSocket & initial sync for Team Chat + Shared Folder
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const refreshSharedCount = () => {
+      fetchSharedFolderListing()
+        .then((res) => {
+          if (!cancelled) setSharedFilesCount(res.files.length);
+        })
+        .catch(() => {});
+    };
+
+    refreshSharedCount();
+    fetchChatHistory()
+      .then((res) => {
+        if (cancelled) return;
+        setChatMessages(res.messages || []);
+        setChatOperators(res.operators || []);
+      })
+      .catch(() => {});
+
+    const connectWs = () => {
+      if (cancelled) return;
+      try {
+        const ws = new WebSocket(getCollabWebSocketUrl());
+        collabWsRef.current = ws;
+
+        ws.onopen = () => {
+          if (cancelled) return;
+          setIsCollabConnected(true);
+          ws.send(
+            JSON.stringify({
+              type: 'presence:join',
+              userId: localOperatorIdRef.current,
+              userName: currentOperatorName,
+              channel: activeChatChannel,
+            })
+          );
+        };
+
+        ws.onmessage = (event) => {
+          if (cancelled) return;
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'init') {
+              if (Array.isArray(data.messages)) {
+                setChatMessages((prev) => {
+                  const byId = new Map<string, ChatMessage>();
+                  for (const m of prev) byId.set(m.id, m);
+                  for (const m of data.messages as ChatMessage[]) byId.set(m.id, m);
+                  return Array.from(byId.values()).sort(
+                    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                  );
+                });
+              }
+              if (Array.isArray(data.operators)) setChatOperators(data.operators);
+            } else if (data.type === 'presence:update') {
+              if (Array.isArray(data.operators)) setChatOperators(data.operators);
+            } else if (data.type === 'chat:message' && data.message) {
+              const incoming = data.message as ChatMessage;
+              setChatMessages((prev) => {
+                if (prev.some((m) => m.id === incoming.id)) return prev;
+                return [...prev, incoming];
+              });
+              if (!isChatOpenRef.current && incoming.senderId !== localOperatorIdRef.current) {
+                setUnreadChatCount((c) => c + 1);
+                playUISound('toggle');
+              }
+            } else if (data.type === 'chat:deleted' && data.messageId) {
+              setChatMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+            } else if (data.type === 'shared:updated') {
+              setSharedFolderRefreshSignal((n) => n + 1);
+              refreshSharedCount();
+            }
+          } catch {
+            // ignore malformed frames
+          }
+        };
+
+        ws.onclose = () => {
+          if (cancelled) return;
+          setIsCollabConnected(false);
+          reconnectTimer = setTimeout(connectWs, 2500);
+        };
+
+        ws.onerror = () => {
+          ws.close();
+        };
+      } catch {
+        setIsCollabConnected(false);
+        reconnectTimer = setTimeout(connectWs, 3000);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (collabWsRef.current) {
+        collabWsRef.current.close();
+        collabWsRef.current = null;
+      }
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
+      collabWsRef.current.send(
+        JSON.stringify({
+          type: 'presence:join',
+          userId: localOperatorIdRef.current,
+          userName: currentOperatorName,
+          channel: activeChatChannel,
+        })
+      );
+    }
+  }, [currentOperatorName, activeChatChannel]);
+
+  const applySharedProjectPayload = (data: any, meta?: SharedFileMeta) => {
+    if (!data?.gecolaData) {
+      alert('Formato file condiviso non valido.');
+      return;
+    }
+    const g = data.gecolaData;
+    setProjectInfo({
+      ...g.projectInfo,
+      title: g.projectInfo?.title || meta?.title || 'Progetto Condiviso',
+    });
+    updateState(g.articles || [], g.categories || [], g.analyses || []);
+    const loadedSheets: SavedPlanSheet[] = Array.isArray(g.planSheets) ? g.planSheets : [];
+    const loadedActiveId: string | null = g.activePlanSheetId || loadedSheets[0]?.id || null;
+    setPlanSheets(loadedSheets);
+    setActivePlanSheetId(loadedActiveId);
+    void savePlanWorkspaceToIdb(loadedSheets, loadedActiveId);
+    setCurrentFileHandle(null);
+    playUISound('confirm');
+  };
+
+  const handleQuickSaveToSharedFolder = async (
+    folder: string,
+    docType: 'CME' | 'CM',
+    note: string,
+    notifyInChat: boolean
+  ) => {
+    const cleanBase = (projectInfo.title || 'Progetto').replace(/\s+/g, '_').replace(/_(CME|CM)$/i, '') || 'Progetto';
+    const activeArticles = articles.filter((a) => {
+      const cat = categories.find((c) => c.code === a.categoryCode);
+      return a.isEnabled !== false && (!cat || cat.isEnabled !== false);
+    });
+    const totalAmount = activeArticles.reduce(
+      (sum, a) => sum + (Number(a.quantity) || 0) * (Number(a.unitPrice) || 0),
+      0
+    );
+
+    const payload =
+      docType === 'CME'
+        ? {
+            gecolaData: {
+              projectInfo: { ...projectInfo, title: cleanBase },
+              categories,
+              articles,
+              analyses,
+              planSheets,
+              activePlanSheetId,
+              version: '12.0',
+            },
+            exportedAt: new Date().toISOString(),
+            tipoDocumento: 'COMPUTO METRICO ESTIMATIVO (CME)',
+            app: 'GeCoLa Cloud',
+          }
+        : {
+            gecolaData: {
+              projectInfo: { ...projectInfo, title: `${cleanBase} (Solo Computo Metrico)` },
+              categories: categories.filter((c) => c.isEnabled !== false && !c.isSuperCategory),
+              articles: activeArticles.map((art) => ({
+                ...art,
+                unitPrice: 0,
+                laborRate: 0,
+                priceListSource: undefined,
+                linkedAnalysisId: undefined,
+              })),
+              isSubcontractorMode: true,
+              version: '12.0',
+            },
+            isSubcontractorMode: true,
+            exportedAt: new Date().toISOString(),
+            tipoDocumento: 'SOLO COMPUTO METRICO (CM)',
+            app: 'GeCoLa Cloud - Solo Computo Metrico',
+          };
+
+    await saveProjectToSharedFolder({
+      title: cleanBase,
+      fileName: `${cleanBase}_${docType}.json`,
+      folder,
+      docType,
+      author: currentOperatorName,
+      note: note || undefined,
+      articleCount: docType === 'CME' ? articles.length : activeArticles.length,
+      planSheetCount: docType === 'CME' ? planSheets.length : 0,
+      totalAmount: docType === 'CME' ? totalAmount : 0,
+      payload,
+      notifyInChat,
+      chatChannel: activeChatChannel,
+      senderId: localOperatorIdRef.current,
+    });
+    setSharedFolderRefreshSignal((n) => n + 1);
+    playUISound('confirm');
+  };
+
+  const handleSendChatMessage = async (text: string) => {
+    const id = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
+      collabWsRef.current.send(
+        JSON.stringify({
+          type: 'chat:send',
+          id,
+          channel: activeChatChannel,
+          senderName: currentOperatorName,
+          text,
+        })
+      );
+      return;
+    }
+    const saved = await postChatMessage({
+      id,
+      channel: activeChatChannel,
+      senderId: localOperatorIdRef.current,
+      senderName: currentOperatorName,
+      text,
+    });
+    setChatMessages((prev) => (prev.some((m) => m.id === saved.id) ? prev : [...prev, saved]));
+  };
+
+  const handleDeleteChatMessage = async (messageId: string) => {
+    setChatMessages((prev) => prev.filter((m) => m.id !== messageId));
+    if (collabWsRef.current && collabWsRef.current.readyState === WebSocket.OPEN) {
+      collabWsRef.current.send(JSON.stringify({ type: 'chat:delete', messageId }));
+    } else {
+      await deleteChatMessageApi(messageId);
+    }
+  };
+
+  const handleShareCurrentProjectInChat = async () => {
+    await handleQuickSaveToSharedFolder('Generale', 'CME', 'Condiviso direttamente dalla Chat Team', true);
+  };
+
+  const handleOpenSharedFileById = async (fileId: string) => {
+    try {
+      const { payload, meta } = await loadProjectFromSharedFolder(fileId);
+      applySharedProjectPayload(payload, meta);
+    } catch (err: any) {
+      alert(err?.message || 'Impossibile aprire il progetto dalla cartella condivisa.');
+    }
+  };
+
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLElement;
@@ -3191,14 +3524,33 @@ function App() {
                       <button
                         onClick={() => {
                           setIsOpenMenuOpen(false);
+                          setIsSharedFolderModalOpen(true);
+                          playUISound('toggle');
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs text-emerald-900 hover:bg-emerald-50 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
+                      >
+                        <FolderSync className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <div>
+                          <div className="text-slate-900">
+                            Apri da Cartella Condivisa ({sharedFilesCount})
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            Archivio condiviso di studio sincronizzato
+                          </div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setIsOpenMenuOpen(false);
                           handleOpenProject();
                         }}
                         className="w-full text-left px-4 py-2.5 text-xs text-slate-700 hover:bg-orange-50 hover:text-orange-900 flex items-center gap-3 font-bold border-b border-slate-100 transition-colors cursor-pointer"
                       >
                         <FolderOpen className="w-4 h-4 text-orange-500 shrink-0" />
                         <div>
-                          <div className="text-slate-800">Apri Progetto GeCoLa (.json)</div>
-                          <div className="text-[10px] text-slate-400 font-medium">Carica computo salvato in precedenza</div>
+                          <div className="text-slate-800">Apri Progetto dal PC (.json)</div>
+                          <div className="text-[10px] text-slate-400 font-medium">Carica computo salvato sul computer</div>
                         </div>
                       </button>
 
@@ -3246,15 +3598,60 @@ function App() {
                 </div>
 
                 <button
+                  type="button"
+                  onClick={() => {
+                    setIsSharedFolderModalOpen(true);
+                    playUISound('toggle');
+                  }}
+                  className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-emerald-100 hover:text-white bg-emerald-700/80 hover:bg-emerald-600 border border-emerald-500/70 rounded-lg shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                  title="Apri o salva progetti nella Cartella Condivisa del team"
+                >
+                  <FolderSync className="w-4 h-4 text-emerald-200 shrink-0" />
+                  <span className="text-xs font-bold">Condivisa</span>
+                  {sharedFilesCount > 0 && (
+                    <span className="text-[10px] font-mono tabular-nums bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200">
+                      {sharedFilesCount}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => {
                     setIsSaveModalOpen(true);
                     playUISound('confirm');
                   }}
-                  className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-slate-200 hover:text-white bg-blue-600/80 hover:bg-blue-600 border border-blue-500 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer"
-                  title="Salva con Nome (CME / CM)"
+                  className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-slate-200 hover:text-white bg-blue-600/80 hover:bg-blue-600 border border-blue-500 rounded-lg shadow-xs hover:scale-105 active:scale-95 cursor-pointer whitespace-nowrap shrink-0"
+                  title="Salva nella Cartella Condivisa o sul PC (CME / CM)"
                 >
-                  <Save className="w-4 h-4 text-white" />
+                  <Save className="w-4 h-4 text-white shrink-0" />
                   <span className="text-xs font-bold">Salva</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsChatDrawerOpen((prev) => {
+                      const next = !prev;
+                      if (next) setUnreadChatCount(0);
+                      return next;
+                    });
+                    playUISound('toggle');
+                  }}
+                  className={`relative px-3 py-1.5 transition-all flex items-center gap-1.5 rounded-lg border shadow-xs cursor-pointer whitespace-nowrap shrink-0 ${
+                    isChatDrawerOpen
+                      ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border-slate-700'
+                  }`}
+                  title="Apri Chat Team & Cantiere in tempo reale"
+                >
+                  <MessageSquare className="w-4 h-4 shrink-0" />
+                  <span className="text-xs font-bold">Chat</span>
+                  {unreadChatCount > 0 && !isChatDrawerOpen && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold tabular-nums bg-red-600 text-white rounded-full leading-none">
+                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                    </span>
+                  )}
                 </button>
 
                 <div className="relative">
@@ -4560,9 +4957,42 @@ function App() {
             onClose={() => setIsSaveModalOpen(false)}
             articles={articles}
             categories={categories}
+            analyses={analyses}
             projectInfo={projectInfo}
             planSheets={planSheets}
             activePlanSheetId={activePlanSheetId}
+            operatorName={currentOperatorName}
+            operatorId={localOperatorIdRef.current}
+            chatChannel={activeChatChannel}
+            onOpenSharedFolder={() => setIsSharedFolderModalOpen(true)}
+            onSavedToSharedFolder={() => setSharedFolderRefreshSignal((n) => n + 1)}
+          />
+          <SharedFolderModal
+            isOpen={isSharedFolderModalOpen}
+            onClose={() => setIsSharedFolderModalOpen(false)}
+            onOpenProjectPayload={applySharedProjectPayload}
+            onQuickSaveCurrent={handleQuickSaveToSharedFolder}
+            currentProjectTitle={projectInfo.title}
+            currentArticleCount={articles.length}
+            refreshSignal={sharedFolderRefreshSignal}
+          />
+          <TeamChatDrawer
+            isOpen={isChatDrawerOpen}
+            onClose={() => setIsChatDrawerOpen(false)}
+            messages={chatMessages}
+            operators={chatOperators}
+            isConnected={isCollabConnected}
+            activeChannel={activeChatChannel}
+            onChannelChange={setActiveChatChannel}
+            projectChannelId={projectChatChannelId}
+            projectTitle={projectInfo.title}
+            currentUserId={localOperatorIdRef.current}
+            currentUserName={currentOperatorName}
+            onChangeDisplayName={handleChangeOperatorName}
+            onSendMessage={handleSendChatMessage}
+            onDeleteMessage={handleDeleteChatMessage}
+            onShareCurrentProjectInChat={handleShareCurrentProjectInChat}
+            onOpenSharedFileById={handleOpenSharedFileById}
           />
           <AnalysisEditorModal
             isOpen={isAnalysisEditorOpen}

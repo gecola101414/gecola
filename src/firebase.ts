@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
+import { getStorage } from "firebase/storage";
 
 // --- CONFIGURAZIONE DI SICUREZZA ---
 // Configurazione corretta per il progetto GeCoLa
@@ -19,16 +20,20 @@ const firebaseConfig = {
 // Initialize Firebase
 let authExports;
 let dbExports;
+let storageExports;
 
 try {
     const app = initializeApp(firebaseConfig);
     authExports = getAuth(app);
     dbExports = getDatabase(app);
+    storageExports = getStorage(app);
 } catch (e) {
     console.warn("Firebase non configurato correttamente o errore di inizializzazione:", e);
     authExports = null; 
     dbExports = null;
+    storageExports = null;
 }
 
 export const auth = authExports;
 export const db = dbExports;
+export const storage = storageExports;
