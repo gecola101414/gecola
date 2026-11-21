@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
+  AlertTriangle,
   Box,
   Check,
   CheckSquare,
@@ -10,10 +11,14 @@ import {
   Cuboid,
   Eye,
   Layers,
+  Loader2,
   MousePointerClick,
   Plus,
+  RefreshCw,
   RotateCcw,
   SlidersHorizontal,
+  Sparkles,
+  Sun,
   Tag,
   Trash2,
   X,
@@ -23,7 +28,9 @@ import { SignificantQuoteItem } from '../utils/planCleanGeometry';
 import {
   BimObject,
   BimObjectKind,
+  BimRoomObject,
   BimWallObject,
+  inferRoomFloorType,
   PlanBimModel,
 } from '../utils/planBimExtractor';
 
@@ -34,7 +41,7 @@ interface Plan3DViewerProps {
   onDeleteBimObject: (id: string, kind: BimObjectKind) => void;
   wallHeightM: number;
   onWallHeightChange: (newHeightM: number) => void;
-  /** Cleaned architectural floor-plan canvas (free of text & dimension lines) */
+  /** Floor-plan canvas (used only in optional Technical Blueprint dark view) */
   cleanFloorCanvas: HTMLCanvasElement | null;
   /** Significant quotes projected onto the toggleable Quote layer */
   significantQuotes: SignificantQuoteItem[];
@@ -46,14 +53,22 @@ interface Plan3DViewerProps {
   onComputeBimObject: (obj: BimObject, sides: 1 | 2) => void;
   onComputeMultipleBimObjects: (objs: BimObject[], sides: 1 | 2) => void;
   activeCellLabel?: string | null;
+  /** Server-side Gemini Vision architectural reconstruction controls */
+  isAnalyzingAi?: boolean;
+  aiError?: string | null;
+  onDismissAiError?: () => void;
+  onRequestAiRebuild?: () => void;
+  onUseLocalModel?: () => void;
+  hasAiModel?: boolean;
 }
 
 type CameraPreset = 'iso' | 'top' | 'front';
 type ClickMode = 'instant' | 'select';
 type BimFilter = 'all' | BimObjectKind;
 type OpenDropdown = 'view' | 'model' | 'bim' | null;
+type VisualTheme = 'maquette' | 'blueprint';
 
-// Module-scoped scratch helpers (no allocations during pointer/render)
+// Module-scoped scratch helpers (zero allocations during pointer/render)
 const _ndc = new THREE.Vector2();
 const _raycaster = new THREE.Raycaster();
 const _targetPos = new THREE.Vector3();
@@ -75,15 +90,391 @@ function detectSoftwareWebGL(): boolean {
   }
 }
 
-function makeQuoteSpriteTexture(text: string, isRoom: boolean): THREE.CanvasTexture {
+/**
+ * Deterministic pseudo-random helper for repeatable procedural architectural textures.
+ */
+function seededRand(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/**
+ * Generates a realistic light natural oak staggered parquet CanvasTexture
+ * matching clean architectural maquette visualization.
+ */
+function createOakFloorTexture(maxAniso: number): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const rand = seededRand(4219);
+    ctx.fillStyle = '#cda977';
+    ctx.fillRect(0, 0, size, size);
+
+    const rows = 16;
+    const plankH = size / rows;
+    // Rich warm blonde natural oak tones (reads true golden-oak under ACES lighting, never chalky)
+    const baseTones = [
+      [212, 180, 134],
+      [202, 167, 118],
+      [219, 190, 146],
+      [194, 158, 108],
+      [207, 174, 126],
+    ];
+
+    for (let r = 0; r < rows; r++) {
+      const y = r * plankH;
+      const offset = ((r * 137) % 256) - 256;
+      let x = offset;
+      while (x < size) {
+        const pw = 160 + Math.floor(rand() * 110);
+        const tone = baseTones[Math.floor(rand() * baseTones.length)];
+        const jitter = Math.floor((rand() - 0.5) * 12);
+        const cr = Math.min(255, Math.max(0, tone[0] + jitter));
+        const cg = Math.min(255, Math.max(0, tone[1] + jitter));
+        const cb = Math.min(255, Math.max(0, tone[2] + jitter));
+
+        ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
+        ctx.fillRect(x, y, pw, plankH);
+
+        // Subtle horizontal oak wood grain fibers
+        const grainCount = 8 + Math.floor(rand() * 6);
+        for (let g = 0; g < grainCount; g++) {
+          const gy = y + 2 + rand() * (plankH - 4);
+          const alpha = 0.06 + rand() * 0.07;
+          ctx.strokeStyle = rand() > 0.3 ? `rgba(116, 82, 42, ${alpha})` : `rgba(255, 245, 224, ${alpha})`;
+          ctx.lineWidth = 0.7 + rand() * 1.1;
+          ctx.beginPath();
+          ctx.moveTo(x, gy);
+          ctx.bezierCurveTo(
+            x + pw * 0.33,
+            gy + (rand() - 0.5) * 2.5,
+            x + pw * 0.66,
+            gy + (rand() - 0.5) * 2.5,
+            x + pw,
+            gy
+          );
+          ctx.stroke();
+        }
+
+        // Crisp vertical end-joint seam
+        ctx.strokeStyle = 'rgba(112, 82, 48, 0.28)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, y);
+        ctx.lineTo(x + 0.5, y + plankH);
+        ctx.stroke();
+
+        x += pw;
+      }
+
+      // Horizontal plank seam
+      ctx.strokeStyle = 'rgba(112, 82, 48, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(size, y + 0.5);
+      ctx.stroke();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = Math.min(8, maxAniso);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Generates a realistic warm sand-beige architectural ceramic/travertine tile CanvasTexture
+ * for bathrooms, balconies, corridors, and staircases.
+ */
+function createCeramicFloorTexture(maxAniso: number): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const rand = seededRand(8831);
+    ctx.fillStyle = '#d7cdbc';
+    ctx.fillRect(0, 0, size, size);
+
+    const grid = 4; // 4×4 tiles per texture repeat (~50cm each when repeat=2.0m)
+    const tile = size / grid;
+    const baseTones = [
+      [218, 208, 191],
+      [211, 200, 182],
+      [224, 215, 199],
+      [205, 194, 176],
+    ];
+
+    for (let gy = 0; gy < grid; gy++) {
+      for (let gx = 0; gx < grid; gx++) {
+        const x = gx * tile;
+        const y = gy * tile;
+        const tone = baseTones[Math.floor(rand() * baseTones.length)];
+        const jitter = Math.floor((rand() - 0.5) * 7);
+        ctx.fillStyle = `rgb(${tone[0] + jitter},${tone[1] + jitter},${tone[2] + jitter})`;
+        ctx.fillRect(x, y, tile, tile);
+
+        // Soft travertine/porcelain stone clouding
+        for (let c = 0; c < 6; c++) {
+          const cx = x + rand() * tile;
+          const cy = y + rand() * tile;
+          const rad = 16 + rand() * 38;
+          const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, rad);
+          grad.addColorStop(0, rand() > 0.5 ? 'rgba(168, 154, 132, 0.13)' : 'rgba(255, 250, 240, 0.16)');
+          grad.addColorStop(1, 'rgba(215, 205, 188, 0)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(x, y, tile, tile);
+        }
+
+        // Crisp architectural grout line
+        ctx.strokeStyle = 'rgba(138, 128, 112, 0.42)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + 0.75, y + 0.75, tile - 1.5, tile - 1.5);
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = Math.min(8, maxAniso);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Generates a soft contact Ambient Occlusion gradient texture for wall/pillar bases
+ * so walls appear grounded on oak/ceramic floors like a raytraced architectural render.
+ */
+function createWallAoTexture(): THREE.CanvasTexture {
+  const w = 16;
+  const h = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0.0, 'rgba(28, 25, 22, 0.0)');
+    grad.addColorStop(0.28, 'rgba(28, 25, 22, 0.14)');
+    grad.addColorStop(0.5, 'rgba(28, 25, 22, 0.24)');
+    grad.addColorStop(0.72, 'rgba(28, 25, 22, 0.14)');
+    grad.addColorStop(1.0, 'rgba(28, 25, 22, 0.0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Computes tight interior building footprint strips from walls/openings so L-shaped
+ * or irregular floor plans NEVER get a giant protruding rectangular oak slab.
+ */
+function buildTightInteriorFloorRects(
+  walls: BimWallObject[],
+  boundsM: { minX: number; maxX: number; minY: number; maxY: number }
+): Array<{ x: number; y: number; w: number; h: number }> {
+  const spanX = Math.max(1, boundsM.maxX - boundsM.minX);
+  const spanY = Math.max(1, boundsM.maxY - boundsM.minY);
+  const cell = Math.max(0.22, Math.min(0.45, Math.max(spanX, spanY) / 64));
+  const pad = 2; // exterior border cells for flood-fill
+  const cols = Math.min(96, Math.ceil(spanX / cell) + pad * 2);
+  const rows = Math.min(96, Math.ceil(spanY / cell) + pad * 2);
+  const stepX = spanX / Math.max(1, cols - pad * 2);
+  const stepY = spanY / Math.max(1, rows - pad * 2);
+  const originX = boundsM.minX - pad * stepX;
+  const originY = boundsM.minY - pad * stepY;
+
+  const blocked = new Uint8Array(cols * rows);
+
+  // Rasterize walls onto occupancy grid with slight inflation to bridge doorway gaps
+  for (const w of walls) {
+    const len = Math.max(0.1, Math.hypot(w.x2M - w.x1M, w.y2M - w.y1M));
+    const steps = Math.max(2, Math.ceil(len / (Math.min(stepX, stepY) * 0.45)));
+    const rad = Math.max(1, Math.ceil(Math.max(w.thicknessM * 0.7, 0.35) / Math.min(stepX, stepY)));
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const px = w.x1M + (w.x2M - w.x1M) * t;
+      const py = w.y1M + (w.y2M - w.y1M) * t;
+      const gx = Math.floor((px - originX) / stepX);
+      const gy = Math.floor((py - originY) / stepY);
+      for (let dy = -rad; dy <= rad; dy++) {
+        const ny = gy + dy;
+        if (ny < 0 || ny >= rows) continue;
+        for (let dx = -rad; dx <= rad; dx++) {
+          const nx = gx + dx;
+          if (nx < 0 || nx >= cols) continue;
+          blocked[ny * cols + nx] = 1;
+        }
+      }
+    }
+  }
+
+  // Morphological close (dilate 2 cells -> flood-fill outside) to seal balcony/door openings
+  const sealed = new Uint8Array(cols * rows);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (!blocked[y * cols + x]) continue;
+      for (let dy = -2; dy <= 2; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= rows) continue;
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= cols) continue;
+          sealed[ny * cols + nx] = 1;
+        }
+      }
+    }
+  }
+
+  // BFS exterior flood-fill from border
+  const outside = new Uint8Array(cols * rows);
+  const queue = new Int32Array(cols * rows);
+  let qHead = 0;
+  let qTail = 0;
+  const enqueue = (idx: number) => {
+    if (!outside[idx] && !sealed[idx]) {
+      outside[idx] = 1;
+      queue[qTail++] = idx;
+    }
+  };
+  for (let x = 0; x < cols; x++) {
+    enqueue(x);
+    enqueue((rows - 1) * cols + x);
+  }
+  for (let y = 0; y < rows; y++) {
+    enqueue(y * cols);
+    enqueue(y * cols + (cols - 1));
+  }
+  while (qHead < qTail) {
+    const cur = queue[qHead++];
+    const cx = cur % cols;
+    const cy = (cur - cx) / cols;
+    if (cx > 0) enqueue(cur - 1);
+    if (cx < cols - 1) enqueue(cur + 1);
+    if (cy > 0) enqueue(cur - cols);
+    if (cy < rows - 1) enqueue(cur + cols);
+  }
+
+  // Keep true interior cells (not outside, or actually on a wall)
+  const inside = new Uint8Array(cols * rows);
+  let insideCount = 0;
+  for (let i = 0; i < cols * rows; i++) {
+    if (!outside[i]) {
+      inside[i] = 1;
+      insideCount++;
+    }
+  }
+  if (insideCount === 0) return [];
+
+  // Merge interior cells into horizontal scanline rectangles
+  const rects: Array<{ x: number; y: number; w: number; h: number }> = [];
+  for (let y = 0; y < rows; y++) {
+    let x = 0;
+    while (x < cols) {
+      if (!inside[y * cols + x]) {
+        x++;
+        continue;
+      }
+      const x0 = x;
+      while (x < cols && inside[y * cols + x]) x++;
+      rects.push({
+        x: originX + x0 * stepX,
+        y: originY + y * stepY,
+        w: (x - x0) * stepX,
+        h: stepY + 0.004,
+      });
+    }
+  }
+  return rects;
+}
+
+/**
+ * Builds a flat world-UV mapped polygon floor geometry at Y = 0 from 2D meter vertices.
+ */
+function buildPolygonFloorGeometry(
+  polyM: Array<{ x: number; y: number }>,
+  centerX: number,
+  centerZ: number,
+  tileScaleM: number
+): THREE.ShapeGeometry | null {
+  if (!polyM || polyM.length < 3) return null;
+  const shape = new THREE.Shape();
+  shape.moveTo(polyM[0].x - centerX, -(polyM[0].y - centerZ));
+  for (let i = 1; i < polyM.length; i++) {
+    shape.lineTo(polyM[i].x - centerX, -(polyM[i].y - centerZ));
+  }
+  shape.closePath();
+
+  const geo = new THREE.ShapeGeometry(shape);
+  geo.rotateX(-Math.PI / 2);
+
+  // Assign real-world meter UVs so wood planks & ceramic tiles match exact architectural scale
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  const inv = 1 / Math.max(0.2, tileScaleM);
+  for (let i = 0; i < pos.count; i++) {
+    uv.setXY(i, pos.getX(i) * inv, pos.getZ(i) * inv);
+  }
+  uv.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Builds an extruded light-grey concrete slab directly beneath a 2D meter polygon (Y = -depthM .. 0).
+ */
+function buildPolygonPlinthGeometry(
+  polyM: Array<{ x: number; y: number }>,
+  centerX: number,
+  centerZ: number,
+  depthM = 0.16
+): THREE.ExtrudeGeometry | null {
+  if (!polyM || polyM.length < 3) return null;
+  const shape = new THREE.Shape();
+  shape.moveTo(polyM[0].x - centerX, -(polyM[0].y - centerZ));
+  for (let i = 1; i < polyM.length; i++) {
+    shape.lineTo(polyM[i].x - centerX, -(polyM[i].y - centerZ));
+  }
+  shape.closePath();
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: depthM,
+    bevelEnabled: false,
+  });
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, -depthM, 0);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function makeQuoteSpriteTexture(text: string, isRoom: boolean, lightTheme: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 72;
   const ctx = canvas.getContext('2d');
   if (ctx) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = isRoom ? 'rgba(15, 23, 42, 0.92)' : 'rgba(245, 158, 11, 0.95)';
-    ctx.strokeStyle = isRoom ? '#38bdf8' : '#0f172a';
+    ctx.fillStyle = isRoom
+      ? lightTheme
+        ? 'rgba(255, 255, 255, 0.94)'
+        : 'rgba(15, 23, 42, 0.92)'
+      : 'rgba(245, 158, 11, 0.95)';
+    ctx.strokeStyle = isRoom ? (lightTheme ? '#64748b' : '#38bdf8') : '#0f172a';
     ctx.lineWidth = 4;
     const pad = 8;
     const w = canvas.width - pad * 2;
@@ -93,7 +484,7 @@ function makeQuoteSpriteTexture(text: string, isRoom: boolean): THREE.CanvasText
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = isRoom ? '#f8fafc' : '#0f172a';
+    ctx.fillStyle = isRoom ? (lightTheme ? '#0f172a' : '#f8fafc') : '#0f172a';
     ctx.font = isRoom ? 'bold 24px sans-serif' : 'bold 28px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -114,25 +505,36 @@ interface InteractiveMeshEntry {
   baseEdgeOpacity?: number;
 }
 
-// Palette opaca anti-riflesso ad alto contrasto fisso:
-// Zero bagliori bianchi ruotando la camera da qualsiasi angolazione
-const COLOR_BG_STUDIO = 0x0f172a;
-const COLOR_BASE_PLINTH = 0x1e293b;
-const COLOR_BASE_FRAME = 0x475569;
+// --- THEME 1: MAQUETTE BIANCA ARCHITETTONICA (DEFAULT — STUDIO ARCHITECTURAL CUTAWAY) ---
+const MAQ_BG_STUDIO = 0xf5f6f8;
+const MAQ_CONCRETE_PLINTH = 0x9ea6b2;
+const MAQ_WALL_MATTE = 0xeeece7;
+const MAQ_WALL_TOP_CAP = 0xffffff;
+const MAQ_WALL_EDGE = 0x707987;
+const MAQ_DOOR_FRAME = 0xe4e2dc;
+const MAQ_DOOR_LEAF = 0xf7f6f2;
+const MAQ_DOOR_HANDLE = 0x7c8798;
+const MAQ_WIN_FRAME = 0xd2d8e0;
+const MAQ_WIN_GLASS = 0xb8d4e6;
+const MAQ_RAILING_METAL = 0xadb4bf;
 
-const COLOR_WALL_EXT = 0x334155;
-const COLOR_WALL_INT = 0x475569;
-const COLOR_WALL_CAP = 0xcbd5e1;
-const COLOR_EDGE_DEFAULT = 0x090d16;
+// --- THEME 2: PIANTINA TECNICA SCURA (OPZIONALE DA MENU VISTA) ---
+const DARK_BG_STUDIO = 0x0f172a;
+const DARK_BASE_PLINTH = 0x1e293b;
+const DARK_BASE_FRAME = 0x475569;
+const DARK_WALL_EXT = 0x334155;
+const DARK_WALL_INT = 0x475569;
+const DARK_WALL_CAP = 0xcbd5e1;
+const DARK_EDGE_DEFAULT = 0x090d16;
+const DARK_DOOR_FRAME = 0x1e293b;
+const DARK_DOOR_PANEL = 0xb45309;
+const DARK_WIN_FRAME = 0x94a3b8;
+const DARK_WIN_GLASS = 0x38bdf8;
+const DARK_PILLAR_BODY = 0x64748b;
+const DARK_PILLAR_CAP = 0x0f172a;
+const DARK_ROOM_SLAB = 0x0ea5e9;
 
-const COLOR_DOOR_FRAME = 0x1e293b;
-const COLOR_DOOR_PANEL = 0xb45309;
-const COLOR_WIN_FRAME = 0x94a3b8;
-const COLOR_WIN_GLASS = 0x38bdf8;
-const COLOR_PILLAR_BODY = 0x64748b;
-const COLOR_PILLAR_CAP = 0x0f172a;
-const COLOR_ROOM_SLAB = 0x0ea5e9;
-
+// Highlight colors
 const COLOR_HOVER = 0xf59e0b;
 const COLOR_SELECTED = 0x10b981;
 const COLOR_COMPUTED = 0x0284c7;
@@ -174,10 +576,17 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   onComputeBimObject,
   onComputeMultipleBimObjects,
   activeCellLabel,
+  isAnalyzingAi = false,
+  aiError = null,
+  onDismissAiError,
+  onRequestAiRebuild,
+  onUseLocalModel,
+  hasAiModel = false,
 }) => {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const menuBarRef = useRef<HTMLDivElement | null>(null);
 
+  const [visualTheme, setVisualTheme] = useState<VisualTheme>('maquette');
   const [openMenu, setOpenMenu] = useState<OpenDropdown>(null);
   const [clickMode, setClickMode] = useState<ClickMode>('instant');
   const [sides, setSides] = useState<1 | 2>(1);
@@ -249,6 +658,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   const selectedIdsRef = useRef(selectedIds);
   const computedIdsRef = useRef(computedIds);
   const inspectedIdRef = useRef(inspectedId);
+  const visualThemeRef = useRef(visualTheme);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -271,6 +681,9 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   useEffect(() => {
     inspectedIdRef.current = inspectedId;
   }, [inspectedId]);
+  useEffect(() => {
+    visualThemeRef.current = visualTheme;
+  }, [visualTheme]);
 
   const refreshObjectColors = useMemo(
     () => () => {
@@ -279,6 +692,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       const comp = computedIdsRef.current;
       const hov = hoveredIdRef.current;
       const insp = inspectedIdRef.current;
+      const isMaq = visualThemeRef.current === 'maquette';
 
       entries.forEach((entry, id) => {
         const isHov = id === hov;
@@ -289,38 +703,38 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         if (isHov || isInsp) {
           entry.materials.forEach((m) => {
             m.color.setHex(COLOR_HOVER);
-            m.emissive.setHex(0x3b1704);
+            m.emissive.setHex(isMaq ? 0x261200 : 0x3b1704);
           });
           if (entry.edgeMat) {
-            entry.edgeMat.color.setHex(0xffffff);
+            entry.edgeMat.color.setHex(isMaq ? 0xb45309 : 0xffffff);
             entry.edgeMat.opacity = 0.95;
           }
         } else if (isSel) {
           entry.materials.forEach((m) => {
             m.color.setHex(COLOR_SELECTED);
-            m.emissive.setHex(0x064e3b);
+            m.emissive.setHex(isMaq ? 0x042f22 : 0x064e3b);
           });
           if (entry.edgeMat) {
-            entry.edgeMat.color.setHex(0xffffff);
+            entry.edgeMat.color.setHex(isMaq ? 0x047857 : 0xffffff);
             entry.edgeMat.opacity = 0.9;
           }
         } else if (isComp) {
           entry.materials.forEach((m) => {
             m.color.setHex(COLOR_COMPUTED);
-            m.emissive.setHex(0x0c4a6e);
+            m.emissive.setHex(isMaq ? 0x062538 : 0x0c4a6e);
           });
           if (entry.edgeMat) {
-            entry.edgeMat.color.setHex(0xbae6fd);
+            entry.edgeMat.color.setHex(isMaq ? 0x0369a1 : 0xbae6fd);
             entry.edgeMat.opacity = 0.85;
           }
         } else {
           entry.materials.forEach((m, idx) => {
-            m.color.setHex(entry.baseColors[idx] ?? COLOR_WALL_EXT);
+            m.color.setHex(entry.baseColors[idx] ?? (isMaq ? MAQ_WALL_MATTE : DARK_WALL_EXT));
             m.emissive.setHex(0x000000);
           });
           if (entry.edgeMat) {
-            entry.edgeMat.color.setHex(entry.baseEdgeColor ?? COLOR_EDGE_DEFAULT);
-            entry.edgeMat.opacity = entry.baseEdgeOpacity ?? 0.78;
+            entry.edgeMat.color.setHex(entry.baseEdgeColor ?? (isMaq ? MAQ_WALL_EDGE : DARK_EDGE_DEFAULT));
+            entry.edgeMat.opacity = entry.baseEdgeOpacity ?? (isMaq ? 0.36 : 0.78);
           }
         }
       });
@@ -331,7 +745,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
   useEffect(() => {
     refreshObjectColors();
-  }, [selectedIds, computedIds, inspectedId, refreshObjectColors]);
+  }, [selectedIds, computedIds, inspectedId, visualTheme, refreshObjectColors]);
 
   useEffect(() => {
     if (quotesGroupRef.current) {
@@ -340,28 +754,40 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     }
   }, [showQuotesLayer]);
 
-  // Main Three.js scene lifecycle — Matte Anti-Glare Lighting Rig
+  // Main Three.js Scene Lifecycle — Pure Architectural White Maquette (Default) + Technical Dark Blueprint
   useEffect(() => {
     const container = canvasMountRef.current;
     if (!container) return;
 
     const isSoftwareGl = detectSoftwareWebGL();
+    const isMaquette = visualTheme === 'maquette';
     const width = Math.max(320, container.clientWidth);
     const height = Math.max(260, container.clientHeight);
 
+    const bgHex = isMaquette ? MAQ_BG_STUDIO : DARK_BG_STUDIO;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(COLOR_BG_STUDIO);
+    scene.background = new THREE.Color(bgHex);
 
     const { boundsM, planWidthM, planHeightM, walls, doors, windows, pillars, rooms } = bimModel;
-    const centerX = walls.length > 0 ? (boundsM.minX + boundsM.maxX) * 0.5 : planWidthM * 0.5;
-    const centerZ = walls.length > 0 ? (boundsM.minY + boundsM.maxY) * 0.5 : planHeightM * 0.5;
-    const spanX = Math.max(4, walls.length > 0 ? boundsM.maxX - boundsM.minX : planWidthM);
-    const spanZ = Math.max(4, walls.length > 0 ? boundsM.maxY - boundsM.minY : planHeightM);
+    const railings = bimModel.railings || [];
+    const hasGeo = walls.length > 0 || rooms.length > 0;
+    const centerX = hasGeo ? (boundsM.minX + boundsM.maxX) * 0.5 : planWidthM * 0.5;
+    const centerZ = hasGeo ? (boundsM.minY + boundsM.maxY) * 0.5 : planHeightM * 0.5;
+    const spanX = Math.max(4, hasGeo ? boundsM.maxX - boundsM.minX : planWidthM);
+    const spanZ = Math.max(4, hasGeo ? boundsM.maxY - boundsM.minY : planHeightM);
     const diag = Math.max(6, Math.hypot(spanX, spanZ));
 
-    scene.fog = new THREE.Fog(COLOR_BG_STUDIO, diag * 2.8, diag * 7.8);
+    scene.fog = isMaquette
+      ? new THREE.Fog(MAQ_BG_STUDIO, diag * 4.5, diag * 11.0)
+      : new THREE.Fog(DARK_BG_STUDIO, diag * 2.8, diag * 7.8);
 
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, Math.max(220, diag * 12));
+    // Architectural cutaway perspective (35° feels close to an isometric architectural maquette!)
+    const camera = new THREE.PerspectiveCamera(
+      isMaquette ? 34 : 40,
+      width / height,
+      0.1,
+      Math.max(220, diag * 14)
+    );
 
     const renderer = new THREE.WebGLRenderer({
       antialias: !isSoftwareGl,
@@ -371,8 +797,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // Esposizione calibrata anti-sovraesposizione: niente riflessi bianchi abbaglianti
-    renderer.toneMappingExposure = 0.94;
+    renderer.toneMappingExposure = isMaquette ? 0.9 : 0.94;
     renderer.shadowMap.enabled = !isSoftwareGl;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.style.display = 'block';
@@ -380,7 +805,9 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     renderer.domElement.style.height = '100%';
     container.appendChild(renderer.domElement);
 
-    // Subtle Studio PMREM Environment (controlled per-material via low envMapIntensity so floor/walls NEVER glare white!)
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+
+    // Soft Studio Environment (subtle intensity per-material prevents any white glare while rotating)
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     const roomEnv = new RoomEnvironment();
     const envTarget = pmremGenerator.fromScene(roomEnv, 0.04);
@@ -388,34 +815,61 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     roomEnv.dispose();
     pmremGenerator.dispose();
 
-    // Anti-Glare Balanced Architectural Lighting Rig
-    // Luce diffusa morbida + luce chiave calibrata (1.15) + luce di riempimento laterale (0.42)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.34);
-    scene.add(ambientLight);
+    // High-Contrast Architectural Studio Sunlight Rig (Maquette) vs Anti-Glare Technical Rig (Blueprint)
+    if (isMaquette) {
+      // Lower hemisphere bounce + strong diagonal sun creates crisp sunlit vs shaded white walls & interior shadows
+      const hemiLight = new THREE.HemisphereLight(0xf5f8fc, 0xbdb5a8, 0.52);
+      scene.add(hemiLight);
 
-    const hemiLight = new THREE.HemisphereLight(0xe2e8f0, 0x334155, 0.48);
-    scene.add(hemiLight);
+      const keyLight = new THREE.DirectionalLight(0xfff5e6, 1.85);
+      keyLight.position.set(diag * 0.68, diag * 1.12, diag * 0.56);
+      if (!isSoftwareGl) {
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.set(2048, 2048);
+        const pad = diag * 0.85;
+        keyLight.shadow.camera.left = -pad;
+        keyLight.shadow.camera.right = pad;
+        keyLight.shadow.camera.top = pad;
+        keyLight.shadow.camera.bottom = -pad;
+        keyLight.shadow.camera.near = 0.5;
+        keyLight.shadow.camera.far = diag * 5.0;
+        keyLight.shadow.bias = -0.0003;
+        keyLight.shadow.normalBias = 0.02;
+        keyLight.shadow.radius = 2.4;
+      }
+      scene.add(keyLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.15);
-    keyLight.position.set(diag * 0.72, diag * 1.38, diag * 0.58);
-    if (!isSoftwareGl) {
-      keyLight.castShadow = true;
-      keyLight.shadow.mapSize.set(2048, 2048);
-      const pad = diag * 0.78;
-      keyLight.shadow.camera.left = -pad;
-      keyLight.shadow.camera.right = pad;
-      keyLight.shadow.camera.top = pad;
-      keyLight.shadow.camera.bottom = -pad;
-      keyLight.shadow.camera.near = 0.5;
-      keyLight.shadow.camera.far = diag * 4.5;
-      keyLight.shadow.bias = -0.0005;
-      keyLight.shadow.normalBias = 0.03;
+      const fillLight = new THREE.DirectionalLight(0xd4e4f7, 0.22);
+      fillLight.position.set(-diag * 0.85, diag * 0.68, -diag * 0.72);
+      scene.add(fillLight);
+    } else {
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.34);
+      scene.add(ambientLight);
+
+      const hemiLight = new THREE.HemisphereLight(0xe2e8f0, 0x334155, 0.48);
+      scene.add(hemiLight);
+
+      const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.15);
+      keyLight.position.set(diag * 0.72, diag * 1.38, diag * 0.58);
+      if (!isSoftwareGl) {
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.set(2048, 2048);
+        const pad = diag * 0.78;
+        keyLight.shadow.camera.left = -pad;
+        keyLight.shadow.camera.right = pad;
+        keyLight.shadow.camera.top = pad;
+        keyLight.shadow.camera.bottom = -pad;
+        keyLight.shadow.camera.near = 0.5;
+        keyLight.shadow.camera.far = diag * 4.5;
+        keyLight.shadow.bias = -0.0005;
+        keyLight.shadow.normalBias = 0.03;
+      }
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xcbd5e1, 0.42);
+      fillLight.position.set(-diag * 0.85, diag * 0.8, -diag * 0.72);
+      scene.add(fillLight);
     }
-    scene.add(keyLight);
-
-    const fillLight = new THREE.DirectionalLight(0xcbd5e1, 0.42);
-    fillLight.position.set(-diag * 0.85, diag * 0.8, -diag * 0.72);
-    scene.add(fillLight);
 
     // Standard CAD Controls: Wheel zoom to cursor, Middle-click PAN, Left/Right drag Orbit
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -433,346 +887,581 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       RIGHT: THREE.MOUSE.ROTATE,
     };
     controls.maxPolarAngle = Math.PI * 0.485;
-    controls.minDistance = Math.max(1.2, diag * 0.12);
-    controls.maxDistance = diag * 4.2;
+    controls.minDistance = Math.max(1.2, diag * 0.14);
+    controls.maxDistance = diag * 4.5;
 
     const disposables: Array<{ dispose: () => void }> = [];
 
-    // Fixed Matte Architectural Base Plinth + Crisp Frame
-    const plinthW = planWidthM + 1.6;
-    const plinthH = planHeightM + 1.6;
-    const baseOffsetX = planWidthM * 0.5 - centerX;
-    const baseOffsetZ = planHeightM * 0.5 - centerZ;
-
-    const plinthGeo = new THREE.BoxGeometry(plinthW, 0.28, plinthH);
-    const plinthMat = new THREE.MeshStandardMaterial({
-      color: COLOR_BASE_PLINTH,
-      roughness: 0.96,
-      metalness: 0.0,
-      envMapIntensity: 0.08,
-    });
-    const plinthMesh = new THREE.Mesh(plinthGeo, plinthMat);
-    plinthMesh.position.set(baseOffsetX, -0.15, baseOffsetZ);
-    plinthMesh.receiveShadow = !isSoftwareGl;
-    scene.add(plinthMesh);
-    disposables.push(plinthGeo, plinthMat);
-
-    const plinthEdgesGeo = new THREE.EdgesGeometry(plinthGeo);
-    const plinthEdgesMat = new THREE.LineBasicMaterial({
-      color: COLOR_BASE_FRAME,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const plinthEdges = new THREE.LineSegments(plinthEdgesGeo, plinthEdgesMat);
-    plinthEdges.position.copy(plinthMesh.position);
-    scene.add(plinthEdges);
-    disposables.push(plinthEdgesGeo, plinthEdgesMat);
-
-    // Clean Matte PDF Floor Plan Texture:
-    // MeshLambertMaterial (100% diffuso opaco, ZERO specular glare ruotando!) + carta bianco-avorio leggera (#eef2f6)
-    let floorTexture: THREE.CanvasTexture | null = null;
-    if (cleanFloorCanvas && cleanFloorCanvas.width > 0 && cleanFloorCanvas.height > 0) {
-      const texCanvas = document.createElement('canvas');
-      const maxTex = isSoftwareGl ? 1024 : 2048;
-      const tScale = Math.min(1, maxTex / Math.max(cleanFloorCanvas.width, cleanFloorCanvas.height));
-      texCanvas.width = Math.max(64, Math.round(cleanFloorCanvas.width * tScale));
-      texCanvas.height = Math.max(64, Math.round(cleanFloorCanvas.height * tScale));
-      const tCtx = texCanvas.getContext('2d');
-      if (tCtx) {
-        tCtx.fillStyle = '#f1f5f9';
-        tCtx.fillRect(0, 0, texCanvas.width, texCanvas.height);
-        tCtx.drawImage(cleanFloorCanvas, 0, 0, texCanvas.width, texCanvas.height);
-        floorTexture = new THREE.CanvasTexture(texCanvas);
-        floorTexture.colorSpace = THREE.SRGBColorSpace;
-        floorTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-        floorTexture.needsUpdate = true;
-        disposables.push(floorTexture);
-      }
+    // Shared procedural textures for Maquette mode
+    let oakTex: THREE.CanvasTexture | null = null;
+    let ceramicTex: THREE.CanvasTexture | null = null;
+    let wallAoTex: THREE.CanvasTexture | null = null;
+    let wallAoMat: THREE.MeshBasicMaterial | null = null;
+    if (isMaquette) {
+      oakTex = createOakFloorTexture(maxAniso);
+      ceramicTex = createCeramicFloorTexture(maxAniso);
+      wallAoTex = createWallAoTexture();
+      wallAoMat = new THREE.MeshBasicMaterial({
+        map: wallAoTex,
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
+      disposables.push(oakTex, ceramicTex, wallAoTex, wallAoMat);
     }
 
-    const floorGeo = new THREE.PlaneGeometry(planWidthM, planHeightM);
-    floorGeo.rotateX(-Math.PI / 2);
-    const floorMat = new THREE.MeshLambertMaterial({
-      color: 0xeef2f6,
-      map: floorTexture,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
+    const concretePlinthMat = new THREE.MeshStandardMaterial({
+      color: MAQ_CONCRETE_PLINTH,
+      roughness: 0.94,
+      metalness: 0.0,
+      envMapIntensity: 0.04,
     });
-    const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-    floorMesh.position.set(baseOffsetX, 0.002, baseOffsetZ);
-    floorMesh.receiveShadow = !isSoftwareGl;
-    scene.add(floorMesh);
-    disposables.push(floorGeo, floorMat);
+    disposables.push(concretePlinthMat);
+
+    // --- BASE / GROUND PLANE ---
+    const roomsWithPolygons = rooms.filter((r) => r.polygonM && r.polygonM.length >= 3);
+
+    if (isMaquette) {
+      // Seamless pure white studio floor catching crisp-yet-soft exterior shadows
+      const shadowGroundGeo = new THREE.PlaneGeometry(diag * 14, diag * 14);
+      shadowGroundGeo.rotateX(-Math.PI / 2);
+      const shadowGroundMat = new THREE.ShadowMaterial({ opacity: 0.22 });
+      const shadowGround = new THREE.Mesh(shadowGroundGeo, shadowGroundMat);
+      shadowGround.position.set(0, -0.165, 0);
+      shadowGround.receiveShadow = !isSoftwareGl;
+      scene.add(shadowGround);
+      disposables.push(shadowGroundGeo, shadowGroundMat);
+
+      if (roomsWithPolygons.length === 0 && hasGeo) {
+        // Compute tight interior silhouette strips strictly inside the walls (NEVER a giant protruding bbox!)
+        const tightRects = buildTightInteriorFloorRects(walls, boundsM);
+        const fallbackRects =
+          tightRects.length > 0
+            ? tightRects
+            : [{ x: boundsM.minX, y: boundsM.minY, w: spanX, h: spanZ }];
+
+        const baseFloorMat = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          map: oakTex,
+          roughness: 0.78,
+          metalness: 0.0,
+          envMapIntensity: 0.08,
+        });
+        disposables.push(baseFloorMat);
+
+        for (const rc of fallbackRects) {
+          const rx = rc.x + rc.w * 0.5 - centerX;
+          const rz = rc.y + rc.h * 0.5 - centerZ;
+
+          const pGeo = new THREE.BoxGeometry(rc.w, 0.16, rc.h);
+          const pMesh = new THREE.Mesh(pGeo, concretePlinthMat);
+          pMesh.position.set(rx, -0.08, rz);
+          pMesh.castShadow = !isSoftwareGl;
+          pMesh.receiveShadow = !isSoftwareGl;
+          scene.add(pMesh);
+          disposables.push(pGeo);
+
+          const fGeo = new THREE.PlaneGeometry(rc.w, rc.h);
+          fGeo.rotateX(-Math.PI / 2);
+          const pos = fGeo.attributes.position;
+          const uv = fGeo.attributes.uv;
+          for (let i = 0; i < pos.count; i++) {
+            uv.setXY(i, (pos.getX(i) + rx) / 1.85, (pos.getZ(i) + rz) / 1.85);
+          }
+          uv.needsUpdate = true;
+
+          const fMesh = new THREE.Mesh(fGeo, baseFloorMat);
+          fMesh.position.set(rx, 0.002, rz);
+          fMesh.receiveShadow = !isSoftwareGl;
+          scene.add(fMesh);
+          disposables.push(fGeo);
+        }
+      }
+    } else {
+      // Optional Dark Technical Blueprint Mode (PDF texture on dark studio plinth)
+      const plinthW = planWidthM + 1.6;
+      const plinthH = planHeightM + 1.6;
+      const baseOffsetX = planWidthM * 0.5 - centerX;
+      const baseOffsetZ = planHeightM * 0.5 - centerZ;
+
+      const plinthGeo = new THREE.BoxGeometry(plinthW, 0.28, plinthH);
+      const plinthMat = new THREE.MeshStandardMaterial({
+        color: DARK_BASE_PLINTH,
+        roughness: 0.96,
+        metalness: 0.0,
+        envMapIntensity: 0.08,
+      });
+      const plinthMesh = new THREE.Mesh(plinthGeo, plinthMat);
+      plinthMesh.position.set(baseOffsetX, -0.15, baseOffsetZ);
+      plinthMesh.receiveShadow = !isSoftwareGl;
+      scene.add(plinthMesh);
+      disposables.push(plinthGeo, plinthMat);
+
+      const plinthEdgesGeo = new THREE.EdgesGeometry(plinthGeo);
+      const plinthEdgesMat = new THREE.LineBasicMaterial({
+        color: DARK_BASE_FRAME,
+        transparent: true,
+        opacity: 0.85,
+      });
+      const plinthEdges = new THREE.LineSegments(plinthEdgesGeo, plinthEdgesMat);
+      plinthEdges.position.copy(plinthMesh.position);
+      scene.add(plinthEdges);
+      disposables.push(plinthEdgesGeo, plinthEdgesMat);
+
+      let floorTexture: THREE.CanvasTexture | null = null;
+      if (cleanFloorCanvas && cleanFloorCanvas.width > 0 && cleanFloorCanvas.height > 0) {
+        const texCanvas = document.createElement('canvas');
+        const maxTex = isSoftwareGl ? 1024 : 2048;
+        const tScale = Math.min(1, maxTex / Math.max(cleanFloorCanvas.width, cleanFloorCanvas.height));
+        texCanvas.width = Math.max(64, Math.round(cleanFloorCanvas.width * tScale));
+        texCanvas.height = Math.max(64, Math.round(cleanFloorCanvas.height * tScale));
+        const tCtx = texCanvas.getContext('2d');
+        if (tCtx) {
+          tCtx.fillStyle = '#f1f5f9';
+          tCtx.fillRect(0, 0, texCanvas.width, texCanvas.height);
+          tCtx.drawImage(cleanFloorCanvas, 0, 0, texCanvas.width, texCanvas.height);
+          floorTexture = new THREE.CanvasTexture(texCanvas);
+          floorTexture.colorSpace = THREE.SRGBColorSpace;
+          floorTexture.anisotropy = Math.min(8, maxAniso);
+          floorTexture.needsUpdate = true;
+          disposables.push(floorTexture);
+        }
+      }
+
+      const floorGeo = new THREE.PlaneGeometry(planWidthM, planHeightM);
+      floorGeo.rotateX(-Math.PI / 2);
+      const floorMat = new THREE.MeshLambertMaterial({
+        color: 0xeef2f6,
+        map: floorTexture,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+      });
+      const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+      floorMesh.position.set(baseOffsetX, 0.002, baseOffsetZ);
+      floorMesh.receiveShadow = !isSoftwareGl;
+      scene.add(floorMesh);
+      disposables.push(floorGeo, floorMat);
+    }
 
     const pickMeshes: THREE.Mesh[] = [];
     const newEntries = new Map<string, InteractiveMeshEntry>();
 
+    // Show full architectural maquette (walls, doors, windows, pillars, rooms) in BOTH 3D and BIM!
     const showKind = (kind: BimObjectKind): boolean => {
-      if (mode === '3d') return kind === 'wall';
+      if (mode === '3d') return true;
       return bimFilter === 'all' || bimFilter === kind;
     };
 
-    const unitBodyGeo = new THREE.BoxGeometry(1, 0.955, 1);
-    unitBodyGeo.translate(0, 0.4775, 0);
-    const unitCapGeo = new THREE.BoxGeometry(1.006, 0.045, 1.05);
-    unitCapGeo.translate(0, 0.9775, 0);
+    const unitBodyGeo = new THREE.BoxGeometry(1, 0.96, 1);
+    unitBodyGeo.translate(0, 0.48, 0);
+    const unitCapGeo = new THREE.BoxGeometry(1.002, 0.04, 1.002);
+    unitCapGeo.translate(0, 0.98, 0);
     const unitEdgesGeo = new THREE.EdgesGeometry(unitBodyGeo);
     const unitBoxGeo = new THREE.BoxGeometry(1, 1, 1);
     unitBoxGeo.translate(0, 0.5, 0);
     const unitBoxEdgesGeo = new THREE.EdgesGeometry(unitBoxGeo);
     disposables.push(unitBodyGeo, unitCapGeo, unitEdgesGeo, unitBoxGeo, unitBoxEdgesGeo);
 
-    // 1. WALLS (Opachi anti-riflesso: roughness 0.92, metalness 0, envMapIntensity 0.14)
+    // 1. WALLS (Supports orthogonal + diagonal angles!)
     if (showKind('wall')) {
       for (const wall of walls) {
-        const group = new THREE.Group();
-        group.position.set(wall.cxM - centerX, 0, wall.cyM - centerZ);
-        const sx = wall.orientation === 'H' ? wall.lengthM : wall.thicknessM;
-        const sz = wall.orientation === 'H' ? wall.thicknessM : wall.lengthM;
-        group.scale.set(sx, Math.max(0.4, wall.heightM), sz);
+        const dx = wall.x2M - wall.x1M;
+        const dz = wall.y2M - wall.y1M;
+        const angle =
+          typeof wall.angleRad === 'number'
+            ? wall.angleRad
+            : Math.hypot(dx, dz) > 0.001
+            ? Math.atan2(dz, dx)
+            : wall.orientation === 'V'
+            ? Math.PI / 2
+            : 0;
 
-        const bodyColor = wall.category === 'Muro Perimetrale' ? COLOR_WALL_EXT : COLOR_WALL_INT;
+        const wallGroup = new THREE.Group();
+        wallGroup.position.set(wall.cxM - centerX, 0, wall.cyM - centerZ);
+        wallGroup.rotation.y = -angle;
+
+        const wLen = Math.max(0.15, wall.lengthM);
+        const wH = Math.max(0.4, wall.heightM);
+        const wT = Math.max(0.08, wall.thicknessM);
+
+        // Concrete architectural slab strip + contact AO floor shadow beneath wall in Maquette mode
+        if (isMaquette) {
+          const baseSkirt = new THREE.Mesh(unitBoxGeo, concretePlinthMat);
+          baseSkirt.position.set(0, -0.16, 0);
+          baseSkirt.scale.set(wLen + wT * 0.35, 0.16, wT + 0.02);
+          baseSkirt.castShadow = !isSoftwareGl;
+          baseSkirt.receiveShadow = !isSoftwareGl;
+          wallGroup.add(baseSkirt);
+
+          if (wallAoMat) {
+            const aoPlaneGeo = new THREE.PlaneGeometry(wLen + 0.06, wT + 0.28);
+            aoPlaneGeo.rotateX(-Math.PI / 2);
+            const aoStrip = new THREE.Mesh(aoPlaneGeo, wallAoMat);
+            aoStrip.position.set(0, 0.015, 0);
+            wallGroup.add(aoStrip);
+            disposables.push(aoPlaneGeo);
+          }
+        }
+
+        const bodyColor = isMaquette
+          ? MAQ_WALL_MATTE
+          : wall.category === 'Muro Perimetrale'
+          ? DARK_WALL_EXT
+          : DARK_WALL_INT;
+        const capColor = isMaquette ? MAQ_WALL_TOP_CAP : DARK_WALL_CAP;
+        const edgeColor = isMaquette ? MAQ_WALL_EDGE : DARK_EDGE_DEFAULT;
+        const edgeOpacity = isMaquette ? 0.42 : 0.82;
+
         const bodyMat = new THREE.MeshStandardMaterial({
           color: bodyColor,
-          roughness: 0.92,
+          roughness: isMaquette ? 0.92 : 0.92,
           metalness: 0.0,
-          envMapIntensity: 0.14,
+          envMapIntensity: isMaquette ? 0.04 : 0.14,
         });
         const capMat = new THREE.MeshStandardMaterial({
-          color: COLOR_WALL_CAP,
-          roughness: 0.9,
+          color: capColor,
+          emissive: isMaquette ? 0x121212 : 0x000000,
+          roughness: 0.88,
           metalness: 0.0,
-          envMapIntensity: 0.1,
+          envMapIntensity: isMaquette ? 0.04 : 0.1,
         });
         const edgeMat = new THREE.LineBasicMaterial({
-          color: COLOR_EDGE_DEFAULT,
+          color: edgeColor,
           transparent: true,
-          opacity: 0.82,
+          opacity: edgeOpacity,
         });
 
         const bodyMesh = new THREE.Mesh(unitBodyGeo, bodyMat);
+        bodyMesh.scale.set(wLen, wH, wT);
         bodyMesh.castShadow = !isSoftwareGl;
         bodyMesh.receiveShadow = !isSoftwareGl;
         bodyMesh.userData.bimId = wall.id;
 
         const capMesh = new THREE.Mesh(unitCapGeo, capMat);
+        capMesh.scale.set(wLen, wH, wT);
         capMesh.castShadow = !isSoftwareGl;
+        capMesh.receiveShadow = !isSoftwareGl;
         capMesh.userData.bimId = wall.id;
 
         const edgeLine = new THREE.LineSegments(unitEdgesGeo, edgeMat);
-        group.add(bodyMesh, capMesh, edgeLine);
-        scene.add(group);
+        edgeLine.scale.set(wLen, wH, wT);
+
+        wallGroup.add(bodyMesh, capMesh, edgeLine);
+        scene.add(wallGroup);
 
         pickMeshes.push(bodyMesh, capMesh);
         newEntries.set(wall.id, {
           obj: wall,
-          materials: [bodyMat],
-          baseColors: [bodyColor],
+          materials: isMaquette ? [bodyMat, capMat] : [bodyMat],
+          baseColors: isMaquette ? [bodyColor, capColor] : [bodyColor],
           edgeMat,
-          baseEdgeColor: COLOR_EDGE_DEFAULT,
-          baseEdgeOpacity: 0.82,
+          baseEdgeColor: edgeColor,
+          baseEdgeOpacity: edgeOpacity,
         });
         disposables.push(bodyMat, capMat, edgeMat);
       }
     }
 
-    // 2. BIM DOORS
+    // 2. DOORS (Matte white open hinged architectural doors in Maquette mode)
     if (showKind('door')) {
       for (const door of doors) {
+        const angle =
+          typeof door.angleRad === 'number'
+            ? door.angleRad
+            : door.orientation === 'V'
+            ? Math.PI / 2
+            : 0;
+
         const group = new THREE.Group();
         group.position.set(door.cxM - centerX, 0, door.cyM - centerZ);
-        if (door.orientation === 'V') group.rotation.y = Math.PI / 2;
+        group.rotation.y = -angle;
+
+        const frameColor = isMaquette ? MAQ_DOOR_FRAME : DARK_DOOR_FRAME;
+        const leafColor = isMaquette ? MAQ_DOOR_LEAF : DARK_DOOR_PANEL;
+        const edgeColor = isMaquette ? MAQ_WALL_EDGE : 0x451a03;
+        const edgeOpacity = isMaquette ? 0.38 : 0.8;
 
         const frameMat = new THREE.MeshStandardMaterial({
-          color: COLOR_DOOR_FRAME,
-          roughness: 0.85,
-          metalness: 0.05,
-          envMapIntensity: 0.15,
+          color: frameColor,
+          roughness: 0.88,
+          metalness: 0.0,
+          envMapIntensity: isMaquette ? 0.08 : 0.15,
         });
         const panelMat = new THREE.MeshStandardMaterial({
-          color: COLOR_DOOR_PANEL,
-          roughness: 0.85,
+          color: leafColor,
+          roughness: 0.84,
           metalness: 0.0,
-          envMapIntensity: 0.15,
+          envMapIntensity: isMaquette ? 0.09 : 0.15,
+        });
+        const handleMat = new THREE.MeshStandardMaterial({
+          color: MAQ_DOOR_HANDLE,
+          roughness: 0.35,
+          metalness: 0.6,
+          envMapIntensity: 0.3,
         });
         const edgeMat = new THREE.LineBasicMaterial({
-          color: 0x451a03,
+          color: edgeColor,
           transparent: true,
-          opacity: 0.8,
+          opacity: edgeOpacity,
         });
 
-        const dThick = Math.max(0.08, door.thicknessM + 0.02);
-        const jambW = 0.06;
+        const dThick = Math.max(0.09, door.thicknessM + 0.02);
+        const jambW = 0.055;
         const leftJamb = new THREE.Mesh(unitBoxGeo, frameMat);
         leftJamb.scale.set(jambW, door.heightM, dThick);
         leftJamb.position.set(-door.widthM * 0.5 + jambW * 0.5, 0, 0);
+        leftJamb.castShadow = !isSoftwareGl;
+        leftJamb.receiveShadow = !isSoftwareGl;
         leftJamb.userData.bimId = door.id;
 
         const rightJamb = new THREE.Mesh(unitBoxGeo, frameMat);
         rightJamb.scale.set(jambW, door.heightM, dThick);
         rightJamb.position.set(door.widthM * 0.5 - jambW * 0.5, 0, 0);
+        rightJamb.castShadow = !isSoftwareGl;
+        rightJamb.receiveShadow = !isSoftwareGl;
         rightJamb.userData.bimId = door.id;
 
         const header = new THREE.Mesh(unitBoxGeo, frameMat);
-        header.scale.set(door.widthM, 0.07, dThick);
-        header.position.set(0, door.heightM - 0.07, 0);
+        header.scale.set(door.widthM, 0.06, dThick);
+        header.position.set(0, door.heightM - 0.06, 0);
+        header.castShadow = !isSoftwareGl;
         header.userData.bimId = door.id;
 
-        const leafW = Math.max(0.3, door.widthM - jambW * 2);
-        const leafH = Math.max(0.5, door.heightM - 0.07);
+        const leafW = Math.max(0.35, door.widthM - jambW * 2);
+        const leafH = Math.max(0.5, door.heightM - 0.065);
+
+        // Hinged door pivot swung open ~40° into the room (matches architectural maquette!)
+        const hingePivot = new THREE.Group();
+        hingePivot.position.set(-door.widthM * 0.5 + jambW, 0, 0);
+        const swingSign = door.swingSign === -1 ? -1 : 1;
+        if (door.doorType !== 'Porta Scorrevole') {
+          hingePivot.rotation.y = isMaquette ? swingSign * 0.72 : 0;
+        }
+
         const leaf = new THREE.Mesh(unitBoxGeo, panelMat);
-        leaf.scale.set(leafW, leafH, 0.045);
+        leaf.scale.set(leafW, leafH, 0.042);
+        leaf.position.set(leafW * 0.5, 0.004, 0);
         leaf.castShadow = !isSoftwareGl;
+        leaf.receiveShadow = !isSoftwareGl;
         leaf.userData.bimId = door.id;
 
         const leafEdge = new THREE.LineSegments(unitBoxEdgesGeo, edgeMat);
         leafEdge.scale.copy(leaf.scale);
+        leafEdge.position.copy(leaf.position);
 
-        if (wallHeightM > door.heightM + 0.12) {
+        // Minimalist silver lever handle
+        const handle = new THREE.Mesh(unitBoxGeo, handleMat);
+        handle.scale.set(0.11, 0.022, 0.095);
+        handle.position.set(leafW - 0.11, 1.0, 0);
+        handle.userData.bimId = door.id;
+
+        hingePivot.add(leaf, leafEdge, handle);
+
+        // Transom wall above door up to wallHeightM
+        if (wallHeightM > door.heightM + 0.08) {
           const transomH = wallHeightM - door.heightM;
           const transomMat = new THREE.MeshStandardMaterial({
-            color: COLOR_WALL_INT,
-            roughness: 0.92,
+            color: isMaquette ? MAQ_WALL_MATTE : DARK_WALL_INT,
+            roughness: 0.9,
             metalness: 0.0,
-            envMapIntensity: 0.14,
+            envMapIntensity: isMaquette ? 0.08 : 0.14,
           });
           const transom = new THREE.Mesh(unitBoxGeo, transomMat);
           transom.scale.set(door.widthM, transomH, door.thicknessM);
           transom.position.set(0, door.heightM, 0);
+          transom.castShadow = !isSoftwareGl;
+          transom.receiveShadow = !isSoftwareGl;
+          transom.userData.bimId = door.id;
           group.add(transom);
           disposables.push(transomMat);
         }
 
-        group.add(leftJamb, rightJamb, header, leaf, leafEdge);
+        group.add(leftJamb, rightJamb, header, hingePivot);
         scene.add(group);
 
         pickMeshes.push(leftJamb, rightJamb, header, leaf);
         newEntries.set(door.id, {
           obj: door,
-          materials: [panelMat],
-          baseColors: [COLOR_DOOR_PANEL],
+          materials: [panelMat, frameMat],
+          baseColors: [leafColor, frameColor],
           edgeMat,
-          baseEdgeColor: 0x451a03,
-          baseEdgeOpacity: 0.8,
+          baseEdgeColor: edgeColor,
+          baseEdgeOpacity: edgeOpacity,
         });
-        disposables.push(frameMat, panelMat, edgeMat);
+        disposables.push(frameMat, panelMat, handleMat, edgeMat);
       }
     }
 
-    // 3. BIM WINDOWS
+    // 3. WINDOWS & PORTEFINESTRE (Minimalist slim aluminum/white frames + clean translucent glass)
     if (showKind('window')) {
       for (const win of windows) {
+        const angle =
+          typeof win.angleRad === 'number'
+            ? win.angleRad
+            : win.orientation === 'V'
+            ? Math.PI / 2
+            : 0;
+
         const group = new THREE.Group();
         group.position.set(win.cxM - centerX, 0, win.cyM - centerZ);
-        if (win.orientation === 'V') group.rotation.y = Math.PI / 2;
+        group.rotation.y = -angle;
+
+        const sillColor = isMaquette ? MAQ_WALL_MATTE : DARK_WALL_EXT;
+        const frameColor = isMaquette ? MAQ_WIN_FRAME : DARK_WIN_FRAME;
+        const glassColor = isMaquette ? MAQ_WIN_GLASS : DARK_WIN_GLASS;
+        const edgeColor = isMaquette ? 0x9aa5b5 : 0xe0f2fe;
+        const edgeOpacity = isMaquette ? 0.45 : 0.85;
 
         const sillMat = new THREE.MeshStandardMaterial({
-          color: COLOR_WALL_EXT,
-          roughness: 0.92,
+          color: sillColor,
+          roughness: 0.9,
           metalness: 0.0,
-          envMapIntensity: 0.14,
+          envMapIntensity: isMaquette ? 0.08 : 0.14,
         });
         const frameMat = new THREE.MeshStandardMaterial({
-          color: COLOR_WIN_FRAME,
-          roughness: 0.75,
-          metalness: 0.1,
-          envMapIntensity: 0.2,
+          color: frameColor,
+          roughness: isMaquette ? 0.55 : 0.75,
+          metalness: 0.12,
+          envMapIntensity: isMaquette ? 0.18 : 0.2,
         });
         const glassMat = new THREE.MeshStandardMaterial({
-          color: COLOR_WIN_GLASS,
-          roughness: 0.35,
-          metalness: 0.1,
+          color: glassColor,
+          roughness: 0.18,
+          metalness: 0.08,
           envMapIntensity: 0.35,
           transparent: true,
-          opacity: 0.55,
+          opacity: isMaquette ? 0.34 : 0.55,
+          depthWrite: false,
         });
         const edgeMat = new THREE.LineBasicMaterial({
-          color: 0xe0f2fe,
+          color: edgeColor,
           transparent: true,
-          opacity: 0.85,
+          opacity: edgeOpacity,
         });
+
+        // Concrete base strip below window in maquette mode
+        if (isMaquette) {
+          const baseSkirt = new THREE.Mesh(unitBoxGeo, concretePlinthMat);
+          baseSkirt.position.set(0, -0.16, 0);
+          baseSkirt.scale.set(win.widthM + 0.04, 0.16, win.thicknessM + 0.02);
+          baseSkirt.castShadow = !isSoftwareGl;
+          group.add(baseSkirt);
+        }
 
         if (win.sillHeightM > 0.08) {
           const underWall = new THREE.Mesh(unitBoxGeo, sillMat);
           underWall.scale.set(win.widthM, win.sillHeightM, win.thicknessM);
           underWall.castShadow = !isSoftwareGl;
+          underWall.receiveShadow = !isSoftwareGl;
           underWall.userData.bimId = win.id;
           group.add(underWall);
           pickMeshes.push(underWall);
         }
 
+        const frameY = Math.max(0.02, win.sillHeightM);
+        const winH = Math.max(0.45, Math.min(win.heightM, wallHeightM - frameY));
+
+        // Slim architectural perimeter frame
         const sillLedge = new THREE.Mesh(unitBoxGeo, frameMat);
-        sillLedge.scale.set(win.widthM + 0.06, 0.06, win.thicknessM + 0.08);
-        sillLedge.position.set(0, win.sillHeightM, 0);
+        sillLedge.scale.set(win.widthM + 0.04, 0.055, win.thicknessM + 0.05);
+        sillLedge.position.set(0, frameY, 0);
+        sillLedge.castShadow = !isSoftwareGl;
         sillLedge.userData.bimId = win.id;
 
-        const glass = new THREE.Mesh(unitBoxGeo, glassMat);
-        glass.scale.set(Math.max(0.25, win.widthM - 0.08), win.heightM, 0.04);
-        glass.position.set(0, win.sillHeightM + 0.05, 0);
-        glass.userData.bimId = win.id;
+        const leftJamb = new THREE.Mesh(unitBoxGeo, frameMat);
+        leftJamb.scale.set(0.055, winH, 0.085);
+        leftJamb.position.set(-win.widthM * 0.5 + 0.028, frameY, 0);
+        leftJamb.userData.bimId = win.id;
+
+        const rightJamb = new THREE.Mesh(unitBoxGeo, frameMat);
+        rightJamb.scale.set(0.055, winH, 0.085);
+        rightJamb.position.set(win.widthM * 0.5 - 0.028, frameY, 0);
+        rightJamb.userData.bimId = win.id;
 
         const topFrame = new THREE.Mesh(unitBoxGeo, frameMat);
-        topFrame.scale.set(win.widthM, 0.06, win.thicknessM + 0.02);
-        topFrame.position.set(0, win.sillHeightM + win.heightM, 0);
+        topFrame.scale.set(win.widthM, 0.055, 0.09);
+        topFrame.position.set(0, frameY + winH - 0.055, 0);
         topFrame.userData.bimId = win.id;
 
-        const mullion = new THREE.Mesh(unitBoxGeo, frameMat);
-        mullion.scale.set(0.05, win.heightM, 0.07);
-        mullion.position.set(0, win.sillHeightM + 0.05, 0);
-        mullion.userData.bimId = win.id;
+        const glass = new THREE.Mesh(unitBoxGeo, glassMat);
+        glass.scale.set(Math.max(0.25, win.widthM - 0.1), Math.max(0.3, winH - 0.1), 0.024);
+        glass.position.set(0, frameY + 0.05, 0);
+        glass.userData.bimId = win.id;
+
+        // Add 1 or 2 slim vertical mullions depending on window width
+        const mullionCount = win.widthM >= 2.2 ? 2 : win.widthM >= 0.95 ? 1 : 0;
+        for (let mIdx = 0; mIdx < mullionCount; mIdx++) {
+          const frac = (mIdx + 1) / (mullionCount + 1) - 0.5;
+          const mullion = new THREE.Mesh(unitBoxGeo, frameMat);
+          mullion.scale.set(0.042, winH - 0.06, 0.075);
+          mullion.position.set(frac * win.widthM, frameY + 0.04, 0);
+          mullion.userData.bimId = win.id;
+          group.add(mullion);
+          pickMeshes.push(mullion);
+        }
 
         const glassEdge = new THREE.LineSegments(unitBoxEdgesGeo, edgeMat);
         glassEdge.scale.copy(glass.scale);
         glassEdge.position.copy(glass.position);
 
-        const topY = win.sillHeightM + win.heightM + 0.05;
+        const topY = frameY + winH;
         if (wallHeightM > topY + 0.08) {
           const lintel = new THREE.Mesh(unitBoxGeo, sillMat);
           lintel.scale.set(win.widthM, wallHeightM - topY, win.thicknessM);
           lintel.position.set(0, topY, 0);
+          lintel.castShadow = !isSoftwareGl;
+          lintel.receiveShadow = !isSoftwareGl;
+          lintel.userData.bimId = win.id;
           group.add(lintel);
         }
 
-        group.add(sillLedge, glass, topFrame, mullion, glassEdge);
+        group.add(sillLedge, leftJamb, rightJamb, topFrame, glass, glassEdge);
         scene.add(group);
 
-        pickMeshes.push(sillLedge, glass, topFrame, mullion);
+        pickMeshes.push(sillLedge, leftJamb, rightJamb, topFrame, glass);
         newEntries.set(win.id, {
           obj: win,
           materials: [glassMat, frameMat],
-          baseColors: [COLOR_WIN_GLASS, COLOR_WIN_FRAME],
+          baseColors: [glassColor, frameColor],
           edgeMat,
-          baseEdgeColor: 0xe0f2fe,
-          baseEdgeOpacity: 0.85,
+          baseEdgeColor: edgeColor,
+          baseEdgeOpacity: edgeOpacity,
         });
         disposables.push(sillMat, frameMat, glassMat, edgeMat);
       }
     }
 
-    // 4. BIM PILLARS
+    // 4. PILLARS (Pure matte white columns in Maquette mode)
     if (showKind('pillar')) {
       for (const pil of pillars) {
         const group = new THREE.Group();
         group.position.set(pil.cxM - centerX, 0, pil.cyM - centerZ);
         group.scale.set(pil.widthM, Math.max(0.4, pil.heightM), pil.depthM);
 
+        const bodyColor = isMaquette ? MAQ_WALL_MATTE : DARK_PILLAR_BODY;
+        const capColor = isMaquette ? MAQ_WALL_TOP_CAP : DARK_PILLAR_CAP;
+        const edgeColor = isMaquette ? MAQ_WALL_EDGE : 0xf8fafc;
+        const edgeOpacity = isMaquette ? 0.38 : 0.7;
+
         const bodyMat = new THREE.MeshStandardMaterial({
-          color: COLOR_PILLAR_BODY,
+          color: bodyColor,
           roughness: 0.9,
           metalness: 0.0,
-          envMapIntensity: 0.14,
+          envMapIntensity: isMaquette ? 0.08 : 0.14,
         });
         const capMat = new THREE.MeshStandardMaterial({
-          color: COLOR_PILLAR_CAP,
-          roughness: 0.85,
-          metalness: 0.05,
-          envMapIntensity: 0.12,
+          color: capColor,
+          roughness: 0.86,
+          metalness: 0.0,
+          envMapIntensity: isMaquette ? 0.06 : 0.12,
         });
         const edgeMat = new THREE.LineBasicMaterial({
-          color: 0xf8fafc,
+          color: edgeColor,
           transparent: true,
-          opacity: 0.7,
+          opacity: edgeOpacity,
         });
 
         const bodyMesh = new THREE.Mesh(unitBodyGeo, bodyMat);
@@ -781,6 +1470,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         bodyMesh.userData.bimId = pil.id;
 
         const capMesh = new THREE.Mesh(unitCapGeo, capMat);
+        capMesh.castShadow = !isSoftwareGl;
         capMesh.userData.bimId = pil.id;
 
         const edgeLine = new THREE.LineSegments(unitEdgesGeo, edgeMat);
@@ -790,62 +1480,180 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         pickMeshes.push(bodyMesh, capMesh);
         newEntries.set(pil.id, {
           obj: pil,
-          materials: [bodyMat],
-          baseColors: [COLOR_PILLAR_BODY],
+          materials: isMaquette ? [bodyMat, capMat] : [bodyMat],
+          baseColors: isMaquette ? [bodyColor, capColor] : [bodyColor],
           edgeMat,
-          baseEdgeColor: 0xf8fafc,
-          baseEdgeOpacity: 0.7,
+          baseEdgeColor: edgeColor,
+          baseEdgeOpacity: edgeOpacity,
         });
         disposables.push(bodyMat, capMat, edgeMat);
       }
     }
 
-    // 5. BIM ROOMS / FLOOR SLABS
+    // 5. ROOMS / FLOOR SLABS (Oak wood parquet & Light beige ceramic tiles in Maquette mode!)
     if (showKind('room')) {
       for (const rm of rooms) {
-        const slabMat = new THREE.MeshStandardMaterial({
-          color: COLOR_ROOM_SLAB,
-          roughness: 0.95,
-          metalness: 0.0,
-          envMapIntensity: 0.0,
-          transparent: true,
-          opacity: 0.22,
-        });
-        const edgeMat = new THREE.LineBasicMaterial({
-          color: 0x0284c7,
-          transparent: true,
-          opacity: 0.65,
-        });
-        const slab = new THREE.Mesh(unitBoxGeo, slabMat);
-        slab.position.set(rm.cxM - centerX, 0.008, rm.cyM - centerZ);
-        slab.scale.set(rm.widthM, 0.03, rm.depthM);
-        slab.userData.bimId = rm.id;
+        const floorType = rm.floorType ?? inferRoomFloorType(rm.name);
 
-        const edge = new THREE.LineSegments(unitBoxEdgesGeo, edgeMat);
-        edge.position.copy(slab.position);
-        edge.scale.copy(slab.scale);
+        if (isMaquette) {
+          const isOak = floorType === 'oak';
+          const floorMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            map: isOak ? oakTex : ceramicTex,
+            roughness: isOak ? 0.78 : 0.68,
+            metalness: 0.0,
+            envMapIntensity: isOak ? 0.08 : 0.1,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          });
 
-        scene.add(slab, edge);
-        pickMeshes.push(slab);
-        newEntries.set(rm.id, {
-          obj: rm,
-          materials: [slabMat],
-          baseColors: [COLOR_ROOM_SLAB],
-          edgeMat,
-          baseEdgeColor: 0x0284c7,
-          baseEdgeOpacity: 0.65,
-        });
-        disposables.push(slabMat, edgeMat);
+          let floorMesh: THREE.Mesh;
+          if (rm.polygonM && rm.polygonM.length >= 3) {
+            const polyGeo = buildPolygonFloorGeometry(rm.polygonM, centerX, centerZ, isOak ? 1.85 : 2.0);
+            if (polyGeo) {
+              floorMesh = new THREE.Mesh(polyGeo, floorMat);
+              floorMesh.position.y = 0.004;
+              floorMesh.receiveShadow = !isSoftwareGl;
+              floorMesh.userData.bimId = rm.id;
+              scene.add(floorMesh);
+              disposables.push(polyGeo);
+
+              // Extruded concrete architectural slab directly beneath this room polygon
+              const plinthPolyGeo = buildPolygonPlinthGeometry(rm.polygonM, centerX, centerZ, 0.16);
+              if (plinthPolyGeo) {
+                const plinthPolyMesh = new THREE.Mesh(plinthPolyGeo, concretePlinthMat);
+                plinthPolyMesh.castShadow = !isSoftwareGl;
+                plinthPolyMesh.receiveShadow = !isSoftwareGl;
+                scene.add(plinthPolyMesh);
+                disposables.push(plinthPolyGeo);
+              }
+            } else {
+              continue;
+            }
+          } else {
+            // Rectangular room slab fallback with proper world-scale UVs and zero Z-fighting
+            const rectGeo = new THREE.PlaneGeometry(rm.widthM, rm.depthM);
+            rectGeo.rotateX(-Math.PI / 2);
+            const scaleM = isOak ? 1.85 : 2.0;
+            const pos = rectGeo.attributes.position;
+            const uv = rectGeo.attributes.uv;
+            for (let i = 0; i < pos.count; i++) {
+              uv.setXY(i, (pos.getX(i) + rm.cxM) / scaleM, (pos.getZ(i) + rm.cyM) / scaleM);
+            }
+            uv.needsUpdate = true;
+
+            floorMesh = new THREE.Mesh(rectGeo, floorMat);
+            floorMesh.position.set(rm.cxM - centerX, 0.011, rm.cyM - centerZ);
+            floorMesh.receiveShadow = !isSoftwareGl;
+            floorMesh.userData.bimId = rm.id;
+            scene.add(floorMesh);
+            disposables.push(rectGeo);
+          }
+
+          pickMeshes.push(floorMesh);
+          newEntries.set(rm.id, {
+            obj: rm,
+            materials: [floorMat],
+            baseColors: [0xffffff],
+          });
+          disposables.push(floorMat);
+        } else {
+          // Dark technical blueprint mode translucent room overlay
+          const slabMat = new THREE.MeshStandardMaterial({
+            color: DARK_ROOM_SLAB,
+            roughness: 0.95,
+            metalness: 0.0,
+            envMapIntensity: 0.0,
+            transparent: true,
+            opacity: 0.22,
+          });
+          const edgeMat = new THREE.LineBasicMaterial({
+            color: 0x0284c7,
+            transparent: true,
+            opacity: 0.65,
+          });
+          const slab = new THREE.Mesh(unitBoxGeo, slabMat);
+          slab.position.set(rm.cxM - centerX, 0.008, rm.cyM - centerZ);
+          slab.scale.set(rm.widthM, 0.03, rm.depthM);
+          slab.userData.bimId = rm.id;
+
+          const edge = new THREE.LineSegments(unitBoxEdgesGeo, edgeMat);
+          edge.position.copy(slab.position);
+          edge.scale.copy(slab.scale);
+
+          scene.add(slab, edge);
+          pickMeshes.push(slab);
+          newEntries.set(rm.id, {
+            obj: rm,
+            materials: [slabMat],
+            baseColors: [DARK_ROOM_SLAB],
+            edgeMat,
+            baseEdgeColor: 0x0284c7,
+            baseEdgeOpacity: 0.65,
+          });
+          disposables.push(slabMat, edgeMat);
+        }
       }
     }
 
-    // 6. DEDICATED TOGGLEABLE QUOTE LAYER IN 3D/BIM
+    // 6. BALCONY RAILINGS / PARAPETS (Minimalist matte-silver architectural balustrade)
+    if (railings.length > 0) {
+      const railMat = new THREE.MeshStandardMaterial({
+        color: isMaquette ? MAQ_RAILING_METAL : 0x94a3b8,
+        roughness: 0.5,
+        metalness: 0.28,
+        envMapIntensity: 0.25,
+      });
+      disposables.push(railMat);
+
+      for (const rl of railings) {
+        const dx = rl.x2M - rl.x1M;
+        const dz = rl.y2M - rl.y1M;
+        const len = Math.hypot(dx, dz);
+        if (len < 0.35) continue;
+
+        const angle = Math.atan2(dz, dx);
+        const h = Math.max(0.85, Math.min(1.25, rl.heightM || 1.05));
+        const rGroup = new THREE.Group();
+        rGroup.position.set((rl.x1M + rl.x2M) * 0.5 - centerX, 0, (rl.y1M + rl.y2M) * 0.5 - centerZ);
+        rGroup.rotation.y = -angle;
+
+        const topRail = new THREE.Mesh(unitBoxGeo, railMat);
+        topRail.scale.set(len, 0.04, 0.045);
+        topRail.position.set(0, h - 0.04, 0);
+        topRail.castShadow = !isSoftwareGl;
+
+        const botRail = new THREE.Mesh(unitBoxGeo, railMat);
+        botRail.scale.set(len, 0.032, 0.038);
+        botRail.position.set(0, 0.06, 0);
+
+        rGroup.add(topRail, botRail);
+
+        const steps = Math.max(2, Math.round(len / 0.14));
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps - 0.5;
+          const post = new THREE.Mesh(unitBoxGeo, railMat);
+          const isEnd = i === 0 || i === steps;
+          const thick = isEnd ? 0.032 : 0.018;
+          post.scale.set(thick, h - 0.02, thick);
+          post.position.set(t * len, 0, 0);
+          post.castShadow = !isSoftwareGl;
+          rGroup.add(post);
+        }
+
+        scene.add(rGroup);
+      }
+    }
+
+    // 7. DEDICATED TOGGLEABLE QUOTE LAYER IN 3D/BIM
     const quotesGroup = new THREE.Group();
     quotesGroup.visible = showQuotesLayer;
     const cappedQuotes = significantQuotes.slice(0, 40);
     const spriteScale = Math.max(0.85, Math.min(2.4, diag * 0.085));
     for (const q of cappedQuotes) {
-      const tex = makeQuoteSpriteTexture(q.text, q.kind === 'room');
+      const tex = makeQuoteSpriteTexture(q.text, q.kind === 'room', isMaquette);
       const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
       const sprite = new THREE.Sprite(mat);
       sprite.position.set(
@@ -864,14 +1672,16 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
     let isTransitioning = false;
     const setCameraPreset = (preset: CameraPreset, immediate = false) => {
-      const hFocus = Math.min(wallHeightM * 0.3, 1.4);
+      const hFocus = Math.min(wallHeightM * 0.25, 1.1);
       _targetLook.set(0, hFocus, 0);
       if (preset === 'top') {
-        _targetPos.set(0, diag * 1.38, 0.01);
+        _targetPos.set(0, diag * 1.55, 0.01);
       } else if (preset === 'front') {
-        _targetPos.set(0, diag * 0.42, diag * 1.18);
+        _targetPos.set(0, diag * 0.44, diag * 1.32);
       } else {
-        _targetPos.set(diag * 0.72, diag * 0.78, diag * 0.82);
+        // Classic elevated architectural cutaway isometric angle (matches reference image)
+        const mult = isMaquette ? 0.94 : 0.78;
+        _targetPos.set(diag * mult * 0.85, diag * mult * 1.02, diag * mult * 0.92);
       }
 
       if (immediate || isSoftwareGl) {
@@ -978,7 +1788,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     controls.addEventListener('start', onControlStart);
     controls.addEventListener('change', onControlChange);
 
-    const modelKey = `${planWidthM.toFixed(1)}_${planHeightM.toFixed(1)}_${lumaVersion}`;
+    const modelKey = `${planWidthM.toFixed(1)}_${planHeightM.toFixed(1)}_${lumaVersion}_${bimModel.source || 'local'}`;
     if (savedCameraRef.current && lastModelKeyRef.current === modelKey) {
       camera.position.copy(savedCameraRef.current.pos);
       controls.target.copy(savedCameraRef.current.target);
@@ -1146,7 +1956,17 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       renderer.dispose();
       if (domEl.parentNode === container) container.removeChild(domEl);
     };
-  }, [bimModel, mode, bimFilter, cleanFloorCanvas, significantQuotes, wallHeightM, lumaVersion, refreshObjectColors]);
+  }, [
+    bimModel,
+    mode,
+    bimFilter,
+    visualTheme,
+    cleanFloorCanvas,
+    significantQuotes,
+    wallHeightM,
+    lumaVersion,
+    refreshObjectColors,
+  ]);
 
   const totalWallLengthM = useMemo(
     () => Math.round(bimModel.walls.reduce((s, w) => s + w.lengthM, 0) * 100) / 100,
@@ -1191,6 +2011,8 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     setOpenMenu(null);
   };
 
+  const isAiModel = bimModel.source === 'ai-vision';
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-950 select-none overflow-hidden">
       {/* BARRA MENU A TENDINA STILE AUTOCAD (SOPRA IL DISEGNO — ZERO SOVRAPPOSIZIONI SUL CANVAS) */}
@@ -1198,7 +2020,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         ref={menuBarRef}
         className="bg-slate-900 border-b border-slate-700/90 px-3 py-1 flex items-center justify-between gap-2 shrink-0 text-xs relative z-30"
       >
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 flex-wrap">
           {/* MENU A TENDINA 1: VISTA */}
           <div className="relative">
             <button
@@ -1215,7 +2037,39 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
               <ChevronDown className="w-3 h-3 text-slate-400" />
             </button>
             {openMenu === 'view' && (
-              <div className="absolute left-0 top-full mt-1 w-52 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-1 z-50 text-xs">
+              <div className="absolute left-0 top-full mt-1 w-60 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-1 z-50 text-xs">
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Stile Architettonico
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVisualTheme('maquette');
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sun className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Maquette Bianca (Pulita)</span>
+                  </span>
+                  {visualTheme === 'maquette' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVisualTheme('blueprint');
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Piantina Tecnica (Scuro)</span>
+                  </span>
+                  {visualTheme === 'blueprint' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <div className="my-1 border-t border-slate-800" />
                 <button
                   type="button"
                   onClick={() => {
@@ -1330,34 +2184,6 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
                 <div>
                   <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Rilevamento Muri dal PDF
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {(
-                      [
-                        ['thin', 'Sottili'],
-                        ['medium', 'Media'],
-                        ['thick', 'Spessi'],
-                      ] as Array<[LaserSensitivity, string]>
-                    ).map(([val, lbl]) => (
-                      <button
-                        key={val}
-                        type="button"
-                        onClick={() => onSensitivityChange(val)}
-                        className={`px-2 py-1 rounded font-semibold ${
-                          sensitivity === val
-                            ? 'bg-amber-500 text-slate-950'
-                            : 'bg-slate-800 text-slate-300 hover:text-white'
-                        }`}
-                      >
-                        {lbl}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
                     Azione Clic su Oggetto
                   </div>
                   <div className="grid grid-cols-2 gap-1">
@@ -1387,6 +2213,46 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                     </button>
                   </div>
                 </div>
+
+                <div className="border-t border-slate-800 pt-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Rilevamento Locale PDF (Fallback)
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(
+                      [
+                        ['thin', 'Sottili'],
+                        ['medium', 'Media'],
+                        ['thick', 'Spessi'],
+                      ] as Array<[LaserSensitivity, string]>
+                    ).map(([val, lbl]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => onSensitivityChange(val)}
+                        className={`px-2 py-1 rounded font-semibold ${
+                          sensitivity === val
+                            ? 'bg-amber-500 text-slate-950'
+                            : 'bg-slate-800 text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                  {hasAiModel && onUseLocalModel && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUseLocalModel();
+                        setOpenMenu(null);
+                      }}
+                      className="mt-1.5 w-full px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium text-center"
+                    >
+                      Usa estrazione locale veloce
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1403,7 +2269,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
               }`}
             >
               <Cuboid className="w-3.5 h-3.5 text-cyan-400" />
-              <span>{mode === 'bim' ? 'Oggetti BIM' : 'Computo Pareti'}</span>
+              <span>{mode === 'bim' ? 'Oggetti BIM' : 'Computo'}</span>
               <ChevronDown className="w-3 h-3 text-slate-400" />
             </button>
             {openMenu === 'bim' && (
@@ -1415,7 +2281,15 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                     </div>
                     {(
                       [
-                        ['all', 'Tutti gli oggetti BIM', bimModel.walls.length + bimModel.doors.length + bimModel.windows.length + bimModel.pillars.length + bimModel.rooms.length],
+                        [
+                          'all',
+                          'Tutti gli oggetti BIM',
+                          bimModel.walls.length +
+                            bimModel.doors.length +
+                            bimModel.windows.length +
+                            bimModel.pillars.length +
+                            bimModel.rooms.length,
+                        ],
                         ['wall', 'Solo Muri & Tramezzi', bimModel.walls.length],
                         ['door', 'Solo Porte', bimModel.doors.length],
                         ['window', 'Solo Finestre / Infissi', bimModel.windows.length],
@@ -1455,49 +2329,73 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                   <span>+ Tutte le Pareti ({sides === 2 ? '2 lati' : '1 lato'})</span>
                   <span className="font-mono text-[10px] text-emerald-400">{bimModel.walls.length}</span>
                 </button>
-                {mode === 'bim' && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={bimModel.doors.length === 0}
-                      onClick={() => batchComputeCategory(bimModel.doors)}
-                      className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
-                    >
-                      <span>+ Tutte le Porte</span>
-                      <span className="font-mono text-[10px] text-amber-400">{bimModel.doors.length}</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={bimModel.windows.length === 0}
-                      onClick={() => batchComputeCategory(bimModel.windows)}
-                      className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
-                    >
-                      <span>+ Tutte le Finestre</span>
-                      <span className="font-mono text-[10px] text-sky-400">{bimModel.windows.length}</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={bimModel.pillars.length === 0}
-                      onClick={() => batchComputeCategory(bimModel.pillars)}
-                      className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
-                    >
-                      <span>+ Tutti i Pilastri</span>
-                      <span className="font-mono text-[10px] text-slate-300">{bimModel.pillars.length}</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={bimModel.rooms.length === 0}
-                      onClick={() => batchComputeCategory(bimModel.rooms)}
-                      className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
-                    >
-                      <span>+ Tutti i Vani</span>
-                      <span className="font-mono text-[10px] text-cyan-400">{bimModel.rooms.length}</span>
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  disabled={bimModel.doors.length === 0}
+                  onClick={() => batchComputeCategory(bimModel.doors)}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
+                >
+                  <span>+ Tutte le Porte</span>
+                  <span className="font-mono text-[10px] text-amber-400">{bimModel.doors.length}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={bimModel.windows.length === 0}
+                  onClick={() => batchComputeCategory(bimModel.windows)}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
+                >
+                  <span>+ Tutte le Finestre</span>
+                  <span className="font-mono text-[10px] text-sky-400">{bimModel.windows.length}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={bimModel.pillars.length === 0}
+                  onClick={() => batchComputeCategory(bimModel.pillars)}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
+                >
+                  <span>+ Tutti i Pilastri</span>
+                  <span className="font-mono text-[10px] text-slate-300">{bimModel.pillars.length}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={bimModel.rooms.length === 0}
+                  onClick={() => batchComputeCategory(bimModel.rooms)}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 disabled:opacity-40 flex items-center justify-between"
+                >
+                  <span>+ Tutti i Pavimenti / Vani</span>
+                  <span className="font-mono text-[10px] text-cyan-400">{bimModel.rooms.length}</span>
+                </button>
               </div>
             )}
           </div>
+
+          {/* PULSANTE RICOSTRUZIONE ARCHITETTONICA PULITA AI */}
+          {onRequestAiRebuild && (
+            <button
+              type="button"
+              disabled={isAnalyzingAi}
+              onClick={onRequestAiRebuild}
+              className={`ml-1 px-2.5 py-1 rounded text-xs font-bold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-70 ${
+                isAiModel
+                  ? 'bg-emerald-600/20 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-600/30'
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+              }`}
+              title="Analizza la planimetria PDF e ricostruisce solo muri puliti, porte, finestre, pilastri e pavimenti (ignora quote, scritte e arredi)"
+            >
+              {isAnalyzingAi ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {isAnalyzingAi
+                  ? 'Analisi pianta...'
+                  : isAiModel
+                  ? 'Modello Pulito ✓ · Rigenera'
+                  : 'Ricostruisci Pulito'}
+              </span>
+            </button>
+          )}
 
           {/* ALTEZZA H RAPIDA DIRETTA IN BARRA */}
           <div className="flex items-center gap-1 bg-slate-950 rounded px-2 py-0.5 border border-slate-700 ml-1">
@@ -1562,6 +2460,49 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* BARRA STATO ANALISI ARCHITETTONICA (ANCORATA SOPRA IL CANVAS — ZERO SOVRAPPOSIZIONI) */}
+      {isAnalyzingAi && (
+        <div className="bg-indigo-950/90 border-b border-indigo-500/40 px-3 py-1.5 flex items-center justify-between gap-2 text-xs text-indigo-100 shrink-0">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-300 shrink-0" />
+            <span>
+              Ricostruzione architettonica pulita in corso: estrazione muri, porte, finestre, pilastri e pavimenti (escludendo quote, scritte e arredi)...
+            </span>
+          </div>
+        </div>
+      )}
+
+      {!isAnalyzingAi && aiError && (
+        <div className="bg-amber-950/90 border-b border-amber-500/40 px-3 py-1.5 flex items-center justify-between gap-2 text-xs text-amber-100 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">{aiError}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onRequestAiRebuild && (
+              <button
+                type="button"
+                onClick={onRequestAiRebuild}
+                className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold text-[11px] inline-flex items-center gap-1"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Riprova</span>
+              </button>
+            )}
+            {onDismissAiError && (
+              <button
+                type="button"
+                onClick={onDismissAiError}
+                className="p-0.5 rounded text-amber-300 hover:text-white"
+                title="Chiudi avviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* BARRA PROPRIETÀ BIM ANCORATA IN ALTO (SOLO QUANDO SI CLICCA UN OGGETTO IN BIM — MAI SOPRA IL DISEGNO!) */}
       {mode === 'bim' && inspectedObj && (
@@ -1749,12 +2690,21 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
             {inspectedObj.kind === 'room' && (
               <>
-                <input
-                  type="text"
-                  value={inspectedObj.finish}
-                  onChange={(e) => onUpdateBimObject({ ...inspectedObj, finish: e.target.value })}
-                  className="w-32 bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-white"
-                />
+                <select
+                  value={inspectedObj.floorType ?? inferRoomFloorType(inspectedObj.name)}
+                  onChange={(e) => {
+                    const ft = e.target.value as NonNullable<BimRoomObject['floorType']>;
+                    onUpdateBimObject({
+                      ...inspectedObj,
+                      floorType: ft,
+                      finish: ft === 'oak' ? 'Parquet Rovere Naturale' : 'Gres Porcellanato Beige',
+                    });
+                  }}
+                  className="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-white"
+                >
+                  <option value="oak">Parquet Rovere</option>
+                  <option value="ceramic">Gres Beige</option>
+                </select>
                 <label className="inline-flex items-center gap-1 text-[11px] text-slate-400">
                   m²
                   <input
@@ -1816,14 +2766,13 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       <div className="flex-1 relative min-h-0 overflow-hidden">
         <div ref={canvasMountRef} className="w-full h-full" />
 
-        {bimModel.walls.length === 0 && (
+        {bimModel.walls.length === 0 && !isAnalyzingAi && (
           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
             <div className="pointer-events-auto bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-center max-w-sm shadow-2xl">
               <Box className="w-7 h-7 text-amber-400 mx-auto mb-2" />
-              <div className="text-sm font-bold text-white">Nessuna parete rilevata nella pianta pulita</div>
+              <div className="text-sm font-bold text-white">Nessuna parete rilevata nella pianta</div>
               <p className="text-xs text-slate-400 mt-1">
-                Apri il menu <strong className="text-slate-200">Modello ▾</strong> in alto e imposta{' '}
-                <strong className="text-slate-200">Sottili</strong>, oppure verifica la calibrazione della scala.
+                Premi <strong className="text-indigo-300">Ricostruisci Pulito</strong> nella barra in alto per far ricostruire il modello architettonico, oppure regola la calibrazione.
               </p>
             </div>
           </div>

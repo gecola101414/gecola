@@ -108,6 +108,7 @@ import {
   extractPlanBimModel,
   PlanBimModel,
 } from '../utils/planBimExtractor';
+import { analyzePlanBimWithAi } from '../utils/planBimAiClient';
 import { Plan3DViewer } from './Plan3DViewer';
 
 export interface PlanMeasureExportRow {
@@ -395,6 +396,12 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     planHeightM: 10,
     boundsM: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
   });
+  const aiBimCacheRef = useRef<Map<string, PlanBimModel>>(new Map());
+  const aiAutoAttemptedRef = useRef<Set<string>>(new Set());
+  const aiBimAbortRef = useRef<AbortController | null>(null);
+  const [aiBimOverride, setAiBimOverride] = useState<{ key: string; model: PlanBimModel } | null>(null);
+  const [isAnalyzingAiBim, setIsAnalyzingAiBim] = useState<boolean>(false);
+  const [aiBimError, setAiBimError] = useState<string | null>(null);
 
   const [polygonPts, setPolygonPts] = useState<Array<{ x: number; y: number }>>([]);
   const [calibrationDraft, setCalibrationDraft] = useState<{ distPt: number; realMetersStr: string } | null>(null);
@@ -534,12 +541,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     }
   }, [activeTool]);
 
-  // Cleanup timer lampeggio, laser flash & eventuale OCR attivo
+  // Cleanup timer lampeggio, laser flash, AI BIM & eventuale OCR attivo
   useEffect(() => {
     return () => {
       if (flashTimerRef.current) window.clearInterval(flashTimerRef.current);
       if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
       if (ocrAbortRef.current) ocrAbortRef.current.abort();
+      if (aiBimAbortRef.current) aiBimAbortRef.current.abort();
     };
   }, []);
 
@@ -2723,10 +2731,119 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     wall3DSensitivity,
   ]);
 
-  // Sincronizza il modello BIM editabile quando cambia tavola/pagina/calibrazione/sensibilità
+  const currentPlanBimKey = useMemo(
+    () => `${currentSheetId || 'local'}_${currentPage}_${metersPerPt.toFixed(6)}`,
+    [currentSheetId, currentPage, metersPerPt]
+  );
+
+  const activeAiBimModel = useMemo(
+    () => (aiBimOverride && aiBimOverride.key === currentPlanBimKey ? aiBimOverride.model : null),
+    [aiBimOverride, currentPlanBimKey]
+  );
+
+  const runAiBimReconstruction = useCallback(
+    async (forceRefresh = false) => {
+      const sourceCanvas = canvasRef.current;
+      if (!pdfDoc || !sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
+        setAiBimError('Attendi il caricamento completo della planimetria PDF prima di ricostruire il modello.');
+        return;
+      }
+
+      if (!forceRefresh) {
+        const cached = aiBimCacheRef.current.get(currentPlanBimKey);
+        if (cached) {
+          setAiBimError(null);
+          setAiBimOverride({ key: currentPlanBimKey, model: cached });
+          return;
+        }
+      }
+
+      if (aiBimAbortRef.current) {
+        aiBimAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      aiBimAbortRef.current = controller;
+      aiAutoAttemptedRef.current.add(currentPlanBimKey);
+
+      setIsAnalyzingAiBim(true);
+      setAiBimError(null);
+
+      try {
+        const planW =
+          currentAnalysis && currentAnalysis.width > 0
+            ? currentAnalysis.width * metersPerPt
+            : extractedBimModel.planWidthM;
+        const planH =
+          currentAnalysis && currentAnalysis.height > 0
+            ? currentAnalysis.height * metersPerPt
+            : extractedBimModel.planHeightM;
+
+        const aiModel = await analyzePlanBimWithAi(
+          sourceCanvas,
+          planW,
+          planH,
+          metersPerPt,
+          defaultHeightM,
+          currentAnalysis?.rooms || [],
+          controller.signal
+        );
+
+        if (controller.signal.aborted) return;
+
+        aiBimCacheRef.current.set(currentPlanBimKey, aiModel);
+        setAiBimOverride({ key: currentPlanBimKey, model: aiModel });
+        setLastFeedback(
+          `Modello 3D/BIM pulito ricostruito: ${aiModel.walls.length} muri, ${aiModel.doors.length} porte, ${aiModel.windows.length} finestre, ${aiModel.pillars.length} pilastri, ${aiModel.rooms.length} vani`
+        );
+      } catch (err: any) {
+        if (controller.signal.aborted || err?.name === 'AbortError') return;
+        console.error('Errore ricostruzione AI BIM:', err);
+        setAiBimError(
+          err?.message || 'Ricostruzione architettonica pulita non riuscita. Riprova o usa il rilevamento locale.'
+        );
+      } finally {
+        if (aiBimAbortRef.current === controller) {
+          aiBimAbortRef.current = null;
+        }
+        setIsAnalyzingAiBim(false);
+      }
+    },
+    [
+      pdfDoc,
+      currentPlanBimKey,
+      currentAnalysis,
+      metersPerPt,
+      extractedBimModel.planWidthM,
+      extractedBimModel.planHeightM,
+      defaultHeightM,
+    ]
+  );
+
+  // Avvia automaticamente la ricostruzione architettonica pulita la prima volta che si entra in 3D o BIM
   useEffect(() => {
-    setBimModelState(extractedBimModel);
-  }, [extractedBimModel]);
+    if (!pdfDoc || lumaVersion === 0) return;
+    if (viewMode !== '3d' && viewMode !== 'bim') return;
+
+    const cached = aiBimCacheRef.current.get(currentPlanBimKey);
+    if (cached) {
+      setAiBimOverride((prev) => (prev?.key === currentPlanBimKey ? prev : { key: currentPlanBimKey, model: cached }));
+      return;
+    }
+
+    if (aiAutoAttemptedRef.current.has(currentPlanBimKey)) return;
+    void runAiBimReconstruction(false);
+  }, [pdfDoc, lumaVersion, viewMode, currentPlanBimKey, runAiBimReconstruction]);
+
+  // Sincronizza il modello BIM editabile dando priorità al modello pulito AI quando presente
+  useEffect(() => {
+    const baseModel = activeAiBimModel ?? extractedBimModel;
+    setBimModelState({
+      ...baseModel,
+      walls: baseModel.walls.map((w) => ({ ...w, heightM: defaultHeightM })),
+      pillars: baseModel.pillars.map((p) => ({ ...p, heightM: defaultHeightM })),
+      rooms: baseModel.rooms.map((r) => ({ ...r, heightM: defaultHeightM })),
+    });
+  }, [activeAiBimModel, extractedBimModel]);
 
   // Aggiorna altezza pareti & pilastri live quando cambia H (defaultHeightM)
   useEffect(() => {
@@ -4599,6 +4716,12 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 onComputeBimObject={handleComputeBimObject}
                 onComputeMultipleBimObjects={handleComputeMultipleBimObjects}
                 activeCellLabel={activeCell ? FIELD_LABEL_IT[activeCell.field] : null}
+                isAnalyzingAi={isAnalyzingAiBim}
+                aiError={aiBimError}
+                onDismissAiError={() => setAiBimError(null)}
+                onRequestAiRebuild={() => void runAiBimReconstruction(true)}
+                onUseLocalModel={() => setAiBimOverride(null)}
+                hasAiModel={activeAiBimModel !== null}
               />
             )}
 

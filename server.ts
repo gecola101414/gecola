@@ -4,6 +4,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 
 function getCliArg(name: string): string | undefined {
   const idx = process.argv.indexOf(name);
@@ -440,6 +441,250 @@ server.on('upgrade', (request, socket, head) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, mode: IS_PROD ? 'prod' : 'dev' });
+});
+
+// ---------------- API: GEMINI VISION ARCHITECTURAL BIM RECONSTRUCTOR ----------------
+
+app.post('/api/bim/analyze-plan', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      res.status(503).json({
+        ok: false,
+        error:
+          'Chiave API Gemini non configurata sul server. Configura GEMINI_API_KEY in Settings > Secrets per attivare la ricostruzione architettonica AI.',
+      });
+      return;
+    }
+
+    const body = req.body || {};
+    const imageBase64 = typeof body.imageBase64 === 'string' ? body.imageBase64.trim() : '';
+    const mimeType = body.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+    const planWidthM = Number(body.planWidthM) || 15;
+    const planHeightM = Number(body.planHeightM) || 12;
+    const defaultHeightM = Number(body.defaultHeightM) || 3.0;
+    const roomHints = Array.isArray(body.roomHints) ? body.roomHints.slice(0, 24) : [];
+
+    if (!imageBase64 || imageBase64.length < 100) {
+      res.status(400).json({ ok: false, error: 'Immagine planimetria mancante o non valida.' });
+      return;
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const hintsStr =
+      roomHints.length > 0
+        ? `\nDetected room label hints (name @ normalized [x,y] in 0..1000): ${roomHints
+            .map((h: any) => `${h.name} (${h.xNorm},${h.yNorm}${h.areaMq ? `, ${h.areaMq}m2` : ''})`)
+            .join('; ')}`
+        : '';
+
+    const systemInstruction = `You are a senior Italian BIM architect and CAD blueprint vectorizer.
+Trace ONLY the real architectural structure of the attached 2D floor plan image into clean, crisp, watertight 3D BIM geometry (matching a minimalist white architectural cutaway maquette).
+
+CRITICAL ACCURACY RULES:
+1. IGNORE COMPLETELY: text labels, dimension numbers, dimension lines, arrows, hatches, title blocks (cartigli), furniture, beds, sofas, tables, kitchen cabinets, sinks, toilets, shower lines, AND staircase tread steps (NEVER trace stair steps as parallel walls!).
+2. COORDINATES: integer values 0..1000 relative to the FULL image width (x: 0=left, 1000=right) and FULL image height (y: 0=top, 1000=bottom). Coordinates MUST align accurately to the wall centerlines in the image.
+3. WALLS: Trace ONLY true structural exterior perimeter walls ("perimeter", thicknessM 0.30–0.38) and interior room-dividing partition walls ("partition", thicknessM 0.10–0.12). NEVER output duplicate/double parallel walls for a single wall! Merge collinear segments into one continuous centerline (doors/windows are carved automatically). Snap wall endpoints cleanly at corners so rooms close airtight. Include angled/diagonal perimeter walls accurately.
+4. DOORS: Identify every real door opening from swing arcs or breaks (widthM 0.75–1.05, angleDeg aligned to host wall, swingSign 1 or -1).
+5. WINDOWS: Identify every exterior window ("window", sillHeightM 0.95) and balcony French door ("french_door", sillHeightM 0.0) on perimeter walls.
+6. PILLARS: Identify standalone square/rectangular structural columns ("pillars").
+7. ROOMS: Trace a clean non-overlapping polygon (4–8 vertices in 0..1000 coords) for EVERY interior room, corridor, bathroom, stairwell, and exterior balcony/terrace, staying strictly inside the building/balcony footprint. Set floorType="oak" for living areas/bedrooms and floorType="ceramic" for bathrooms, kitchens, corridors, entrances, staircases, and balconies.
+8. RAILINGS: Trace exterior balcony railings/parapets as straight segments (x1,y1,x2,y2).
+Keep the output concise, clean, and geometrically exact. Return ONLY valid JSON.`;
+
+    const promptText = `Vectorize this 2D architectural floor plan into clean, non-duplicated 3D/BIM geometry.
+Sheet scale: image width = ${planWidthM.toFixed(2)} m, image height = ${planHeightM.toFixed(2)} m, wall height = ${defaultHeightM.toFixed(2)} m.${hintsStr}
+Trace ONLY true walls, doors, windows, pillars, room polygons, and balcony railings. Never trace stair treads, furniture, text, or dimension lines.`;
+
+    const t0 = Date.now();
+    const responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        walls: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              x1: { type: Type.NUMBER },
+              y1: { type: Type.NUMBER },
+              x2: { type: Type.NUMBER },
+              y2: { type: Type.NUMBER },
+              category: { type: Type.STRING, enum: ['perimeter', 'partition'] },
+              thicknessM: { type: Type.NUMBER },
+              roomName: { type: Type.STRING },
+            },
+            required: ['x1', 'y1', 'x2', 'y2', 'category'],
+          },
+        },
+        doors: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              cx: { type: Type.NUMBER },
+              cy: { type: Type.NUMBER },
+              widthM: { type: Type.NUMBER },
+              angleDeg: { type: Type.NUMBER },
+              doorType: { type: Type.STRING, enum: ['internal', 'entrance', 'sliding'] },
+              swingSign: { type: Type.NUMBER },
+              roomName: { type: Type.STRING },
+            },
+            required: ['cx', 'cy', 'widthM', 'angleDeg'],
+          },
+        },
+        windows: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              cx: { type: Type.NUMBER },
+              cy: { type: Type.NUMBER },
+              widthM: { type: Type.NUMBER },
+              angleDeg: { type: Type.NUMBER },
+              windowType: { type: Type.STRING, enum: ['window', 'french_door', 'glass_wall'] },
+              sillHeightM: { type: Type.NUMBER },
+              roomName: { type: Type.STRING },
+            },
+            required: ['cx', 'cy', 'widthM', 'angleDeg'],
+          },
+        },
+        pillars: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              cx: { type: Type.NUMBER },
+              cy: { type: Type.NUMBER },
+              widthM: { type: Type.NUMBER },
+              depthM: { type: Type.NUMBER },
+            },
+            required: ['cx', 'cy', 'widthM', 'depthM'],
+          },
+        },
+        rooms: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              floorType: { type: Type.STRING, enum: ['oak', 'ceramic'] },
+              areaM2: { type: Type.NUMBER },
+              polygon: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    x: { type: Type.NUMBER },
+                    y: { type: Type.NUMBER },
+                  },
+                  required: ['x', 'y'],
+                },
+              },
+            },
+            required: ['name', 'floorType', 'polygon'],
+          },
+        },
+        railings: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              x1: { type: Type.NUMBER },
+              y1: { type: Type.NUMBER },
+              x2: { type: Type.NUMBER },
+              y2: { type: Type.NUMBER },
+              heightM: { type: Type.NUMBER },
+            },
+            required: ['x1', 'y1', 'x2', 'y2'],
+          },
+        },
+      },
+      required: ['walls', 'doors', 'windows', 'pillars', 'rooms'],
+    };
+
+    const attempts: Array<{ model: string; level: ThinkingLevel; delayMs: number }> = [
+      { model: 'gemini-3.1-flash-lite', level: ThinkingLevel.MINIMAL, delayMs: 0 },
+      { model: 'gemini-4-hydrogen', level: ThinkingLevel.LOW, delayMs: 400 },
+    ];
+
+    let rawText = '';
+    let modelUsed = attempts[0].model;
+    let lastErr: any = null;
+
+    for (const attempt of attempts) {
+      if (attempt.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, attempt.delayMs));
+      }
+      try {
+        const response = await ai.models.generateContent({
+          model: attempt.model,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: imageBase64,
+                },
+              },
+              { text: promptText },
+            ],
+          },
+          config: {
+            thinkingConfig: {
+              thinkingLevel: attempt.level,
+            },
+            systemInstruction,
+            responseMimeType: 'application/json',
+            responseSchema,
+          },
+        });
+        const text = (response.text || '').trim();
+        if (text) {
+          rawText = text;
+          modelUsed = attempt.model;
+          break;
+        }
+      } catch (err: any) {
+        lastErr = err;
+        const errStr = String(err?.message || err || '');
+        const isTransient = /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|high demand|overloaded|timeout/i.test(errStr);
+        console.warn(`[BIM AI] Tentativo su ${attempt.model} fallito (${isTransient ? 'transitorio' : 'definitivo'}):`, errStr.slice(0, 180));
+        if (!isTransient) break;
+      }
+    }
+
+    if (!rawText) {
+      const errStr = String(lastErr?.message || '');
+      const friendly = /503|UNAVAILABLE|high demand/i.test(errStr)
+        ? 'Il servizio AI è momentaneamente sovraccarico (503). Riprova tra qualche secondo con "Ricostruisci Pulito".'
+        : /429|RESOURCE_EXHAUSTED/i.test(errStr)
+        ? 'Quota temporanea AI esaurita (429). Riprova tra un momento o verifica la chiave API in Settings > Secrets.'
+        : /API_KEY|PERMISSION_DENIED|403/i.test(errStr)
+        ? 'Chiave API Gemini non valida o non autorizzata. Verifica la chiave in Settings > Secrets.'
+        : errStr || 'Risposta vuota dal servizio AI.';
+      res.status(503).json({ ok: false, error: friendly });
+      return;
+    }
+
+    const parsed = JSON.parse(rawText);
+    const durationMs = Date.now() - t0;
+    console.log(
+      `[BIM AI] Analisi completata con ${modelUsed} in ${durationMs}ms (walls=${parsed?.walls?.length ?? 0}, rooms=${parsed?.rooms?.length ?? 0})`
+    );
+    res.json({ ok: true, modelUsed, durationMs, data: parsed });
+  } catch (err: any) {
+    console.error('Errore /api/bim/analyze-plan:', err);
+    const msg = err?.message || 'Errore durante la ricostruzione architettonica AI.';
+    res.status(500).json({ ok: false, error: msg });
+  }
 });
 
 // ---------------- VITE DEV MIDDLEWARE / PROD STATIC ----------------

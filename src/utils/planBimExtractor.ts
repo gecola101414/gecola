@@ -21,6 +21,8 @@ export interface BimWallObject {
   thicknessM: number;
   heightM: number;
   orientation: 'H' | 'V';
+  /** Exact wall angle in radians (supports diagonal/angled architectural walls) */
+  angleRad?: number;
   roomName?: string;
 }
 
@@ -36,6 +38,8 @@ export interface BimDoorObject {
   heightM: number;
   thicknessM: number;
   orientation: 'H' | 'V';
+  angleRad?: number;
+  swingSign?: 1 | -1;
   roomName?: string;
 }
 
@@ -52,6 +56,7 @@ export interface BimWindowObject {
   sillHeightM: number;
   thicknessM: number;
   orientation: 'H' | 'V';
+  angleRad?: number;
   roomName?: string;
 }
 
@@ -74,12 +79,23 @@ export interface BimRoomObject {
   code: string;
   name: string;
   finish: string;
+  floorType?: 'oak' | 'ceramic';
+  polygonM?: Array<{ x: number; y: number }>;
   cxM: number;
   cyM: number;
   widthM: number;
   depthM: number;
   areaM2: number;
   perimeterM: number;
+  heightM: number;
+}
+
+export interface BimRailingObject {
+  id: string;
+  x1M: number;
+  y1M: number;
+  x2M: number;
+  y2M: number;
   heightM: number;
 }
 
@@ -96,6 +112,8 @@ export interface PlanBimModel {
   windows: BimWindowObject[];
   pillars: BimPillarObject[];
   rooms: BimRoomObject[];
+  railings?: BimRailingObject[];
+  source?: 'local' | 'ai-vision';
   planWidthM: number;
   planHeightM: number;
   boundsM: {
@@ -104,6 +122,286 @@ export interface PlanBimModel {
     minY: number;
     maxY: number;
   };
+}
+
+/** Classifies a room's architectural floor finish (oak parquet vs light beige ceramic tiles) */
+export function inferRoomFloorType(roomName?: string): 'oak' | 'ceramic' {
+  const n = (roomName || '').toLowerCase();
+  if (
+    /bagn|wc|serviz|docci|lavand|balcon|terrazz|loggi|portic|scal|pianerott|ascensor|cucin|cottur|corrido|disimpegn|ingress|atrio|ripost|cantin|box|garag/.test(
+      n
+    )
+  ) {
+    return 'ceramic';
+  }
+  return 'oak';
+}
+
+/**
+ * Cleanly carves door & window cutouts out of any wall segments that pass through them,
+ * so doorways and glazed windows are true open voids in the 3D/BIM architectural model.
+ */
+export function splitWallsAroundOpenings(
+  walls: BimWallObject[],
+  doors: BimDoorObject[],
+  windows: BimWindowObject[]
+): BimWallObject[] {
+  const openings: Array<{ cxM: number; cyM: number; widthM: number; angleRad: number }> = [
+    ...doors.map((d) => ({
+      cxM: d.cxM,
+      cyM: d.cyM,
+      widthM: d.widthM,
+      angleRad: d.angleRad ?? (d.orientation === 'V' ? Math.PI / 2 : 0),
+    })),
+    ...windows.map((w) => ({
+      cxM: w.cxM,
+      cyM: w.cyM,
+      widthM: w.widthM,
+      angleRad: w.angleRad ?? (w.orientation === 'V' ? Math.PI / 2 : 0),
+    })),
+  ];
+
+  if (openings.length === 0) return walls;
+
+  const result: BimWallObject[] = [];
+
+  for (const w of walls) {
+    const dx = w.x2M - w.x1M;
+    const dy = w.y2M - w.y1M;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.35) continue;
+
+    const ux = dx / len;
+    const uy = dy / len;
+    const wAngle = Math.atan2(dy, dx);
+
+    const cuts: Array<{ t0: number; t1: number }> = [];
+    for (const op of openings) {
+      // Check alignment (parallel within ~22 degrees)
+      const angleDiff = Math.abs(Math.sin(wAngle - op.angleRad));
+      if (angleDiff > 0.38) continue;
+
+      // Project opening center onto wall line
+      const rx = op.cxM - w.x1M;
+      const ry = op.cyM - w.y1M;
+      const proj = rx * ux + ry * uy;
+      const perpDist = Math.abs(rx * -uy + ry * ux);
+      if (perpDist > Math.max(0.32, w.thicknessM * 0.95)) continue;
+
+      const halfW = op.widthM * 0.5;
+      const t0 = Math.max(0, proj - halfW);
+      const t1 = Math.min(len, proj + halfW);
+      if (t1 - t0 >= 0.35) {
+        cuts.push({ t0, t1 });
+      }
+    }
+
+    if (cuts.length === 0) {
+      result.push(w);
+      continue;
+    }
+
+    cuts.sort((a, b) => a.t0 - b.t0);
+    const mergedCuts: Array<{ t0: number; t1: number }> = [];
+    for (const c of cuts) {
+      const last = mergedCuts[mergedCuts.length - 1];
+      if (last && c.t0 <= last.t1 + 0.05) {
+        last.t1 = Math.max(last.t1, c.t1);
+      } else {
+        mergedCuts.push({ ...c });
+      }
+    }
+
+    let cursor = 0;
+    let pieceIdx = 0;
+    const emitPiece = (a: number, b: number) => {
+      const segLen = b - a;
+      if (segLen < 0.14) return;
+      const x1 = w.x1M + ux * a;
+      const y1 = w.y1M + uy * a;
+      const x2 = w.x1M + ux * b;
+      const y2 = w.y1M + uy * b;
+      const suffix = pieceIdx === 0 && mergedCuts.length === 0 ? '' : String.fromCharCode(65 + pieceIdx);
+      pieceIdx++;
+      result.push({
+        ...w,
+        id: suffix ? `${w.id}_${suffix}` : w.id,
+        code: suffix ? `${w.code}${suffix}` : w.code,
+        name: suffix
+          ? `${w.category === 'Muro Perimetrale' ? 'Muro Perimetrale' : 'Tramezzo'} ${w.code}${suffix}${w.roomName ? ` (${w.roomName})` : ''}`
+          : w.name,
+        x1M: Math.round(x1 * 100) / 100,
+        y1M: Math.round(y1 * 100) / 100,
+        x2M: Math.round(x2 * 100) / 100,
+        y2M: Math.round(y2 * 100) / 100,
+        cxM: Math.round(((x1 + x2) * 0.5) * 100) / 100,
+        cyM: Math.round(((y1 + y2) * 0.5) * 100) / 100,
+        lengthM: Math.round(segLen * 100) / 100,
+        angleRad: wAngle,
+      });
+    };
+
+    for (const c of mergedCuts) {
+      if (c.t0 - cursor >= 0.14) {
+        emitPiece(cursor, c.t0);
+      }
+      cursor = Math.max(cursor, c.t1);
+    }
+    if (len - cursor >= 0.14) {
+      emitPiece(cursor, len);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Removes non-wall architectural artifacts:
+ * 1. Staircase tread / hatch clusters (3+ short parallel thin segments spaced 0.14–0.52m apart).
+ * 2. Double parallel CAD wall lines (< 0.34m apart with > 45% longitudinal overlap) merged into
+ *    one crisp solid architectural wall.
+ */
+export function cleanArchitecturalWalls(walls: BimWallObject[]): BimWallObject[] {
+  if (walls.length === 0) return walls;
+
+  // Step 1: Detect and remove staircase tread / hatch parallel clusters
+  const stairDrop = new Set<number>();
+  for (let i = 0; i < walls.length; i++) {
+    const wi = walls[i];
+    if (wi.lengthM > 2.5 || wi.category === 'Muro Perimetrale') continue;
+    const ai = wi.angleRad ?? Math.atan2(wi.y2M - wi.y1M, wi.x2M - wi.x1M);
+    const ux = Math.cos(ai);
+    const uy = Math.sin(ai);
+    const nx = -uy;
+    const ny = ux;
+    const ti0 = wi.x1M * ux + wi.y1M * uy;
+    const ti1 = wi.x2M * ux + wi.y2M * uy;
+    const iMin = Math.min(ti0, ti1);
+    const iMax = Math.max(ti0, ti1);
+    const pi = wi.cxM * nx + wi.cyM * ny;
+
+    const clusterIdx: number[] = [i];
+    for (let j = 0; j < walls.length; j++) {
+      if (j === i) continue;
+      const wj = walls[j];
+      if (wj.lengthM > 2.5 || Math.abs(wj.lengthM - wi.lengthM) > 0.75) continue;
+      const aj = wj.angleRad ?? Math.atan2(wj.y2M - wj.y1M, wj.x2M - wj.x1M);
+      const dAng = Math.abs(Math.atan2(Math.sin(aj - ai), Math.cos(aj - ai)));
+      if (Math.min(dAng, Math.abs(Math.PI - dAng)) > 0.14) continue;
+
+      const tj0 = wj.x1M * ux + wj.y1M * uy;
+      const tj1 = wj.x2M * ux + wj.y2M * uy;
+      const overlap = Math.min(iMax, Math.max(tj0, tj1)) - Math.max(iMin, Math.min(tj0, tj1));
+      if (overlap < Math.min(wi.lengthM, wj.lengthM) * 0.55) continue;
+
+      const pj = wj.cxM * nx + wj.cyM * ny;
+      const perpDist = Math.abs(pj - pi);
+      if (perpDist >= 0.12 && perpDist <= 1.85) {
+        clusterIdx.push(j);
+      }
+    }
+
+    if (clusterIdx.length >= 4) {
+      // Check if segments are densely packed (average gap <= 0.48m — classic stair flight!)
+      const perps = clusterIdx
+        .map((idx) => walls[idx].cxM * nx + walls[idx].cyM * ny)
+        .sort((a, b) => a - b);
+      let closePairs = 0;
+      for (let k = 1; k < perps.length; k++) {
+        const gap = perps[k] - perps[k - 1];
+        if (gap >= 0.12 && gap <= 0.48) closePairs++;
+      }
+      if (closePairs >= 3) {
+        for (const idx of clusterIdx) {
+          if (walls[idx].category !== 'Muro Perimetrale') stairDrop.add(idx);
+        }
+      }
+    }
+  }
+
+  const afterStairs = walls.filter((_, idx) => !stairDrop.has(idx));
+
+  // Step 2: Merge closely spaced duplicate/double parallel walls (< 0.34m apart, > 45% overlap)
+  const mergedOut: BimWallObject[] = [];
+  const used = new Uint8Array(afterStairs.length);
+
+  for (let i = 0; i < afterStairs.length; i++) {
+    if (used[i]) continue;
+    let cur = { ...afterStairs[i] };
+    used[i] = 1;
+
+    const ai = cur.angleRad ?? Math.atan2(cur.y2M - cur.y1M, cur.x2M - cur.x1M);
+    const ux = Math.cos(ai);
+    const uy = Math.sin(ai);
+    const nx = -uy;
+    const ny = ux;
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const tA0 = cur.x1M * ux + cur.y1M * uy;
+      const tA1 = cur.x2M * ux + cur.y2M * uy;
+      const aMin = Math.min(tA0, tA1);
+      const aMax = Math.max(tA0, tA1);
+      const pA = cur.cxM * nx + cur.cyM * ny;
+
+      for (let j = i + 1; j < afterStairs.length; j++) {
+        if (used[j]) continue;
+        const wj = afterStairs[j];
+        const aj = wj.angleRad ?? Math.atan2(wj.y2M - wj.y1M, wj.x2M - wj.x1M);
+        const dAng = Math.abs(Math.atan2(Math.sin(aj - ai), Math.cos(aj - ai)));
+        if (Math.min(dAng, Math.abs(Math.PI - dAng)) > 0.12) continue;
+
+        const pB = wj.cxM * nx + wj.cyM * ny;
+        const perpDist = Math.abs(pB - pA);
+        if (perpDist > 0.34) continue;
+
+        const tB0 = wj.x1M * ux + wj.y1M * uy;
+        const tB1 = wj.x2M * ux + wj.y2M * uy;
+        const bMin = Math.min(tB0, tB1);
+        const bMax = Math.max(tB0, tB1);
+        const overlap = Math.min(aMax, bMax) - Math.max(aMin, bMin);
+        const minLen = Math.min(cur.lengthM, wj.lengthM);
+        if (overlap < minLen * 0.45) continue;
+
+        // Merge double stroke into one solid wall
+        used[j] = 1;
+        changed = true;
+        const newMinT = Math.min(aMin, bMin);
+        const newMaxT = Math.max(aMax, bMax);
+        const wA = Math.max(0.2, cur.lengthM);
+        const wB = Math.max(0.2, wj.lengthM);
+        const avgP = (pA * wA + pB * wB) / (wA + wB);
+        const x1 = ux * newMinT + nx * avgP;
+        const y1 = uy * newMinT + ny * avgP;
+        const x2 = ux * newMaxT + nx * avgP;
+        const y2 = uy * newMaxT + ny * avgP;
+        const isPerim = cur.category === 'Muro Perimetrale' || wj.category === 'Muro Perimetrale';
+        const combinedThick = Math.min(
+          0.48,
+          Math.max(cur.thicknessM, wj.thicknessM, perpDist + (cur.thicknessM + wj.thicknessM) * 0.35)
+        );
+        cur = {
+          ...cur,
+          category: isPerim ? 'Muro Perimetrale' : 'Tramezzo Interno',
+          x1M: Math.round(x1 * 100) / 100,
+          y1M: Math.round(y1 * 100) / 100,
+          x2M: Math.round(x2 * 100) / 100,
+          y2M: Math.round(y2 * 100) / 100,
+          cxM: Math.round(((x1 + x2) * 0.5) * 100) / 100,
+          cyM: Math.round(((y1 + y2) * 0.5) * 100) / 100,
+          lengthM: Math.round((newMaxT - newMinT) * 100) / 100,
+          thicknessM: Math.round(combinedThick * 100) / 100,
+          angleRad: ai,
+        };
+        break;
+      }
+    }
+
+    mergedOut.push(cur);
+  }
+
+  return mergedOut;
 }
 
 interface RawLineRun {
@@ -1792,12 +2090,14 @@ export function extractPlanBimModel(
     const areaM2 = round2(rm.areaMq ?? widthM * depthM);
     const perimeterM = round2(rm.perimeterM ?? 2 * (widthM + depthM));
     const code = `V${String(i + 1).padStart(2, '0')}`;
+    const roomFloorType = inferRoomFloorType(rm.name);
     rooms.push({
       id: `bim_room_${i + 1}`,
       kind: 'room',
       code,
       name: rm.name || `Vano ${code}`,
-      finish: 'Gres porcellanato',
+      finish: roomFloorType === 'oak' ? 'Parquet Rovere Naturale' : 'Gres Porcellanato Beige',
+      floorType: roomFloorType,
       cxM: round2(cxM),
       cyM: round2(cyM),
       widthM: round2(clamp(widthM, 1.2, 12)),
@@ -1808,12 +2108,16 @@ export function extractPlanBimModel(
     });
   }
 
+  const cleanedWalls = cleanArchitecturalWalls(walls);
+
   return {
-    walls,
+    walls: cleanedWalls,
     doors,
     windows,
     pillars,
     rooms,
+    railings: [],
+    source: 'local',
     planWidthM,
     planHeightM,
     boundsM: {
