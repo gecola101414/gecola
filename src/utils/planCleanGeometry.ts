@@ -24,6 +24,65 @@ export interface CleanedPlanResult {
 }
 
 /**
+ * Lightweight extraction of significant quotes, room labels, and surfaces for the
+ * dedicated toggleable CAD/BIM "Quote & Misure" layer — without erasing any pixels.
+ */
+export function extractSignificantQuotes(
+  tokens: PlanToken[],
+  metersPerPt: number
+): SignificantQuoteItem[] {
+  const significantQuotes: SignificantQuoteItem[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const t of tokens) {
+    if (t.kind === 'dimension' && typeof t.numericValue === 'number' && t.numericValue >= 0.4 && t.numericValue <= 60) {
+      const key = `d_${Math.round(t.cx / 18)}_${Math.round(t.cy / 18)}_${t.numericValue.toFixed(2)}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      significantQuotes.push({
+        id: `sq_${t.id}`,
+        text: `${t.numericValue.toFixed(2)} m`,
+        kind: 'dimension',
+        orientation: t.orientation === 'vertical' ? 'vertical' : 'horizontal',
+        xPt: t.cx,
+        yPt: t.cy,
+        xM: t.cx * metersPerPt,
+        yM: t.cy * metersPerPt,
+        numericValue: t.numericValue,
+      });
+    } else if (t.kind === 'room' && t.str.trim().length >= 2) {
+      const key = `r_${t.str.trim().toLowerCase()}_${Math.round(t.cx / 35)}_${Math.round(t.cy / 35)}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      significantQuotes.push({
+        id: `sq_${t.id}`,
+        text: t.str.trim(),
+        kind: 'room',
+        orientation: 'horizontal',
+        xPt: t.cx,
+        yPt: t.cy,
+        xM: t.cx * metersPerPt,
+        yM: t.cy * metersPerPt,
+      });
+    } else if (t.kind === 'surface' && typeof t.numericValue === 'number' && t.numericValue >= 0.5) {
+      significantQuotes.push({
+        id: `sq_${t.id}`,
+        text: `${t.numericValue.toFixed(2)} m²`,
+        kind: 'surface',
+        orientation: 'horizontal',
+        xPt: t.cx,
+        yPt: t.cy,
+        xM: t.cx * metersPerPt,
+        yM: t.cy * metersPerPt,
+        numericValue: t.numericValue,
+      });
+    }
+  }
+
+  return significantQuotes;
+}
+
+/**
  * Strips all detected text labels, quote numbers, thin dimension lines, witness ticks,
  * and exterior quote chains from a copy of the rendered PDF canvas, keeping ONLY the
  * clean architectural geometry (walls, openings, pillars) in memory for 2D-clean / 3D / BIM.

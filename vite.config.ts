@@ -122,6 +122,7 @@ export default defineConfig({
     host: '0.0.0.0',
     strictPort: true,
     allowedHosts: true,
+    hmr: false,
     watch: {
       ignored: ['**/dist/**', '**/.gecola-shared/**'],
     },

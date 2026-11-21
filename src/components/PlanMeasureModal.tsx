@@ -99,8 +99,8 @@ import {
   AutoCalibrationStatus,
 } from '../utils/planAutoCalibration';
 import {
-  buildCleanedArchitecturalPlan,
-  CleanedPlanResult,
+  extractSignificantQuotes,
+  SignificantQuoteItem,
 } from '../utils/planCleanGeometry';
 import {
   BimObject,
@@ -109,7 +109,6 @@ import {
   PlanBimModel,
 } from '../utils/planBimExtractor';
 import { Plan3DViewer } from './Plan3DViewer';
-import { PlanClean2DEditor } from './PlanClean2DEditor';
 
 export interface PlanMeasureExportRow {
   description: string;
@@ -373,12 +372,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const canvasLumaRef = useRef<PlanLumaGrid | null>(null);
   const [lumaVersion, setLumaVersion] = useState<number>(0);
 
-  // Vista 2D Pianta / 2D Pulito (Solo Pareti) / 3D Pareti / BIM Editabile + Pianta Pulita in memoria & Auto-Calibrazione H/V
-  const [viewMode, setViewMode] = useState<'2d' | 'clean2d' | '3d' | 'bim'>('2d');
-  const [showClean2DPlan, setShowClean2DPlan] = useState<boolean>(false);
-  const [manualCleanByPageKey, setManualCleanByPageKey] = useState<
-    Record<string, { canvas: HTMLCanvasElement; grid: PlanLumaGrid; version: number }>
-  >({});
+  // Vista 2D Pianta / 3D Pareti / BIM Editabile + Auto-Calibrazione H/V
+  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'bim'>('2d');
   const [showQuotesIn3D, setShowQuotesIn3D] = useState<boolean>(false);
   const [wall3DSensitivity, setWall3DSensitivity] = useState<LaserSensitivity>('medium');
   const [autoCalibState, setAutoCalibState] = useState<{
@@ -390,8 +385,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   }>({ status: 'idle', message: '', matchedH: 0, matchedV: 0 });
   const manualCalibratedPagesRef = useRef<Set<number>>(new Set());
   const autoCalibRunKeyRef = useRef<string>('');
-  const cleanedPlanCacheRef = useRef<Map<string, CleanedPlanResult>>(new Map());
-  const cleanCanvasDisplayRef = useRef<HTMLCanvasElement | null>(null);
   const [bimModelState, setBimModelState] = useState<PlanBimModel>({
     walls: [],
     doors: [],
@@ -409,10 +402,15 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const [measuredLinesByPage, setMeasuredLinesByPage] = useState<Record<number, MeasuredRulerLine[]>>({});
   const [showMeasuredMarks, setShowMeasuredMarks] = useState<boolean>(true);
 
-  // Pan & Resizer split
+  // Pan & Zoom stile AutoCAD (zero barre di scorrimento, solo pan infinito + zoom sul cursore) & Resizer split
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panOffsetRef = useRef(panOffset);
+  panOffsetRef.current = panOffset;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const [isPanning, setIsPanning] = useState(false);
   const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const panOriginRef = useRef<{ clientX: number; clientY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const panOriginRef = useRef<{ clientX: number; clientY: number; panX: number; panY: number } | null>(null);
   const [rightPanelWidth, setRightPanelWidth] = useState<number>(570);
   const [isResizingSplit, setIsResizingSplit] = useState(false);
   const [isRoomsDrawerOpen, setIsRoomsDrawerOpen] = useState<boolean>(false);
@@ -429,6 +427,43 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<any>(null);
   const rowInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+
+  const fitAnalysisToViewport = useCallback((widthPt: number, heightPt: number) => {
+    const container = scrollContainerRef.current;
+    if (!container || widthPt <= 0 || heightPt <= 0) return;
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 100 || rect.height <= 100) return;
+    const pad = 24;
+    const fitZ = Math.min((rect.width - pad * 2) / widthPt, (rect.height - pad * 2) / heightPt);
+    const clampedZ = Math.max(0.2, Math.min(3.5, Math.round(fitZ * 100) / 100));
+    const nextPan = {
+      x: Math.round((rect.width - widthPt * clampedZ) / 2),
+      y: Math.round((rect.height - heightPt * clampedZ) / 2),
+    };
+    setZoom(clampedZ);
+    setPanOffset(nextPan);
+  }, []);
+
+  const zoomAroundViewportPoint = useCallback((rawNextZoom: number, clientX?: number, clientY?: number) => {
+    const oldZoom = zoomRef.current;
+    const nextZoom = Math.max(0.2, Math.min(5.0, Math.round(rawNextZoom * 100) / 100));
+    if (nextZoom === oldZoom) return;
+    const container = scrollContainerRef.current;
+    if (!container) {
+      setZoom(nextZoom);
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const anchorX = clientX !== undefined ? clientX - rect.left : rect.width * 0.5;
+    const anchorY = clientY !== undefined ? clientY - rect.top : rect.height * 0.5;
+    const oldPan = panOffsetRef.current;
+    const ratio = nextZoom / oldZoom;
+    setZoom(nextZoom);
+    setPanOffset({
+      x: anchorX - (anchorX - oldPan.x) * ratio,
+      y: anchorY - (anchorY - oldPan.y) * ratio,
+    });
+  }, []);
 
   const layerMap = useMemo(() => {
     const map = new Map<string, PlanLayer>();
@@ -700,12 +735,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           setScaleDenominator(analysis.detectedScaleDenominator);
         }
 
-        if (autoFit && scrollContainerRef.current) {
-          const rect = scrollContainerRef.current.getBoundingClientRect();
-          if (rect.width > 100 && rect.height > 100) {
-            const fitZ = Math.min((rect.width - 32) / analysis.width, (rect.height - 32) / analysis.height);
-            setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
-          }
+        if (autoFit) {
+          fitAnalysisToViewport(analysis.width, analysis.height);
         }
         return analysis;
       } catch (err) {
@@ -713,7 +744,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         return null;
       }
     },
-    [customMetersPerPt]
+    [customMetersPerPt, fitAnalysisToViewport]
   );
 
   // Esegue scansione OCR parallela (0° + 90°) sulla pagina corrente riusando il canvas renderizzato quando possibile
@@ -1042,13 +1073,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         const activeAnalysis = analysesMap[targetPage];
         if (fitViewport && activeAnalysis) {
           requestAnimationFrame(() => {
-            if (scrollContainerRef.current) {
-              const rect = scrollContainerRef.current.getBoundingClientRect();
-              if (rect.width > 100 && rect.height > 100) {
-                const fitZ = Math.min((rect.width - 32) / activeAnalysis.width, (rect.height - 32) / activeAnalysis.height);
-                setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
-              }
-            }
+            fitAnalysisToViewport(activeAnalysis.width, activeAnalysis.height);
           });
         }
         setLastFeedback(`Tavola "${sheet.name}" caricata dalla memoria di progetto`);
@@ -1062,7 +1087,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         }, 80);
       }
     },
-    [onSelectActivePlanSheet]
+    [onSelectActivePlanSheet, fitAnalysisToViewport]
   );
 
   // Carica nuovo PDF e lo salva nell'archivio tavole del progetto
@@ -1166,13 +1191,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
         if (targetAnalysis) {
           requestAnimationFrame(() => {
-            if (scrollContainerRef.current) {
-              const rect = scrollContainerRef.current.getBoundingClientRect();
-              if (rect.width > 100 && rect.height > 100) {
-                const fitZ = Math.min((rect.width - 32) / targetAnalysis.width, (rect.height - 32) / targetAnalysis.height);
-                setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
-              }
-            }
+            fitAnalysisToViewport(targetAnalysis.width, targetAnalysis.height);
           });
         }
         setLastFeedback(
@@ -1190,7 +1209,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         }, 80);
       }
     },
-    [quoteUnit, exportUnit, onPlanSheetsChange, onSelectActivePlanSheet]
+    [quoteUnit, exportUnit, onPlanSheetsChange, onSelectActivePlanSheet, fitAnalysisToViewport]
   );
 
   const handleRemoveSavedSheet = useCallback(
@@ -1358,7 +1377,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         }
 
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const renderScale = Math.min(3.5, zoom * dpr);
+        // Mantieni sempre alta risoluzione minima (1.8x) per precisione Laser Virtuale & estrazione BIM
+        const renderScale = Math.min(3.5, Math.max(1.8, zoom * dpr));
         const viewport = page.getViewport({ scale: renderScale });
 
         const canvas = canvasRef.current;
@@ -1368,8 +1388,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
         canvas.width = Math.max(1, Math.floor(viewport.width));
         canvas.height = Math.max(1, Math.floor(viewport.height));
-        canvas.style.width = `${Math.max(1, Math.floor(viewport.width / dpr))}px`;
-        canvas.style.height = `${Math.max(1, Math.floor(viewport.height / dpr))}px`;
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
 
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1496,12 +1516,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   ]);
 
   const handleFitToViewport = useCallback(() => {
-    if (!currentAnalysis || !scrollContainerRef.current) return;
-    const rect = scrollContainerRef.current.getBoundingClientRect();
-    if (rect.width <= 100 || rect.height <= 100) return;
-    const fitZ = Math.min((rect.width - 32) / currentAnalysis.width, (rect.height - 32) / currentAnalysis.height);
-    setZoom(Math.max(0.35, Math.min(2.8, Math.round(fitZ * 100) / 100)));
-  }, [currentAnalysis]);
+    if (!currentAnalysis) return;
+    fitAnalysisToViewport(currentAnalysis.width, currentAnalysis.height);
+  }, [currentAnalysis, fitAnalysisToViewport]);
 
   const convertDraftToExportUnit = useCallback(
     (d: QueuedMeasureDraft): InternalMeasureDraft => {
@@ -1930,13 +1947,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
     if (e.button === 1 || isSpacePressed || activeTool === 'pan') {
       e.preventDefault();
-      if (!scrollContainerRef.current) return;
+      e.stopPropagation();
       setIsPanning(true);
       panOriginRef.current = {
         clientX: e.clientX,
         clientY: e.clientY,
-        scrollLeft: scrollContainerRef.current.scrollLeft,
-        scrollTop: scrollContainerRef.current.scrollTop,
+        panX: panOffsetRef.current.x,
+        panY: panOffsetRef.current.y,
       };
       return;
     }
@@ -2311,11 +2328,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   };
 
   const handleCanvasMouseMove = (e: React.MouseEvent) => {
-    if (isPanning && panOriginRef.current && scrollContainerRef.current) {
+    if (isPanning && panOriginRef.current) {
       const dx = e.clientX - panOriginRef.current.clientX;
       const dy = e.clientY - panOriginRef.current.clientY;
-      scrollContainerRef.current.scrollLeft = panOriginRef.current.scrollLeft - dx;
-      scrollContainerRef.current.scrollTop = panOriginRef.current.scrollTop - dy;
+      setPanOffset({
+        x: panOriginRef.current.panX + dx,
+        y: panOriginRef.current.panY + dy,
+      });
       return;
     }
 
@@ -2456,10 +2475,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     }
   };
 
-  // Standard CAD 2D: la rotella del mouse fa zoom diretto verso il cursore (senza dover tenere Ctrl)
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-
+  // Standard CAD 2D senza barre di scorrimento: la rotella fa zoom fluido ancorato esattamente sul cursore
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || !pdfDoc || viewMode !== '2d') return;
@@ -2467,39 +2483,25 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     const onNativeWheel = (e: WheelEvent) => {
       e.preventDefault();
       const oldZoom = zoomRef.current;
-      const factor = e.deltaY < 0 ? 1.12 : 0.89;
-      const nextZoom = Math.max(0.35, Math.min(4.0, Math.round(oldZoom * factor * 100) / 100));
-      if (nextZoom === oldZoom) return;
-
-      const rect = container.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const contentX = container.scrollLeft + mouseX;
-      const contentY = container.scrollTop + mouseY;
-      const scaleRatio = nextZoom / oldZoom;
-
-      setZoom(nextZoom);
-      requestAnimationFrame(() => {
-        container.scrollLeft = contentX * scaleRatio - mouseX;
-        container.scrollTop = contentY * scaleRatio - mouseY;
-      });
+      const factor = e.deltaY < 0 ? 1.14 : 0.88;
+      zoomAroundViewportPoint(oldZoom * factor, e.clientX, e.clientY);
     };
 
     container.addEventListener('wheel', onNativeWheel, { passive: false });
     return () => {
       container.removeEventListener('wheel', onNativeWheel);
     };
-  }, [pdfDoc, viewMode]);
+  }, [pdfDoc, viewMode, zoomAroundViewportPoint]);
 
-  // Standard CAD 2D: pan fluido continuo anche se il cursore esce dai bordi del foglio mentre si trascina con la rotella
+  // Standard CAD 2D: pan infinito fluido ovunque nella tavola (rotella premuta, Spazio o strumento Mano)
   useEffect(() => {
     if (!isPanning) return;
     const onWinMove = (e: MouseEvent) => {
-      if (!panOriginRef.current || !scrollContainerRef.current) return;
-      scrollContainerRef.current.scrollLeft =
-        panOriginRef.current.scrollLeft - (e.clientX - panOriginRef.current.clientX);
-      scrollContainerRef.current.scrollTop =
-        panOriginRef.current.scrollTop - (e.clientY - panOriginRef.current.clientY);
+      if (!panOriginRef.current) return;
+      setPanOffset({
+        x: panOriginRef.current.panX + (e.clientX - panOriginRef.current.clientX),
+        y: panOriginRef.current.panY + (e.clientY - panOriginRef.current.clientY),
+      });
     };
     const onWinUp = () => {
       setIsPanning(false);
@@ -2683,65 +2685,15 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     executeAutoCalibration,
   ]);
 
-  // 1. PULIZIA ARCHITETTONICA AUTOMATICA IN MEMORIA:
-  // Una volta scansionata/calibrata la pianta, elimina scritte, numeri e linee di quota sottili,
-  // memorizza la pianta pulita in cache e proietta le quote più significative nel layer "Quote & Misure Pulite".
-  const cleanedPlan = useMemo<CleanedPlanResult | null>(() => {
-    if (!pdfDoc || lumaVersion === 0 || !canvasRef.current || !canvasLumaRef.current) return null;
-    const tokens = currentAnalysis?.tokens || [];
-    const cacheKey = `${currentSheetId || 'local'}_${currentPage}_${lumaVersion}_${tokens.length}_${metersPerPt.toFixed(6)}`;
-    const cached = cleanedPlanCacheRef.current.get(cacheKey);
-    if (cached) return cached;
+  // 1. Quote significative e nomi vano per il layer opzionale "Quote & Misure" in 3D/BIM (senza alterare la pianta)
+  const significantQuotes = useMemo<SignificantQuoteItem[]>(() => {
+    return extractSignificantQuotes(currentAnalysis?.tokens || [], metersPerPt);
+  }, [currentAnalysis?.tokens, metersPerPt]);
 
-    const built = buildCleanedArchitecturalPlan(
-      canvasRef.current,
-      canvasLumaRef.current,
-      tokens,
-      metersPerPt
-    );
-    if (built) {
-      if (cleanedPlanCacheRef.current.size > 16) {
-        const firstKey = cleanedPlanCacheRef.current.keys().next().value;
-        if (firstKey) cleanedPlanCacheRef.current.delete(firstKey);
-      }
-      cleanedPlanCacheRef.current.set(cacheKey, built);
-    }
-    return built;
-  }, [pdfDoc, currentSheetId, currentPage, lumaVersion, currentAnalysis?.tokens, metersPerPt]);
-
-  const cleanPageKey = `${currentSheetId || 'local'}_${currentPage}`;
-  const activeManualClean = manualCleanByPageKey[cleanPageKey] || null;
-
-  // Pianta pulita effettiva: se l'utente ha pulito manualmente in "2D Pulito", usa quella per 3D e BIM!
-  const effectiveCleanedPlan = useMemo<CleanedPlanResult | null>(() => {
-    if (activeManualClean) {
-      return {
-        cleanCanvas: activeManualClean.canvas,
-        cleanGrid: activeManualClean.grid,
-        significantQuotes: cleanedPlan?.significantQuotes || [],
-        erasedTextCount: cleanedPlan?.erasedTextCount || 0,
-        erasedDimLinesCount: cleanedPlan?.erasedDimLinesCount || 0,
-      };
-    }
-    return cleanedPlan;
-  }, [activeManualClean, cleanedPlan]);
-
-  // Disegna la pianta 2D pulita sul canvas overlay quando l'utente attiva "Pianta Pulita" in 2D
-  useEffect(() => {
-    const target = cleanCanvasDisplayRef.current;
-    if (!showClean2DPlan || !target || !effectiveCleanedPlan?.cleanCanvas) return;
-    target.width = effectiveCleanedPlan.cleanCanvas.width;
-    target.height = effectiveCleanedPlan.cleanCanvas.height;
-    const ctx = target.getContext('2d');
-    if (ctx) {
-      ctx.clearRect(0, 0, target.width, target.height);
-      ctx.drawImage(effectiveCleanedPlan.cleanCanvas, 0, 0);
-    }
-  }, [showClean2DPlan, effectiveCleanedPlan, zoom]);
-
-  // 2. ESTRAZIONE AUTOMATICA MODELLO 3D + BIM EDITABILE DALLA PIANTA PULITA (auto o rifinita a mano in 2D Pulito!)
+  // 2. ESTRAZIONE ARCHITETTONICA AD ALTA PRECISIONE (Muri Perimetrali, Tramezzi, Porte, Finestre, Pilastri, Vani)
+  // Lavora direttamente sulla griglia PDF originale ad alta risoluzione, ignorando scritte, quote e linee di misura!
   const extractedBimModel = useMemo<PlanBimModel>(() => {
-    const gridToUse = effectiveCleanedPlan?.cleanGrid ?? canvasLumaRef.current;
+    const gridToUse = canvasLumaRef.current;
     if (!pdfDoc || lumaVersion === 0 || !gridToUse) {
       return {
         walls: [],
@@ -2765,7 +2717,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   }, [
     pdfDoc,
     lumaVersion,
-    effectiveCleanedPlan,
     metersPerPt,
     currentAnalysis?.tokens,
     currentAnalysis?.rooms,
@@ -3250,31 +3201,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setViewMode('clean2d');
-                      setOpenCadMenu(null);
-                    }}
-                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === 'clean2d'
-                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                        : 'text-emerald-300 hover:text-white hover:bg-emerald-950/60'
-                    }`}
-                    title="2D Pulito (Solo Pareti): pulisci manualmente la piantina per generare un 3D e un BIM perfetti"
-                  >
-                    <Eraser className="w-3.5 h-3.5" />
-                    <span>2D Pulito</span>
-                    {activeManualClean && (
-                      <span
-                        className={`px-1 rounded text-[10px] font-mono ${
-                          viewMode === 'clean2d' ? 'bg-slate-950/20 text-slate-950' : 'bg-emerald-500/20 text-emerald-200'
-                        }`}
-                      >
-                        ✓
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
                       setViewMode('3d');
                       setOpenCadMenu(null);
                     }}
@@ -3617,26 +3543,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                           </button>
 
                           <div className="my-1 border-t border-slate-800" />
-
-                          {cleanedPlan && (
-                            <button
-                              type="button"
-                              onClick={() => setShowClean2DPlan((v) => !v)}
-                              className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-slate-200 hover:bg-slate-800 transition-colors"
-                            >
-                              <span className="flex items-center gap-2">
-                                <Tag className="w-3.5 h-3.5 text-emerald-400" />
-                                Pianta Pulita (senza quote)
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold ${
-                                  showClean2DPlan ? 'text-emerald-400' : 'text-slate-500'
-                                }`}
-                              >
-                                {showClean2DPlan ? 'ON' : 'OFF'}
-                              </span>
-                            </button>
-                          )}
 
                           {currentAnalysis?.tokens.some((t) => t.source === 'ocr' || t.source === 'manual') && (
                             <button
@@ -4121,7 +4027,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   <div className="flex items-center bg-slate-950 rounded-md border border-slate-700 p-0.5">
                     <button
                       type="button"
-                      onClick={() => setZoom((z) => Math.max(0.35, Math.round((z - 0.2) * 100) / 100))}
+                      onClick={() => zoomAroundViewportPoint(zoomRef.current * 0.82)}
                       className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
                       title="Zoom Indietro"
                     >
@@ -4132,7 +4038,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setZoom((z) => Math.min(3.5, Math.round((z + 0.2) * 100) / 100))}
+                      onClick={() => zoomAroundViewportPoint(zoomRef.current * 1.22)}
                       className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
                       title="Zoom Avanti"
                     >
@@ -4142,7 +4048,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       type="button"
                       onClick={handleFitToViewport}
                       className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800 border-l border-slate-700 ml-0.5 pl-1.5"
-                      title="Adatta tavola"
+                      title="Adatta e centra tavola"
                     >
                       <Maximize2 className="w-3.5 h-3.5" />
                     </button>
@@ -4673,39 +4579,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* VIEWPORT PDF 2D / 2D PULITO (SOLO PARETI) / MODELLO 3D PARETI / MODELLO BIM */}
+          {/* VIEWPORT PDF 2D (PAN + ZOOM CAD SENZA BARRE DI SCORRIMENTO) / MODELLO 3D / MODELLO BIM */}
           <div className="flex-1 relative flex min-h-0 overflow-hidden">
-            {pdfDoc && viewMode === 'clean2d' && (
-              <PlanClean2DEditor
-                workingCanvas={effectiveCleanedPlan?.cleanCanvas ?? canvasRef.current}
-                autoCleanedCanvas={cleanedPlan?.cleanCanvas ?? canvasRef.current}
-                originalPdfCanvas={canvasRef.current}
-                pageWidthPt={currentAnalysis?.width || canvasLumaRef.current?.pageWidthPt || 842}
-                pageHeightPt={currentAnalysis?.height || canvasLumaRef.current?.pageHeightPt || 595}
-                metersPerPt={metersPerPt}
-                bimModel={bimModelState}
-                hasManualEdits={Boolean(activeManualClean)}
-                onCommitCleanCanvas={(canvas, grid) => {
-                  setManualCleanByPageKey((prev) => ({
-                    ...prev,
-                    [cleanPageKey]: {
-                      canvas,
-                      grid,
-                      version: (prev[cleanPageKey]?.version || 0) + 1,
-                    },
-                  }));
-                }}
-                onResetToAutoClean={() => {
-                  setManualCleanByPageKey((prev) => {
-                    const next = { ...prev };
-                    delete next[cleanPageKey];
-                    return next;
-                  });
-                }}
-                onGoToMode={(targetMode) => setViewMode(targetMode)}
-              />
-            )}
-
             {pdfDoc && (viewMode === '3d' || viewMode === 'bim') && (
               <Plan3DViewer
                 mode={viewMode}
@@ -4714,11 +4589,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 onDeleteBimObject={handleDeleteBimObject}
                 wallHeightM={defaultHeightM}
                 onWallHeightChange={(newH) => setDefaultHeightM(newH)}
-                cleanFloorCanvas={effectiveCleanedPlan?.cleanCanvas ?? canvasRef.current}
-                significantQuotes={effectiveCleanedPlan?.significantQuotes ?? []}
+                cleanFloorCanvas={canvasRef.current}
+                significantQuotes={significantQuotes}
                 showQuotesLayer={showQuotesIn3D}
                 onToggleQuotesLayer={() => setShowQuotesIn3D((v) => !v)}
-                lumaVersion={lumaVersion + (activeManualClean?.version || 0) * 1000}
+                lumaVersion={lumaVersion}
                 sensitivity={wall3DSensitivity}
                 onSensitivityChange={setWall3DSensitivity}
                 onComputeBimObject={handleComputeBimObject}
@@ -4727,19 +4602,21 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
               />
             )}
 
-            {/* Zero pannelli flottanti sul disegno: Layer & Appunti sono ora nel menu a tendina AutoCAD in alto */}
-
+            {/* Zero barre di scorrimento: navigazione CAD pura con solo Pan (rotella premuta / Spazio / Mano) e Zoom sul cursore */}
             <div
               ref={scrollContainerRef}
               onMouseDown={(e) => {
-                if (e.button === 1 && scrollContainerRef.current) {
+                if (
+                  e.button === 1 ||
+                  (e.button === 0 && (isSpacePressed || activeTool === 'pan'))
+                ) {
                   e.preventDefault();
                   setIsPanning(true);
                   panOriginRef.current = {
                     clientX: e.clientX,
                     clientY: e.clientY,
-                    scrollLeft: scrollContainerRef.current.scrollLeft,
-                    scrollTop: scrollContainerRef.current.scrollTop,
+                    panX: panOffsetRef.current.x,
+                    panY: panOffsetRef.current.y,
                   };
                 }
               }}
@@ -4762,7 +4639,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
               className={`${
                 viewMode !== '2d' && pdfDoc
                   ? 'hidden'
-                  : 'flex-1 overflow-auto relative flex items-start justify-center p-4 select-none'
+                  : 'flex-1 overflow-hidden relative select-none'
               } ${
                 isPanning || isSpacePressed || activeTool === 'pan'
                   ? isPanning
@@ -4781,14 +4658,15 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
               }`}
             >
             {isLoadingPdf ? (
-              <div className="m-auto flex flex-col items-center gap-3 text-slate-200">
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-200 p-6">
                 <div className="w-12 h-12 border-4 border-slate-700 border-t-amber-400 rounded-full animate-spin" />
                 <p className="text-sm font-semibold">Decodifica tavola PDF, quote e vettori CAD in corso...</p>
               </div>
             ) : !pdfDoc ? (
+              <div className="w-full h-full flex items-center justify-center p-6">
               <div
                 onClick={() => fileInputRef.current?.click()}
-                className={`m-auto max-w-xl w-full border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+                className={`max-w-xl w-full border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
                   isDragOverDropzone
                     ? 'border-amber-400 bg-amber-500/10 scale-[1.01]'
                     : 'border-slate-700 bg-slate-800/40 hover:border-amber-400/70 hover:bg-slate-800/70'
@@ -4806,6 +4684,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   Seleziona PDF Planimetria
                 </span>
                 {pdfError && <p className="mt-4 text-xs text-rose-400 font-medium">{pdfError}</p>}
+              </div>
               </div>
             ) : (
               <div
@@ -4844,20 +4723,18 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   }
                 }}
                 style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
                   width: currentAnalysis ? currentAnalysis.width * zoom : undefined,
                   height: currentAnalysis ? currentAnalysis.height * zoom : undefined,
+                  transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0)`,
+                  transformOrigin: '0 0',
+                  willChange: 'transform',
                 }}
-                className="relative bg-white shadow-[0_20px_60px_rgba(0,0,0,0.65)] shrink-0 ring-1 ring-white/10"
+                className="bg-white shadow-[0_20px_60px_rgba(0,0,0,0.65)] ring-1 ring-white/10"
               >
-                <canvas ref={canvasRef} className="block" />
-
-                {/* Pianta 2D pulita da scritte e righe di quota (memorizzata in RAM) */}
-                {showClean2DPlan && cleanedPlan && (
-                  <canvas
-                    ref={cleanCanvasDisplayRef}
-                    className="absolute inset-0 w-full h-full pointer-events-none block"
-                  />
-                )}
+                <canvas ref={canvasRef} className="block w-full h-full" />
 
                 {isRenderingPage && (
                   <div className="absolute top-2 right-2 bg-slate-900/80 text-white text-[10px] px-2 py-1 rounded font-medium pointer-events-none">
@@ -4876,46 +4753,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                     viewBox={`0 0 ${currentAnalysis.width} ${currentAnalysis.height}`}
                     className="absolute inset-0 w-full h-full pointer-events-none"
                   >
-                    {/* LAYER DEDICATO "QUOTE & MISURE PULITE" (attivo quando si visualizza la Pianta Pulita e il layer Quote è acceso) */}
-                    {showClean2DPlan &&
-                      cleanedPlan &&
-                      isLayerVisible(DEFAULT_LAYER_IDS.QUOTES) &&
-                      cleanedPlan.significantQuotes.map((sq) => {
-                        const isVert = sq.orientation === 'vertical';
-                        const isRoom = sq.kind === 'room';
-                        const fs = Math.max(8, 10 / zoom);
-                        const padX = Math.max(3, 4 / zoom);
-                        const wEst = Math.max(20 / zoom, sq.text.length * fs * 0.62 + padX * 2);
-                        const hEst = fs + padX * 1.4;
-                        return (
-                          <g
-                            key={sq.id}
-                            transform={`translate(${sq.xPt}, ${sq.yPt})${isVert ? ' rotate(-90)' : ''}`}
-                          >
-                            <rect
-                              x={-wEst / 2}
-                              y={-hEst / 2}
-                              width={wEst}
-                              height={hEst}
-                              rx={2.5 / zoom}
-                              fill={isRoom ? 'rgba(15, 23, 42, 0.88)' : 'rgba(245, 158, 11, 0.92)'}
-                              stroke={isRoom ? '#38bdf8' : '#78350f'}
-                              strokeWidth={0.8 / zoom}
-                            />
-                            <text
-                              x={0}
-                              y={fs * 0.34}
-                              textAnchor="middle"
-                              fill={isRoom ? '#f8fafc' : '#0f172a'}
-                              fontSize={fs}
-                              fontFamily={isRoom ? 'sans-serif' : 'monospace'}
-                              fontWeight="bold"
-                            >
-                              {sq.text}
-                            </text>
-                          </g>
-                        );
-                      })}
                     {showOverlayTokens &&
                       currentAnalysis.tokens.map((tok) => {
                         if (tok.kind === 'other' || tok.kind === 'scale') return null;

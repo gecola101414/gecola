@@ -5,7 +5,16 @@ import crypto from 'node:crypto';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 
-const PORT = Number(process.env.PORT || 3000);
+function getCliArg(name: string): string | undefined {
+  const idx = process.argv.indexOf(name);
+  if (idx >= 0 && idx + 1 < process.argv.length) return process.argv[idx + 1];
+  const prefix = `${name}=`;
+  const found = process.argv.find((a) => a.startsWith(prefix));
+  return found ? found.slice(prefix.length) : undefined;
+}
+
+const PORT = Number(getCliArg('--port') || process.env.PORT || 3000);
+const HOST = getCliArg('--host') || '0.0.0.0';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 const DATA_ROOT = path.resolve('.gecola-shared');
@@ -429,19 +438,45 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, mode: IS_PROD ? 'prod' : 'dev' });
+});
+
 // ---------------- VITE DEV MIDDLEWARE / PROD STATIC ----------------
 
-async function startServer() {
+let viteServerInstance: { close: () => Promise<void> } | null = null;
+
+function startServer() {
   if (!IS_PROD) {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: {
-        middlewareMode: true,
-        hmr: false,
-      },
-      appType: 'spa',
+    // Initialize Vite asynchronously while HTTP server binds port 3000 immediately
+    // so startup probes succeed in <300ms even during cold dependency pre-bundling.
+    const viteReady = import('vite')
+      .then(({ createServer: createViteServer }) =>
+        createViteServer({
+          server: {
+            middlewareMode: true,
+            hmr: false,
+            ws: false,
+          },
+          appType: 'spa',
+        })
+      )
+      .then((vite) => {
+        viteServerInstance = vite;
+        return vite;
+      });
+
+    viteReady.catch((err) => {
+      console.error('Errore inizializzazione Vite dev server:', err);
     });
-    app.use(vite.middlewares);
+
+    app.use((req, res, next) => {
+      viteReady
+        .then((vite) => {
+          vite.middlewares(req, res, next);
+        })
+        .catch(next);
+    });
   } else {
     const distDir = path.resolve('dist');
     app.use(express.static(distDir));
@@ -454,12 +489,23 @@ async function startServer() {
     });
   }
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`GeCoLa Server attivo su http://0.0.0.0:${PORT} (${IS_PROD ? 'prod' : 'dev'})`);
+  server.listen(PORT, HOST, () => {
+    console.log(`GeCoLa Server attivo su http://${HOST}:${PORT} (${IS_PROD ? 'prod' : 'dev'})`);
   });
 }
 
-startServer().catch((err) => {
-  console.error('Errore avvio server GeCoLa:', err);
-  process.exit(1);
-});
+const shutdown = async () => {
+  try {
+    wss.close();
+    if (viteServerInstance) await viteServerInstance.close();
+  } catch {
+    // ignore shutdown errors
+  }
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 1500).unref();
+};
+
+process.on('SIGTERM', () => void shutdown());
+process.on('SIGINT', () => void shutdown());
+
+startServer();
