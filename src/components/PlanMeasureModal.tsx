@@ -41,6 +41,12 @@ import {
   Target,
   Volume2,
   VolumeX,
+  Box,
+  Cuboid,
+  AlertTriangle,
+  CheckCircle2,
+  RefreshCw,
+  Tag,
 } from 'lucide-react';
 import { Article } from '../types';
 import {
@@ -88,6 +94,21 @@ import {
   PlanLumaGrid,
   playLaserBeep,
 } from '../utils/planLaserRaycaster';
+import {
+  autoCalibratePlanFromQuotes,
+  AutoCalibrationStatus,
+} from '../utils/planAutoCalibration';
+import {
+  buildCleanedArchitecturalPlan,
+  CleanedPlanResult,
+} from '../utils/planCleanGeometry';
+import {
+  BimObject,
+  BimObjectKind,
+  extractPlanBimModel,
+  PlanBimModel,
+} from '../utils/planBimExtractor';
+import { Plan3DViewer } from './Plan3DViewer';
 
 export interface PlanMeasureExportRow {
   description: string;
@@ -253,12 +274,31 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const [scaleDenominator, setScaleDenominator] = useState<number>(100);
   const [customMetersPerPt, setCustomMetersPerPt] = useState<number | null>(null);
 
-  // Gestione Layer CAD (Misure, Appunti, Promemoria, Varianti)
+  // Gestione Layer CAD (Misure, Appunti, Promemoria, Varianti) + Menu a tendina stile AutoCAD
   const [layers, setLayers] = useState<PlanLayer[]>(() => createDefaultPlanLayers());
   const [activeLayerId, setActiveLayerId] = useState<string>(DEFAULT_LAYER_IDS.MEASURES);
-  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState<boolean>(false);
+  const [openCadMenu, setOpenCadMenu] = useState<'draw' | 'ocr_view' | 'layers' | 'units' | null>(null);
+  const cadMenuBarRef = useRef<HTMLDivElement>(null);
   const [newLayerName, setNewLayerName] = useState<string>('');
   const [newLayerColor, setNewLayerColor] = useState<string>('#9333ea');
+
+  useEffect(() => {
+    if (!openCadMenu) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (cadMenuBarRef.current && !cadMenuBarRef.current.contains(e.target as Node)) {
+        setOpenCadMenu(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenCadMenu(null);
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openCadMenu]);
 
   // Strumenti CAD viewport & OCR editabile
   const [activeTool, setActiveTool] = useState<ActiveTool>('highlight');
@@ -331,6 +371,33 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const laserFlashTimerRef = useRef<number | null>(null);
   const canvasLumaRef = useRef<PlanLumaGrid | null>(null);
   const [lumaVersion, setLumaVersion] = useState<number>(0);
+
+  // Vista 2D Pianta / 3D Pareti / BIM Editabile + Pianta Pulita in memoria & Auto-Calibrazione H/V
+  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'bim'>('2d');
+  const [showClean2DPlan, setShowClean2DPlan] = useState<boolean>(false);
+  const [showQuotesIn3D, setShowQuotesIn3D] = useState<boolean>(false);
+  const [wall3DSensitivity, setWall3DSensitivity] = useState<LaserSensitivity>('medium');
+  const [autoCalibState, setAutoCalibState] = useState<{
+    status: AutoCalibrationStatus;
+    message: string;
+    matchedH: number;
+    matchedV: number;
+    scaleDenom?: number;
+  }>({ status: 'idle', message: '', matchedH: 0, matchedV: 0 });
+  const manualCalibratedPagesRef = useRef<Set<number>>(new Set());
+  const autoCalibRunKeyRef = useRef<string>('');
+  const cleanedPlanCacheRef = useRef<Map<string, CleanedPlanResult>>(new Map());
+  const cleanCanvasDisplayRef = useRef<HTMLCanvasElement | null>(null);
+  const [bimModelState, setBimModelState] = useState<PlanBimModel>({
+    walls: [],
+    doors: [],
+    windows: [],
+    pillars: [],
+    rooms: [],
+    planWidthM: 10,
+    planHeightM: 10,
+    boundsM: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+  });
 
   const [polygonPts, setPolygonPts] = useState<Array<{ x: number; y: number }>>([]);
   const [calibrationDraft, setCalibrationDraft] = useState<{ distPt: number; realMetersStr: string } | null>(null);
@@ -888,7 +955,21 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           fileSizeBytes: sheet.fileSizeBytes,
         });
 
-        const safeLayers = sheet.layers?.length ? sheet.layers : createDefaultPlanLayers();
+        const rawLayers = sheet.layers?.length ? sheet.layers : createDefaultPlanLayers();
+        const hasQuotesLayer = rawLayers.some((l) => l.id === DEFAULT_LAYER_IDS.QUOTES);
+        const safeLayers = hasQuotesLayer
+          ? rawLayers
+          : [
+              rawLayers[0],
+              {
+                id: DEFAULT_LAYER_IDS.QUOTES,
+                name: 'Quote & Misure Pulite',
+                color: '#f59e0b',
+                visible: true,
+                locked: false,
+              },
+              ...rawLayers.slice(1),
+            ];
         const safeActiveLayer = safeLayers.some((l) => l.id === sheet.activeLayerId)
           ? sheet.activeLayerId
           : safeLayers[0].id;
@@ -910,6 +991,20 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         setTextNotesByPage(sheet.textNotesByPage || {});
 
         const targetPage = Math.max(1, Math.min(sheet.currentPage || 1, doc.numPages || 1));
+        manualCalibratedPagesRef.current.clear();
+        autoCalibRunKeyRef.current = '';
+        if (sheet.customMetersPerPt && sheet.customMetersPerPt > 0) {
+          manualCalibratedPagesRef.current.add(targetPage);
+          setAutoCalibState({
+            status: 'manual_calibrated',
+            message: `Scala calibrata salvata (~1:${sheet.scaleDenominator || 100})`,
+            matchedH: 0,
+            matchedV: 0,
+            scaleDenom: sheet.scaleDenominator || 100,
+          });
+        } else {
+          setAutoCalibState({ status: 'idle', message: '', matchedH: 0, matchedV: 0 });
+        }
         const baseAnalysis = await analyzePdfPlanPage(doc, targetPage, sheet.quoteUnit || 'm');
         const analysesMap: Record<number, PlanPageAnalysis> = { [targetPage]: baseAnalysis };
 
@@ -989,6 +1084,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       setMeasuredPolygonsByPage({});
       setMeasuredLinesByPage({});
       ocrScannedPagesRef.current.clear();
+      manualCalibratedPagesRef.current.clear();
+      autoCalibRunKeyRef.current = '';
+      setViewMode('2d');
+      setAutoCalibState({ status: 'idle', message: '', matchedH: 0, matchedV: 0 });
       setPageAnalyses({});
       setCustomMetersPerPt(null);
       setLastFeedback(null);
@@ -2353,13 +2452,62 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     }
   };
 
-  const handleWheelZoom = (e: React.WheelEvent) => {
-    if (!pdfDoc) return;
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.12 : 0.89;
-    setZoom((z) => Math.max(0.35, Math.min(3.5, Math.round(z * factor * 100) / 100)));
-  };
+  // Standard CAD 2D: la rotella del mouse fa zoom diretto verso il cursore (senza dover tenere Ctrl)
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !pdfDoc || viewMode !== '2d') return;
+
+    const onNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const oldZoom = zoomRef.current;
+      const factor = e.deltaY < 0 ? 1.12 : 0.89;
+      const nextZoom = Math.max(0.35, Math.min(4.0, Math.round(oldZoom * factor * 100) / 100));
+      if (nextZoom === oldZoom) return;
+
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const contentX = container.scrollLeft + mouseX;
+      const contentY = container.scrollTop + mouseY;
+      const scaleRatio = nextZoom / oldZoom;
+
+      setZoom(nextZoom);
+      requestAnimationFrame(() => {
+        container.scrollLeft = contentX * scaleRatio - mouseX;
+        container.scrollTop = contentY * scaleRatio - mouseY;
+      });
+    };
+
+    container.addEventListener('wheel', onNativeWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', onNativeWheel);
+    };
+  }, [pdfDoc, viewMode]);
+
+  // Standard CAD 2D: pan fluido continuo anche se il cursore esce dai bordi del foglio mentre si trascina con la rotella
+  useEffect(() => {
+    if (!isPanning) return;
+    const onWinMove = (e: MouseEvent) => {
+      if (!panOriginRef.current || !scrollContainerRef.current) return;
+      scrollContainerRef.current.scrollLeft =
+        panOriginRef.current.scrollLeft - (e.clientX - panOriginRef.current.clientX);
+      scrollContainerRef.current.scrollTop =
+        panOriginRef.current.scrollTop - (e.clientY - panOriginRef.current.clientY);
+    };
+    const onWinUp = () => {
+      setIsPanning(false);
+      panOriginRef.current = null;
+    };
+    window.addEventListener('mousemove', onWinMove);
+    window.addEventListener('mouseup', onWinUp);
+    return () => {
+      window.removeEventListener('mousemove', onWinMove);
+      window.removeEventListener('mouseup', onWinUp);
+    };
+  }, [isPanning]);
 
   const handleAddAllPageRooms = () => {
     if (!currentAnalysis || currentAnalysis.rooms.length === 0) return;
@@ -2420,10 +2568,357 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     setCustomMetersPerPt(mPerPt);
     const derivedDenom = Math.round((mPerPt * 72) / 0.0254);
     if (derivedDenom > 0) setScaleDenominator(derivedDenom);
+    manualCalibratedPagesRef.current.add(currentPage);
+    setAutoCalibState({
+      status: 'manual_calibrated',
+      message: `Scala calibrata manualmente (~1:${derivedDenom || scaleDenominator})`,
+      matchedH: 0,
+      matchedV: 0,
+      scaleDenom: derivedDenom || scaleDenominator,
+    });
     setCalibrationDraft(null);
     setLastFeedback(`Scala calibrata: ${meters.toFixed(2)} m (~1:${derivedDenom})`);
     setActiveTool('ruler');
   };
+
+  // Auto-calibrazione su richiesta o automatica sulla base delle quote orizzontali e verticali censite
+  const executeAutoCalibration = useCallback(
+    (forceManualOverride = false) => {
+      const grid = canvasLumaRef.current;
+      if (!currentAnalysis || !grid) return;
+
+      if (!forceManualOverride && manualCalibratedPagesRef.current.has(currentPage)) {
+        return;
+      }
+
+      const res = autoCalibratePlanFromQuotes(
+        grid,
+        currentAnalysis.tokens,
+        currentAnalysis.detectedScaleDenominator
+      );
+
+      if (res.success && res.metersPerPt && res.derivedScaleDenominator) {
+        if (forceManualOverride) {
+          manualCalibratedPagesRef.current.delete(currentPage);
+        }
+        setCustomMetersPerPt(res.metersPerPt);
+        setScaleDenominator(res.derivedScaleDenominator);
+        setAutoCalibState({
+          status: 'auto_calibrated',
+          message: res.reason,
+          matchedH: res.matchedHorizontal,
+          matchedV: res.matchedVertical,
+          scaleDenom: res.derivedScaleDenominator,
+        });
+        setLastFeedback(res.reason);
+      } else {
+        setAutoCalibState({
+          status: 'needs_manual',
+          message: res.reason,
+          matchedH: res.matchedHorizontal,
+          matchedV: res.matchedVertical,
+        });
+        if (forceManualOverride) {
+          setLastFeedback(res.reason);
+        }
+      }
+    },
+    [currentAnalysis, currentPage]
+  );
+
+  // Avvia auto-calibrazione automaticamente appena la pagina è renderizzata e le quote H/V (o OCR) sono pronte
+  useEffect(() => {
+    if (!pdfDoc || !currentAnalysis || isLoadingPdf) return;
+
+    if (manualCalibratedPagesRef.current.has(currentPage)) {
+      return;
+    }
+
+    if (isScanningOcr) {
+      setAutoCalibState({
+        status: 'pending_ocr',
+        message: 'Scansione OCR quote orizzontali e verticali in corso per auto-calibrazione...',
+        matchedH: 0,
+        matchedV: 0,
+      });
+      return;
+    }
+
+    const grid = canvasLumaRef.current;
+    if (!grid || lumaVersion === 0) return;
+
+    // Su tavole scansionate attendi il completamento del primo OCR automatico
+    const hasOcrOrManual = currentAnalysis.tokens.some((t) => t.source === 'ocr' || t.source === 'manual');
+    if (currentAnalysis.isLikelyScanned && !hasOcrOrManual && !ocrScannedPagesRef.current.has(currentPage)) {
+      setAutoCalibState({
+        status: 'pending_ocr',
+        message: 'Attesa scansione quote OCR per auto-calibrazione scala...',
+        matchedH: 0,
+        matchedV: 0,
+      });
+      return;
+    }
+
+    const quoteSig = currentAnalysis.tokens
+      .filter((t) => t.kind === 'dimension')
+      .map((t) => `${t.id}:${t.numericValue}`)
+      .join('|');
+    const runKey = `${currentSheetId || 'local'}_${currentPage}_${lumaVersion}_${quoteSig}`;
+    if (autoCalibRunKeyRef.current === runKey) return;
+    autoCalibRunKeyRef.current = runKey;
+
+    executeAutoCalibration(false);
+  }, [
+    pdfDoc,
+    currentSheetId,
+    currentPage,
+    currentAnalysis,
+    isLoadingPdf,
+    isScanningOcr,
+    lumaVersion,
+    executeAutoCalibration,
+  ]);
+
+  // 1. PULIZIA ARCHITETTONICA AUTOMATICA IN MEMORIA:
+  // Una volta scansionata/calibrata la pianta, elimina scritte, numeri e linee di quota sottili,
+  // memorizza la pianta pulita in cache e proietta le quote più significative nel layer "Quote & Misure Pulite".
+  const cleanedPlan = useMemo<CleanedPlanResult | null>(() => {
+    if (!pdfDoc || lumaVersion === 0 || !canvasRef.current || !canvasLumaRef.current) return null;
+    const tokens = currentAnalysis?.tokens || [];
+    const cacheKey = `${currentSheetId || 'local'}_${currentPage}_${lumaVersion}_${tokens.length}_${metersPerPt.toFixed(6)}`;
+    const cached = cleanedPlanCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+
+    const built = buildCleanedArchitecturalPlan(
+      canvasRef.current,
+      canvasLumaRef.current,
+      tokens,
+      metersPerPt
+    );
+    if (built) {
+      if (cleanedPlanCacheRef.current.size > 16) {
+        const firstKey = cleanedPlanCacheRef.current.keys().next().value;
+        if (firstKey) cleanedPlanCacheRef.current.delete(firstKey);
+      }
+      cleanedPlanCacheRef.current.set(cacheKey, built);
+    }
+    return built;
+  }, [pdfDoc, currentSheetId, currentPage, lumaVersion, currentAnalysis?.tokens, metersPerPt]);
+
+  // Disegna la pianta 2D pulita sul canvas overlay quando l'utente attiva "Pianta Pulita" in 2D
+  useEffect(() => {
+    const target = cleanCanvasDisplayRef.current;
+    if (!showClean2DPlan || !target || !cleanedPlan?.cleanCanvas) return;
+    target.width = cleanedPlan.cleanCanvas.width;
+    target.height = cleanedPlan.cleanCanvas.height;
+    const ctx = target.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, target.width, target.height);
+      ctx.drawImage(cleanedPlan.cleanCanvas, 0, 0);
+    }
+  }, [showClean2DPlan, cleanedPlan, zoom]);
+
+  // 2. ESTRAZIONE AUTOMATICA MODELLO 3D + BIM EDITABILE DALLA PIANTA PULITA (senza righe di quota!)
+  const extractedBimModel = useMemo<PlanBimModel>(() => {
+    const gridToUse = cleanedPlan?.cleanGrid ?? canvasLumaRef.current;
+    if (!pdfDoc || lumaVersion === 0 || !gridToUse) {
+      return {
+        walls: [],
+        doors: [],
+        windows: [],
+        pillars: [],
+        rooms: [],
+        planWidthM: 10,
+        planHeightM: 10,
+        boundsM: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
+      };
+    }
+    return extractPlanBimModel(
+      gridToUse,
+      metersPerPt,
+      currentAnalysis?.tokens || [],
+      currentAnalysis?.rooms || [],
+      defaultHeightM,
+      wall3DSensitivity
+    );
+  }, [
+    pdfDoc,
+    lumaVersion,
+    cleanedPlan,
+    metersPerPt,
+    currentAnalysis?.tokens,
+    currentAnalysis?.rooms,
+    wall3DSensitivity,
+  ]);
+
+  // Sincronizza il modello BIM editabile quando cambia tavola/pagina/calibrazione/sensibilità
+  useEffect(() => {
+    setBimModelState(extractedBimModel);
+  }, [extractedBimModel]);
+
+  // Aggiorna altezza pareti & pilastri live quando cambia H (defaultHeightM)
+  useEffect(() => {
+    setBimModelState((prev) => ({
+      ...prev,
+      walls: prev.walls.map((w) => ({ ...w, heightM: defaultHeightM })),
+      pillars: prev.pillars.map((p) => ({ ...p, heightM: defaultHeightM })),
+      rooms: prev.rooms.map((r) => ({ ...r, heightM: defaultHeightM })),
+    }));
+  }, [defaultHeightM]);
+
+  // Modifica in tempo reale di un oggetto BIM (Parete, Porta, Finestra, Pilastro, Vano)
+  const handleUpdateBimObject = useCallback((updated: BimObject) => {
+    setBimModelState((prev) => {
+      if (updated.kind === 'wall') {
+        return { ...prev, walls: prev.walls.map((w) => (w.id === updated.id ? updated : w)) };
+      }
+      if (updated.kind === 'door') {
+        return { ...prev, doors: prev.doors.map((d) => (d.id === updated.id ? updated : d)) };
+      }
+      if (updated.kind === 'window') {
+        return { ...prev, windows: prev.windows.map((wn) => (wn.id === updated.id ? updated : wn)) };
+      }
+      if (updated.kind === 'pillar') {
+        return { ...prev, pillars: prev.pillars.map((p) => (p.id === updated.id ? updated : p)) };
+      }
+      return { ...prev, rooms: prev.rooms.map((r) => (r.id === updated.id ? updated : r)) };
+    });
+  }, []);
+
+  // Eliminazione di un oggetto BIM in 1 clic
+  const handleDeleteBimObject = useCallback((id: string, kind: BimObjectKind) => {
+    setBimModelState((prev) => {
+      if (kind === 'wall') return { ...prev, walls: prev.walls.filter((w) => w.id !== id) };
+      if (kind === 'door') return { ...prev, doors: prev.doors.filter((d) => d.id !== id) };
+      if (kind === 'window') return { ...prev, windows: prev.windows.filter((wn) => wn.id !== id) };
+      if (kind === 'pillar') return { ...prev, pillars: prev.pillars.filter((p) => p.id !== id) };
+      return { ...prev, rooms: prev.rooms.filter((r) => r.id !== id) };
+    });
+    setLastFeedback('Oggetto rimosso dal modello BIM');
+  }, []);
+
+  const totalBimObjectsCount =
+    bimModelState.walls.length +
+    bimModelState.doors.length +
+    bimModelState.windows.length +
+    bimModelState.pillars.length +
+    bimModelState.rooms.length;
+
+  // Converte qualsiasi oggetto BIM in riga computo pronta per il BoQ
+  const bimObjectToDraft = useCallback(
+    (obj: BimObject, sides: 1 | 2): InternalMeasureDraft => {
+      const id = uid();
+      if (obj.kind === 'wall') {
+        const areaM2 = Math.round(obj.lengthM * obj.heightM * sides * 100) / 100;
+        return {
+          id,
+          description: sides === 2 ? `${obj.name} (2 lati)` : obj.name,
+          type: 'positive',
+          multiplier: sides > 1 ? sides : undefined,
+          length: metersToUnit(obj.lengthM, exportUnit),
+          height: metersToUnit(obj.heightM, exportUnit),
+          sourceNote: `BIM ${obj.category} · ${obj.material} · ${areaM2.toFixed(2)} m²`,
+        };
+      }
+      if (obj.kind === 'door') {
+        const areaM2 = Math.round(obj.widthM * obj.heightM * 100) / 100;
+        return {
+          id,
+          description: `${obj.name} (${obj.doorType})`,
+          type: 'positive',
+          multiplier: extractionMode === 'count' ? 1 : undefined,
+          length: extractionMode === 'count' ? undefined : metersToUnit(obj.widthM, exportUnit),
+          height: extractionMode === 'count' ? undefined : metersToUnit(obj.heightM, exportUnit),
+          sourceNote: `BIM Porta ${obj.widthM.toFixed(2)}×${obj.heightM.toFixed(2)} m (${areaM2.toFixed(2)} m²)`,
+        };
+      }
+      if (obj.kind === 'window') {
+        const areaM2 = Math.round(obj.widthM * obj.heightM * 100) / 100;
+        return {
+          id,
+          description: `${obj.name} (${obj.windowType})`,
+          type: 'positive',
+          multiplier: extractionMode === 'count' ? 1 : undefined,
+          length: extractionMode === 'count' ? undefined : metersToUnit(obj.widthM, exportUnit),
+          height: extractionMode === 'count' ? undefined : metersToUnit(obj.heightM, exportUnit),
+          sourceNote: `BIM Infisso ${obj.widthM.toFixed(2)}×${obj.heightM.toFixed(2)} m (${areaM2.toFixed(2)} m²)`,
+        };
+      }
+      if (obj.kind === 'pillar') {
+        const volM3 = Math.round(obj.widthM * obj.depthM * obj.heightM * 100) / 100;
+        return {
+          id,
+          description: `${obj.name} (${obj.material})`,
+          type: 'positive',
+          length: metersToUnit(obj.widthM, exportUnit),
+          width: metersToUnit(obj.depthM, exportUnit),
+          height: metersToUnit(obj.heightM, exportUnit),
+          sourceNote: `BIM Pilastro ${obj.widthM.toFixed(2)}×${obj.depthM.toFixed(2)}×${obj.heightM.toFixed(2)} m (${volM3.toFixed(2)} m³)`,
+        };
+      }
+      // Room / Pavimento
+      return {
+        id,
+        description: `${obj.name} (${obj.finish})`,
+        type: 'positive',
+        length: obj.areaM2,
+        isDirectArea: true,
+        sourceNote: `BIM Vano · Sup. ${obj.areaM2.toFixed(2)} m² · Perim. ${obj.perimeterM.toFixed(2)} m`,
+      };
+    },
+    [exportUnit, extractionMode]
+  );
+
+  // Computo diretto di 1 oggetto cliccato nel 3D o nel BIM Inspector
+  const handleComputeBimObject = useCallback(
+    (obj: BimObject, sides: 1 | 2) => {
+      if (activeCell) {
+        if (obj.kind === 'wall') {
+          if (activeCell.field === 'height') {
+            insertValueIntoActiveCell(obj.heightM, `Altezza ${obj.name}`, false);
+            return;
+          }
+          if (activeCell.field === 'length' && extractionMode === 'linear') {
+            insertValueIntoActiveCell(obj.lengthM, `Lung. ${obj.name}`, false);
+            return;
+          }
+          const areaM2 = Math.round(obj.lengthM * obj.heightM * sides * 100) / 100;
+          insertValueIntoActiveCell(areaM2, `${obj.name} (${sides} ${sides === 2 ? 'lati' : 'lato'})`, true);
+          return;
+        }
+        if (obj.kind === 'door' || obj.kind === 'window') {
+          const areaM2 = Math.round(obj.widthM * obj.heightM * 100) / 100;
+          insertValueIntoActiveCell(areaM2, `BIM ${obj.name}`, true);
+          return;
+        }
+        if (obj.kind === 'pillar') {
+          const volM3 = Math.round(obj.widthM * obj.depthM * obj.heightM * 100) / 100;
+          insertValueIntoActiveCell(volM3, `BIM ${obj.name} (m³)`, true);
+          return;
+        }
+        insertValueIntoActiveCell(obj.areaM2, `BIM ${obj.name}`, true);
+        return;
+      }
+
+      const draft = bimObjectToDraft(obj, sides);
+      setQueuedRows((prev) => [...prev, draft]);
+      triggerCellBlink(draft.id, 'length');
+      setLastFeedback(`Oggetto BIM computato: ${draft.description}`);
+    },
+    [activeCell, extractionMode, insertValueIntoActiveCell, bimObjectToDraft, triggerCellBlink]
+  );
+
+  // Computo multiplo di oggetti selezionati nel 3D o nel BIM
+  const handleComputeMultipleBimObjects = useCallback(
+    (objs: BimObject[], sides: 1 | 2) => {
+      if (objs.length === 0) return;
+      const drafts = objs.map((o) => bimObjectToDraft(o, sides));
+      setQueuedRows((prev) => [...prev, ...drafts]);
+      triggerCellBlink(drafts[drafts.length - 1].id, 'length');
+      setLastFeedback(`Aggiunti ${objs.length} oggetti BIM al computo metrico`);
+    },
+    [bimObjectToDraft, triggerCellBlink]
+  );
 
   // Calcola totali parziali e totale complessivo esattamente come il computo principale
   const computedRows = useMemo(() => {
@@ -2706,186 +3201,861 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
         {/* AREA TAVOLA PDF */}
         <div className="flex-1 flex flex-col min-w-0 bg-slate-900 relative">
-          {/* TOOLBAR CAD */}
+          {/* BARRA MENU STILE AUTOCAD (SEMPRE IN ALTO, ZERO MENU IN SOVRAPPOSIZIONE SUL DISEGNO) */}
           {pdfDoc && (
-            <div className="bg-slate-800/95 border-b border-slate-700/80 px-3 py-1.5 flex items-center justify-between gap-2 flex-wrap shrink-0">
-              <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-lg border border-slate-700">
-                <button
-                  type="button"
-                  onClick={() => setActiveTool('highlight')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'highlight'
-                      ? 'bg-amber-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Trascina un riquadro evidenziatore sopra un vano o una quota"
-                >
-                  <Highlighter className="w-3.5 h-3.5" />
-                  <span>Evidenzia</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTool('pick')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'pick'
-                      ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Clicca una singola quota (la inserisce nella casella evidenziata se attiva!)"
-                >
-                  <MousePointerClick className="w-3.5 h-3.5" />
-                  <span>Clicca Quota</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('ruler');
-                    setRulerStart(null);
-                    setLaserOrigin(null);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'ruler'
-                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Misura tra 2 punti in scala e inserisce il valore nella casella evidenziata"
-                >
-                  <Ruler className="w-3.5 h-3.5" />
-                  <span>Righello</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('laser');
-                    setRulerStart(null);
-                    setLaserOrigin(null);
-                    setPolygonPts([]);
-                    setLastFeedback(
-                      laserMode === 'area'
-                        ? 'Laser Areale attivo: clicca il 1° punto nel vano, spostati verso il 2° punto per espandere la superficie e clicca per acquisire'
-                        : laserMode === 'dual'
-                        ? 'Laser 2 Raggi (Sx+Dx) attivo: clicca dentro la stanza, sposta il mouse su un lato per sommare le due pareti e clicca'
-                        : 'Laser 1 Raggio attivo: clicca il punto di partenza, punta col mouse verso la parete e clicca per acquisire'
-                    );
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'laser'
-                      ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-400/60'
-                      : 'text-red-300 hover:text-white hover:bg-red-950/60'
-                  }`}
-                  title="Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Areale m²): inserisce subito nella cella evidenziata senza sporcare la pianta"
-                >
-                  <Target className="w-3.5 h-3.5" />
-                  <span>Laser</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('polygon');
-                    setPolygonPts([]);
-                    setLaserOrigin(null);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'polygon'
-                      ? 'bg-indigo-500 text-white shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Traccia un poligono sui vertici del vano"
-                >
-                  <Pentagon className="w-3.5 h-3.5" />
-                  <span>Poligono</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('calibrate');
-                    setRulerStart(null);
-                    setLaserOrigin(null);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'calibrate'
-                      ? 'bg-rose-500 text-white shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Calibra la scala cliccando 2 punti di una misura nota"
-                >
-                  <Crosshair className="w-3.5 h-3.5" />
-                  <span>Calibra</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('edit_ocr');
-                    setRulerStart(null);
-                    setLaserOrigin(null);
-                    setPolygonPts([]);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'edit_ocr'
-                      ? 'bg-violet-500 text-white shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Clicca qualsiasi numero o testo OCR per modificarlo"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  <span>Modifica</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('pen');
-                    setPenEraserMode(false);
-                    setRulerStart(null);
-                    setLaserOrigin(null);
-                    setPolygonPts([]);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'pen'
-                      ? 'bg-rose-500 text-white shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Pennino colorato a mano libera per fare schizzi sulla piantina mentre prendi misure"
-                >
-                  <PenTool className="w-3.5 h-3.5" />
-                  <span>Pennino</span>
-                  <span
-                    className="w-2 h-2 rounded-full border border-white/70 shrink-0"
-                    style={{ backgroundColor: penColor }}
-                  />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTool('text_note');
-                    setRulerStart(null);
-                    setLaserOrigin(null);
-                    setPolygonPts([]);
-                  }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'text_note'
-                      ? 'bg-sky-500 text-slate-950 shadow-sm'
-                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Scrivi testi o note direttamente sulla piantina"
-                >
-                  <Type className="w-3.5 h-3.5" />
-                  <span>Testo</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTool('pan')}
-                  className={`px-2 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === 'pan' ? 'bg-slate-600 text-white' : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Sposta la tavola (oppure tieni premuto Spazio)"
-                >
-                  <Hand className="w-3.5 h-3.5" />
-                </button>
+            <div
+              ref={cadMenuBarRef}
+              className="relative z-40 bg-slate-900 border-b border-slate-700/80 px-2.5 py-1 flex items-center justify-between gap-2 shrink-0 select-none"
+            >
+              {/* SINISTRA: SELETTORE VISTA 2D / 3D / BIM + STRUMENTI RAPIDI & MENU A TENDINA AUTOCAD */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                <div className="flex items-center gap-0.5 bg-slate-950 p-0.5 rounded-md border border-slate-700 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode('2d');
+                      setOpenCadMenu(null);
+                    }}
+                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      viewMode === '2d'
+                        ? 'bg-slate-200 text-slate-950 shadow-sm'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    }`}
+                    title="Vista 2D della piantina PDF"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>2D Pianta</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode('3d');
+                      setOpenCadMenu(null);
+                    }}
+                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      viewMode === '3d'
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'text-amber-300 hover:text-white hover:bg-amber-950/60'
+                    }`}
+                    title="Modello 3D pulito con pareti estruse all'altezza dichiarata H"
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                    <span>3D</span>
+                    {bimModelState.walls.length > 0 && (
+                      <span
+                        className={`px-1 rounded text-[10px] font-mono tabular-nums ${
+                          viewMode === '3d' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-500/20 text-amber-200'
+                        }`}
+                      >
+                        {bimModelState.walls.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode('bim');
+                      setOpenCadMenu(null);
+                    }}
+                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      viewMode === 'bim'
+                        ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                        : 'text-cyan-300 hover:text-white hover:bg-cyan-950/60'
+                    }`}
+                    title="Modello BIM interattivo da PDF: individua ed edita Muri, Porte, Finestre, Pilastri e Vani"
+                  >
+                    <Cuboid className="w-3.5 h-3.5" />
+                    <span>BIM</span>
+                    {totalBimObjectsCount > 0 && (
+                      <span
+                        className={`px-1 rounded text-[10px] font-mono tabular-nums ${
+                          viewMode === 'bim' ? 'bg-slate-950/20 text-slate-950' : 'bg-cyan-500/20 text-cyan-200'
+                        }`}
+                      >
+                        {totalBimObjectsCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {viewMode === '2d' && (
+                  <>
+                    <div className="h-4 w-px bg-slate-700/80 shrink-0" />
+
+                    {/* STRUMENTI PRINCIPALI DI MISURA RAPIDA */}
+                    <div className="flex items-center gap-0.5 bg-slate-950/80 p-0.5 rounded-md border border-slate-800 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('highlight');
+                          setOpenCadMenu(null);
+                        }}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
+                          activeTool === 'highlight'
+                            ? 'bg-amber-500 text-slate-950 shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
+                        title="Trascina un riquadro evidenziatore sopra un vano o una quota"
+                      >
+                        <Highlighter className="w-3.5 h-3.5" />
+                        <span>Evidenzia</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('pick');
+                          setOpenCadMenu(null);
+                        }}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
+                          activeTool === 'pick'
+                            ? 'bg-cyan-500 text-slate-950 shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
+                        title="Clicca una singola quota (la inserisce nella casella evidenziata se attiva)"
+                      >
+                        <MousePointerClick className="w-3.5 h-3.5" />
+                        <span>Quota</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('ruler');
+                          setRulerStart(null);
+                          setLaserOrigin(null);
+                          setOpenCadMenu(null);
+                        }}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
+                          activeTool === 'ruler'
+                            ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
+                        title="Misura tra 2 punti in scala e inserisce il valore nella casella evidenziata"
+                      >
+                        <Ruler className="w-3.5 h-3.5" />
+                        <span>Righello</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('laser');
+                          setRulerStart(null);
+                          setLaserOrigin(null);
+                          setPolygonPts([]);
+                          setOpenCadMenu(null);
+                          setLastFeedback(
+                            laserMode === 'area'
+                              ? 'Laser Areale attivo: clicca il 1° punto nel vano, spostati verso il 2° punto per espandere la superficie e clicca per acquisire'
+                              : laserMode === 'dual'
+                              ? 'Laser 2 Raggi (Sx+Dx) attivo: clicca dentro la stanza, sposta il mouse su un lato per sommare le due pareti e clicca'
+                              : 'Laser 1 Raggio attivo: clicca il punto di partenza, punta col mouse verso la parete e clicca per acquisire'
+                          );
+                        }}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
+                          activeTool === 'laser'
+                            ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-400/60'
+                            : 'text-red-300 hover:text-white hover:bg-red-950/60'
+                        }`}
+                        title="Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Areale m²)"
+                      >
+                        <Target className="w-3.5 h-3.5" />
+                        <span>Laser</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTool('polygon');
+                          setPolygonPts([]);
+                          setLaserOrigin(null);
+                          setOpenCadMenu(null);
+                        }}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
+                          activeTool === 'polygon'
+                            ? 'bg-indigo-500 text-white shadow-sm'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                        }`}
+                        title="Traccia un poligono sui vertici del vano"
+                      >
+                        <Pentagon className="w-3.5 h-3.5" />
+                        <span>Poligono</span>
+                      </button>
+                    </div>
+
+                    <div className="h-4 w-px bg-slate-700/80 shrink-0" />
+
+                    {/* MENU A TENDINA 1: DISEGNA & CALIBRA */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenCadMenu((m) => (m === 'draw' ? null : 'draw'))}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap ${
+                          openCadMenu === 'draw' ||
+                          ['calibrate', 'edit_ocr', 'pen', 'text_note', 'pan'].includes(activeTool)
+                            ? 'bg-slate-700 text-white'
+                            : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                        }`}
+                        title="Strumenti di calibrazione, modifica testi, pennino e note"
+                      >
+                        <span>
+                          {activeTool === 'calibrate'
+                            ? 'Calibra'
+                            : activeTool === 'edit_ocr'
+                            ? 'Modifica OCR'
+                            : activeTool === 'pen'
+                            ? 'Pennino'
+                            : activeTool === 'text_note'
+                            ? 'Testo'
+                            : activeTool === 'pan'
+                            ? 'Pan'
+                            : 'Disegna'}
+                        </span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                      </button>
+
+                      {openCadMenu === 'draw' && (
+                        <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg bg-slate-900 border border-slate-700 shadow-2xl p-1 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTool('calibrate');
+                              setRulerStart(null);
+                              setLaserOrigin(null);
+                              setOpenCadMenu(null);
+                            }}
+                            className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-left transition-colors ${
+                              activeTool === 'calibrate'
+                                ? 'bg-rose-500/20 text-rose-200 font-semibold'
+                                : 'text-slate-200 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <Crosshair className="w-3.5 h-3.5 text-rose-400" />
+                              Calibra Scala (2 punti)
+                            </span>
+                            {activeTool === 'calibrate' && <Check className="w-3.5 h-3.5 text-rose-400" />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTool('edit_ocr');
+                              setRulerStart(null);
+                              setLaserOrigin(null);
+                              setPolygonPts([]);
+                              setOpenCadMenu(null);
+                            }}
+                            className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-left transition-colors ${
+                              activeTool === 'edit_ocr'
+                                ? 'bg-violet-500/20 text-violet-200 font-semibold'
+                                : 'text-slate-200 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <Pencil className="w-3.5 h-3.5 text-violet-400" />
+                              Modifica Quote / Testi OCR
+                            </span>
+                            {activeTool === 'edit_ocr' && <Check className="w-3.5 h-3.5 text-violet-400" />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTool('pen');
+                              setPenEraserMode(false);
+                              setRulerStart(null);
+                              setLaserOrigin(null);
+                              setPolygonPts([]);
+                              setOpenCadMenu(null);
+                            }}
+                            className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-left transition-colors ${
+                              activeTool === 'pen'
+                                ? 'bg-rose-500/20 text-rose-200 font-semibold'
+                                : 'text-slate-200 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <PenTool className="w-3.5 h-3.5 text-rose-400" />
+                              Pennino Mano Libera
+                            </span>
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-white/70"
+                              style={{ backgroundColor: penColor }}
+                            />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTool('text_note');
+                              setRulerStart(null);
+                              setLaserOrigin(null);
+                              setPolygonPts([]);
+                              setOpenCadMenu(null);
+                            }}
+                            className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-left transition-colors ${
+                              activeTool === 'text_note'
+                                ? 'bg-sky-500/20 text-sky-200 font-semibold'
+                                : 'text-slate-200 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <Type className="w-3.5 h-3.5 text-sky-400" />
+                              Testo &amp; Promemoria
+                            </span>
+                            {activeTool === 'text_note' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+                          </button>
+
+                          <div className="my-1 border-t border-slate-800" />
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveTool('pan');
+                              setOpenCadMenu(null);
+                            }}
+                            className={`w-full px-2.5 py-1.5 rounded flex items-center justify-between text-left transition-colors ${
+                              activeTool === 'pan'
+                                ? 'bg-slate-700 text-white font-semibold'
+                                : 'text-slate-300 hover:bg-slate-800'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <Hand className="w-3.5 h-3.5 text-slate-400" />
+                              Sposta Tavola (Pan)
+                            </span>
+                            <span className="text-[10px] text-slate-500">Clic rotella</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MENU A TENDINA 2: STRUMENTI & OCR */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenCadMenu((m) => (m === 'ocr_view' ? null : 'ocr_view'))}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap ${
+                          openCadMenu === 'ocr_view'
+                            ? 'bg-slate-700 text-white'
+                            : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                        }`}
+                        title="Scansione OCR, Pianta Pulita, Rilevamenti, OSNAP e Segni"
+                      >
+                        <ScanText className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Strumenti &amp; OCR</span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                      </button>
+
+                      {openCadMenu === 'ocr_view' && (
+                        <div className="absolute left-0 top-full mt-1 z-50 w-64 rounded-lg bg-slate-900 border border-slate-700 shadow-2xl p-1.5 text-xs space-y-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isScanningOcr) {
+                                ocrAbortRef.current?.abort();
+                                setIsScanningOcr(false);
+                                setOcrProgress(null);
+                              } else {
+                                ocrScannedPagesRef.current.delete(currentPage);
+                                void handleRunOcrForPage(pdfDoc, currentPage, quoteUnit, canvasRef.current);
+                              }
+                              setOpenCadMenu(null);
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-left bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 font-semibold transition-colors"
+                          >
+                            <span className="flex items-center gap-2">
+                              <ScanText className="w-3.5 h-3.5 text-amber-400" />
+                              {isScanningOcr
+                                ? `Annulla OCR (${ocrProgress ? `${ocrProgress.progress}%` : '...'})`
+                                : 'Scansiona OCR (H + V)'}
+                            </span>
+                          </button>
+
+                          <div className="my-1 border-t border-slate-800" />
+
+                          {cleanedPlan && (
+                            <button
+                              type="button"
+                              onClick={() => setShowClean2DPlan((v) => !v)}
+                              className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Tag className="w-3.5 h-3.5 text-emerald-400" />
+                                Pianta Pulita (senza quote)
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold ${
+                                  showClean2DPlan ? 'text-emerald-400' : 'text-slate-500'
+                                }`}
+                              >
+                                {showClean2DPlan ? 'ON' : 'OFF'}
+                              </span>
+                            </button>
+                          )}
+
+                          {currentAnalysis?.tokens.some((t) => t.source === 'ocr' || t.source === 'manual') && (
+                            <button
+                              type="button"
+                              onClick={() => setShowEditableOverlay((v) => !v)}
+                              className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Pencil className="w-3.5 h-3.5 text-violet-400" />
+                                Testi Editabili OCR
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold ${
+                                  showEditableOverlay ? 'text-violet-300' : 'text-slate-500'
+                                }`}
+                              >
+                                {showEditableOverlay ? 'ON' : 'OFF'}
+                              </span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => setShowOverlayTokens((v) => !v)}
+                            className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-slate-200 hover:bg-slate-800 transition-colors"
+                          >
+                            <span className="flex items-center gap-2">
+                              {showOverlayTokens ? (
+                                <Eye className="w-3.5 h-3.5 text-amber-400" />
+                              ) : (
+                                <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                              )}
+                              Rilevamenti Quote/Vani
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold ${
+                                showOverlayTokens ? 'text-amber-300' : 'text-slate-500'
+                              }`}
+                            >
+                              {showOverlayTokens ? 'ON' : 'OFF'}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setOsnapEnabled((v) => !v)}
+                            className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-slate-200 hover:bg-slate-800 transition-colors"
+                          >
+                            <span className="flex items-center gap-2">
+                              <Magnet className="w-3.5 h-3.5 text-cyan-400" />
+                              Snap Magnetico Vertici
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold ${
+                                osnapEnabled ? 'text-cyan-300' : 'text-slate-500'
+                              }`}
+                            >
+                              {osnapEnabled ? 'ON' : 'OFF'}
+                            </span>
+                          </button>
+
+                          {((measuredPolygonsByPage[currentPage]?.length || 0) > 0 ||
+                            (measuredLinesByPage[currentPage]?.length || 0) > 0) && (
+                            <>
+                              <div className="my-1 border-t border-slate-800" />
+                              <button
+                                type="button"
+                                onClick={() => setShowMeasuredMarks((v) => !v)}
+                                className="w-full px-2.5 py-1.5 rounded flex items-center justify-between text-slate-200 hover:bg-slate-800 transition-colors"
+                              >
+                                <span>
+                                  Segni Misure (
+                                  {(measuredPolygonsByPage[currentPage]?.length || 0) +
+                                    (measuredLinesByPage[currentPage]?.length || 0)}
+                                  )
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold ${
+                                    showMeasuredMarks ? 'text-indigo-300' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {showMeasuredMarks ? 'ON' : 'OFF'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMeasuredPolygonsByPage((prev) => ({ ...prev, [currentPage]: [] }));
+                                  setMeasuredLinesByPage((prev) => ({ ...prev, [currentPage]: [] }));
+                                  setOpenCadMenu(null);
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded flex items-center gap-2 text-rose-300 hover:bg-rose-950/60 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Cancella segni pagina</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MENU A TENDINA 3: LAYER, APPUNTI & PROMEMORIA (ANCORATO IN ALTO, NON FLUTTUANTE) */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenCadMenu((m) => (m === 'layers' ? null : 'layers'))}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                          openCadMenu === 'layers'
+                            ? 'bg-sky-500/20 text-sky-200'
+                            : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                        }`}
+                        title="Gestione Layer CAD, Appunti e Promemoria"
+                      >
+                        <Layers className="w-3.5 h-3.5 text-sky-400" />
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: layerMap.get(activeLayerId)?.color || '#38bdf8' }}
+                        />
+                        <span>Layer</span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                          ({layers.filter((l) => l.visible).length}/{layers.length})
+                        </span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                      </button>
+
+                      {openCadMenu === 'layers' && (
+                        <div className="absolute left-0 top-full mt-1 z-50 w-80 max-h-[70vh] bg-slate-900 border border-slate-700 rounded-lg shadow-2xl text-slate-100 flex flex-col overflow-hidden">
+                          <div className="px-3 py-1.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                              <Layers className="w-3.5 h-3.5 text-sky-400" />
+                              <span>Layer, Appunti &amp; Promemoria</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setOpenCadMenu(null)}
+                              className="p-0.5 text-slate-400 hover:text-white rounded"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="p-2 space-y-2 overflow-y-auto text-xs">
+                            <div className="space-y-1">
+                              {layers.map((layer) => {
+                                const isActive = layer.id === activeLayerId;
+                                const polyCount = (measuredPolygonsByPage[currentPage] || []).filter(
+                                  (p) => (p.layerId || DEFAULT_LAYER_IDS.MEASURES) === layer.id
+                                ).length;
+                                const lineCount = (measuredLinesByPage[currentPage] || []).filter(
+                                  (l) => (l.layerId || DEFAULT_LAYER_IDS.MEASURES) === layer.id
+                                ).length;
+                                const noteCount = (textNotesByPage[currentPage] || []).filter(
+                                  (n) => (n.layerId || DEFAULT_LAYER_IDS.NOTES) === layer.id
+                                ).length;
+                                const penCount = (penStrokesByPage[currentPage] || []).filter(
+                                  (s) => (s.layerId || DEFAULT_LAYER_IDS.NOTES) === layer.id
+                                ).length;
+                                const itemCount = polyCount + lineCount + noteCount + penCount;
+
+                                return (
+                                  <div
+                                    key={layer.id}
+                                    className={`flex items-center gap-1.5 px-2 py-1 rounded-md border transition-colors ${
+                                      isActive
+                                        ? 'bg-sky-500/15 border-sky-400/60'
+                                        : 'bg-slate-800/60 border-slate-700/70 hover:bg-slate-800'
+                                    }`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveLayerId(layer.id)}
+                                      className="flex-1 min-w-0 flex items-center gap-2 text-left"
+                                      title="Clicca per rendere questo layer attivo"
+                                    >
+                                      <span
+                                        className={`w-2.5 h-2.5 rounded-full shrink-0 border ${
+                                          isActive ? 'border-white ring-2 ring-sky-400' : 'border-slate-500'
+                                        }`}
+                                        style={{ backgroundColor: layer.color }}
+                                      />
+                                      <span
+                                        className={`truncate font-semibold ${
+                                          layer.visible ? 'text-white' : 'text-slate-500 line-through'
+                                        }`}
+                                      >
+                                        {layer.name}
+                                      </span>
+                                      {itemCount > 0 && (
+                                        <span className="ml-auto px-1 rounded bg-slate-950/70 text-[10px] font-mono text-slate-300">
+                                          {itemCount}
+                                        </span>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setLayers((prev) =>
+                                          prev.map((l) => (l.id === layer.id ? { ...l, visible: !l.visible } : l))
+                                        )
+                                      }
+                                      className={`p-1 rounded ${
+                                        layer.visible
+                                          ? 'text-sky-300 hover:bg-slate-700'
+                                          : 'text-slate-500 hover:bg-slate-700'
+                                      }`}
+                                      title={layer.visible ? 'Nascondi layer' : 'Mostra layer'}
+                                    >
+                                      {layer.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setLayers((prev) =>
+                                          prev.map((l) => (l.id === layer.id ? { ...l, locked: !l.locked } : l))
+                                        )
+                                      }
+                                      className={`p-1 rounded ${
+                                        layer.locked
+                                          ? 'text-amber-400 hover:bg-slate-700'
+                                          : 'text-slate-400 hover:bg-slate-700'
+                                      }`}
+                                      title={layer.locked ? 'Sblocca layer' : 'Blocca layer da modifiche'}
+                                    >
+                                      {layer.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                                    </button>
+
+                                    {layers.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const nextLayers = layers.filter((l) => l.id !== layer.id);
+                                          setLayers(nextLayers);
+                                          if (activeLayerId === layer.id && nextLayers[0]) {
+                                            setActiveLayerId(nextLayers[0].id);
+                                          }
+                                        }}
+                                        className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-700"
+                                        title="Elimina layer"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* CREA NUOVO LAYER */}
+                            <div className="pt-1.5 border-t border-slate-800 flex items-center gap-1.5">
+                              <input
+                                type="color"
+                                value={newLayerColor}
+                                onChange={(e) => setNewLayerColor(e.target.value)}
+                                className="w-6 h-6 rounded bg-transparent border border-slate-700 cursor-pointer shrink-0"
+                                title="Colore del nuovo layer"
+                              />
+                              <input
+                                type="text"
+                                value={newLayerName}
+                                onChange={(e) => setNewLayerName(e.target.value)}
+                                placeholder="Nuovo layer (es. Impianti)..."
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && newLayerName.trim()) {
+                                    const created: PlanLayer = {
+                                      id: `layer_${uid()}`,
+                                      name: newLayerName.trim(),
+                                      color: newLayerColor,
+                                      visible: true,
+                                      locked: false,
+                                    };
+                                    setLayers((prev) => [...prev, created]);
+                                    setActiveLayerId(created.id);
+                                    setNewLayerName('');
+                                  }
+                                }}
+                                className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                              />
+                              <button
+                                type="button"
+                                disabled={!newLayerName.trim()}
+                                onClick={() => {
+                                  if (!newLayerName.trim()) return;
+                                  const created: PlanLayer = {
+                                    id: `layer_${uid()}`,
+                                    name: newLayerName.trim(),
+                                    color: newLayerColor,
+                                    visible: true,
+                                    locked: false,
+                                  };
+                                  setLayers((prev) => [...prev, created]);
+                                  setActiveLayerId(created.id);
+                                  setNewLayerName('');
+                                }}
+                                className="px-2 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold text-[11px]"
+                              >
+                                + Layer
+                              </button>
+                            </div>
+
+                            {/* ELENCO RAPIDO APPUNTI & PROMEMORIA PAGINA CORRENTE */}
+                            <div className="pt-2 border-t border-slate-800 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  Appunti &amp; Promemoria (Pag. {currentPage})
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveTool('text_note');
+                                    if (layers.some((l) => l.id === DEFAULT_LAYER_IDS.NOTES)) {
+                                      setActiveLayerId(DEFAULT_LAYER_IDS.NOTES);
+                                    }
+                                    setOpenCadMenu(null);
+                                    setLastFeedback('Clicca sulla tavola per inserire un nuovo Appunto / Promemoria');
+                                  }}
+                                  className="text-[10px] font-bold text-sky-400 hover:text-sky-300"
+                                >
+                                  + Scrivi
+                                </button>
+                              </div>
+
+                              {(textNotesByPage[currentPage] || []).length === 0 ? (
+                                <p className="text-[11px] text-slate-500 italic py-0.5">
+                                  Nessun appunto su questa pagina.
+                                </p>
+                              ) : (
+                                <div className="space-y-1 max-h-36 overflow-y-auto">
+                                  {(textNotesByPage[currentPage] || []).map((note) => {
+                                    const lyr = layerMap.get(note.layerId || DEFAULT_LAYER_IDS.NOTES);
+                                    return (
+                                      <div
+                                        key={note.id}
+                                        onClick={() => {
+                                          setEditingTextNote({
+                                            id: note.id,
+                                            x: note.x,
+                                            y: note.y,
+                                            text: note.text,
+                                            color: note.color,
+                                            fontSize: note.fontSize,
+                                            vertical: !!note.vertical,
+                                            bgOpaque: note.bgOpaque !== false,
+                                            isReminder: !!note.isReminder,
+                                            layerId: note.layerId || DEFAULT_LAYER_IDS.NOTES,
+                                          });
+                                          setOpenCadMenu(null);
+                                        }}
+                                        className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 cursor-pointer"
+                                      >
+                                        {note.isReminder ? (
+                                          <Bookmark className="w-3 h-3 text-amber-400 shrink-0" />
+                                        ) : (
+                                          <span
+                                            className="w-2 h-2 rounded-full shrink-0"
+                                            style={{ backgroundColor: note.color }}
+                                          />
+                                        )}
+                                        <span className="truncate flex-1 text-[11px] text-slate-200">{note.text}</span>
+                                        {lyr && (
+                                          <span className="text-[9px] px-1 rounded bg-slate-950/70 text-slate-400 truncate max-w-[70px]">
+                                            {lyr.name}
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MENU A TENDINA 4: UNITÀ & SCALA */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenCadMenu((m) => (m === 'units' ? null : 'units'))}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold flex items-center gap-1 transition-colors whitespace-nowrap ${
+                          openCadMenu === 'units'
+                            ? 'bg-slate-700 text-white'
+                            : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+                        }`}
+                        title="Unità quote tavola, unità computo e auto-calibrazione"
+                      >
+                        <span className="font-mono text-emerald-300">
+                          {quoteUnit}→{exportUnit}
+                        </span>
+                        <span className="text-slate-400 font-mono text-[10px]">1:{scaleDenominator}</span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                      </button>
+
+                      {openCadMenu === 'units' && (
+                        <div className="absolute left-0 top-full mt-1 z-50 w-60 rounded-lg bg-slate-900 border border-slate-700 shadow-2xl p-2 text-xs space-y-2.5">
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                              Unità Quote su Tavola PDF
+                            </div>
+                            <div className="grid grid-cols-3 gap-1 bg-slate-950 p-0.5 rounded border border-slate-800">
+                              {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
+                                <button
+                                  key={u}
+                                  type="button"
+                                  onClick={() => setQuoteUnit(u)}
+                                  className={`py-1 rounded font-mono font-semibold transition-colors ${
+                                    quoteUnit === u ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  {u}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 mb-1">
+                              Unità Riportata in Computo
+                            </div>
+                            <div className="grid grid-cols-3 gap-1 bg-slate-950 p-0.5 rounded border border-emerald-500/30">
+                              {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
+                                <button
+                                  key={u}
+                                  type="button"
+                                  onClick={() => handleChangeExportUnit(u)}
+                                  className={`py-1 rounded font-mono font-semibold transition-colors ${
+                                    exportUnit === u ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                                  }`}
+                                >
+                                  {u}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-mono text-slate-300">
+                              Scala 1:{scaleDenominator}
+                              {customMetersPerPt !== null ? ' ✓' : ''}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                executeAutoCalibration(true);
+                                setOpenCadMenu(null);
+                              }}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[11px] font-semibold text-slate-100 flex items-center gap-1"
+                            >
+                              <RefreshCw className="w-3 h-3 text-amber-400" />
+                              Auto-calibra
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* Controlli OCR, Sostituzione Editabile, Overlay, OSNAP, Unità Quote & Zoom */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {isScanningOcr ? (
+              {/* DESTRA: STATO OCR LIVE + ZOOM (IN 2D) OPPURE UNITÀ RIPORTATA (IN 3D/BIM) */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                {isScanningOcr && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2893,201 +4063,76 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                       setIsScanningOcr(false);
                       setOcrProgress(null);
                     }}
-                    className="px-2.5 py-1 rounded-md text-xs font-bold bg-amber-500 text-slate-950 flex items-center gap-1.5 whitespace-nowrap shrink-0 animate-pulse"
+                    className="px-2 py-1 rounded text-[11px] font-bold bg-amber-500 text-slate-950 flex items-center gap-1 whitespace-nowrap"
                     title="Clicca per annullare la scansione OCR"
                   >
-                    <ScanText className="w-3.5 h-3.5" />
-                    <span>OCR {ocrProgress ? `${ocrProgress.progress}%` : '...'} · Annulla</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      ocrScannedPagesRef.current.delete(currentPage);
-                      void handleRunOcrForPage(pdfDoc, currentPage, quoteUnit, canvasRef.current);
-                    }}
-                    className={`px-2.5 py-1 rounded-md text-xs font-bold border flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      currentAnalysis?.isLikelyScanned && !currentAnalysis.tokens.some((t) => t.source === 'ocr')
-                        ? 'bg-amber-500 hover:bg-amber-400 border-amber-400 text-slate-950 shadow-sm'
-                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-300'
-                    }`}
-                    title="Esegui / ripeti scansione OCR orizzontale e verticale sulla tavola"
-                  >
-                    <ScanText className="w-3.5 h-3.5" />
-                    <span>Scansiona OCR</span>
+                    <ScanText className="w-3 h-3" />
+                    <span>OCR {ocrProgress ? `${ocrProgress.progress}%` : '...'}</span>
                   </button>
                 )}
 
-                {currentAnalysis?.tokens.some((t) => t.source === 'ocr' || t.source === 'manual') && (
-                  <button
-                    type="button"
-                    onClick={() => setShowEditableOverlay((v) => !v)}
-                    className={`px-2 py-1 rounded-md text-xs font-semibold border flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
-                      showEditableOverlay
-                        ? 'bg-violet-500/20 border-violet-400/60 text-violet-200'
-                        : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                    }`}
-                    title="Mostra/nascondi la sostituzione digitale dei numeri e testi editabili sopra l'immagine"
-                  >
-                    <Pencil className="w-3 h-3" />
-                    <span>Editabili</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setShowOverlayTokens((v) => !v)}
-                  className={`px-2 py-1 rounded-md text-xs font-medium border flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
-                    showOverlayTokens
-                      ? 'bg-amber-500/15 border-amber-400/50 text-amber-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {showOverlayTokens ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                  <span>Rilevamenti</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsLayerPanelOpen((v) => !v)}
-                  className={`px-2 py-1 rounded-md text-xs font-semibold border flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                    isLayerPanelOpen
-                      ? 'bg-sky-500/20 border-sky-400/60 text-sky-200'
-                      : 'bg-slate-900 border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Gestione Layer CAD, Appunti e Promemoria"
-                >
-                  <Layers className="w-3.5 h-3.5 text-sky-400" />
-                  <span
-                    className="w-2 h-2 rounded-full shrink-0"
-                    style={{ backgroundColor: layerMap.get(activeLayerId)?.color || '#38bdf8' }}
-                  />
-                  <span>Layer</span>
-                  <span className="text-[10px] font-mono text-slate-400">
-                    ({layers.filter((l) => l.visible).length}/{layers.length})
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setOsnapEnabled((v) => !v)}
-                  className={`px-2 py-1 rounded-md text-xs font-medium border flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 ${
-                    osnapEnabled
-                      ? 'bg-cyan-500/15 border-cyan-400/50 text-cyan-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                  }`}
-                  title="Snap magnetico ai vertici del disegno PDF"
-                >
-                  <Magnet className="w-3.5 h-3.5" />
-                  <span>Snap</span>
-                </button>
-
-                {((measuredPolygonsByPage[currentPage]?.length || 0) > 0 ||
-                  (measuredLinesByPage[currentPage]?.length || 0) > 0) && (
-                  <div className="flex items-center bg-slate-900 rounded-md border border-slate-700 p-0.5 text-[11px]">
+                {viewMode === '2d' ? (
+                  <div className="flex items-center bg-slate-950 rounded-md border border-slate-700 p-0.5">
                     <button
                       type="button"
-                      onClick={() => setShowMeasuredMarks((v) => !v)}
-                      className={`px-2 py-0.5 rounded font-semibold transition-colors flex items-center gap-1 ${
-                        showMeasuredMarks ? 'bg-indigo-500/25 text-indigo-200' : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Mostra/nascondi superfici poligoni e linee righello segnate sulla tavola"
+                      onClick={() => setZoom((z) => Math.max(0.35, Math.round((z - 0.2) * 100) / 100))}
+                      className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
+                      title="Zoom Indietro"
                     >
-                      <span>
-                        Segni (
-                        {(measuredPolygonsByPage[currentPage]?.length || 0) +
-                          (measuredLinesByPage[currentPage]?.length || 0)}
-                        )
-                      </span>
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="px-1.5 text-[11px] font-mono tabular-nums text-slate-200 min-w-[42px] text-center">
+                      {Math.round(zoom * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.min(3.5, Math.round((z + 0.2) * 100) / 100))}
+                      className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
+                      title="Zoom Avanti"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setMeasuredPolygonsByPage((prev) => ({ ...prev, [currentPage]: [] }));
-                        setMeasuredLinesByPage((prev) => ({ ...prev, [currentPage]: [] }));
-                      }}
-                      className="px-1.5 py-0.5 rounded text-rose-400 hover:bg-rose-950/60 hover:text-rose-200"
-                      title="Cancella tutti i segni di superfici e linee da questa pagina"
+                      onClick={handleFitToViewport}
+                      className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800 border-l border-slate-700 ml-0.5 pl-1.5"
+                      title="Adatta tavola"
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Maximize2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <div
+                      className="flex items-center bg-slate-950 rounded-md border border-emerald-500/35 p-0.5 text-[11px]"
+                      title="Unità riportata nelle caselle del computo"
+                    >
+                      <span className="px-1.5 text-[10px] font-semibold text-emerald-300">Riporta:</span>
+                      {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => handleChangeExportUnit(u)}
+                          className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${
+                            exportUnit === u ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="hidden xl:inline text-[11px] font-mono tabular-nums text-slate-400 px-1">
+                      1:{scaleDenominator}
+                      {customMetersPerPt !== null ? ' · Calibrata' : ''}
+                    </span>
+                  </div>
                 )}
-
-                {/* UNITÀ TAVOLA + UNITÀ RIPORTATA SUL COMPUTO */}
-                <div
-                  className="flex items-center bg-slate-900 rounded-md border border-slate-700 p-0.5 text-[11px]"
-                  title="Unità delle quote scritte sulla tavola PDF"
-                >
-                  <span className="px-1.5 text-[10px] font-semibold text-slate-400">Tavola:</span>
-                  {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
-                    <button
-                      key={u}
-                      type="button"
-                      onClick={() => setQuoteUnit(u)}
-                      className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${
-                        quoteUnit === u ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      {u}
-                    </button>
-                  ))}
-                </div>
-
-                <div
-                  className="flex items-center bg-slate-900 rounded-md border border-emerald-500/40 p-0.5 text-[11px]"
-                  title="Unità riportata nelle caselle del computo (es. misuri 3,40 m e riporti 340 in cm)"
-                >
-                  <span className="px-1.5 text-[10px] font-semibold text-emerald-300">Riporta:</span>
-                  {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
-                    <button
-                      key={u}
-                      type="button"
-                      onClick={() => handleChangeExportUnit(u)}
-                      className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${
-                        exportUnit === u ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      {u}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex items-center bg-slate-900 rounded-md border border-slate-700 p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setZoom((z) => Math.max(0.35, Math.round((z - 0.2) * 100) / 100))}
-                    className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
-                    title="Zoom Indietro"
-                  >
-                    <ZoomOut className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="px-2 text-[11px] font-mono tabular-nums text-slate-200 min-w-[46px] text-center">
-                    {Math.round(zoom * 100)}%
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setZoom((z) => Math.min(3.5, Math.round((z + 0.2) * 100) / 100))}
-                    className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
-                    title="Zoom Avanti"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFitToViewport}
-                    className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800 border-l border-slate-700 ml-0.5 pl-1.5"
-                    title="Adatta tavola"
-                  >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
               </div>
             </div>
           )}
 
           {/* SUB-BAR CONTESTUALE LASER VIRTUALE (3 MODALITÀ: 1 RAGGIO, 2 RAGGI SX+DX, AREALE m²) */}
-          {pdfDoc && activeTool === 'laser' && (
+          {pdfDoc && viewMode === '2d' && activeTool === 'laser' && (
             <div className="bg-slate-900/95 border-b border-red-900/60 px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[11px] font-bold text-red-400 flex items-center gap-1 whitespace-nowrap shrink-0">
@@ -3231,7 +4276,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           )}
 
           {/* SUB-BAR CONTESTUALE PENNINO COLORATO / TESTO SU PIANTINA */}
-          {pdfDoc && (activeTool === 'pen' || activeTool === 'text_note') && (
+          {pdfDoc && viewMode === '2d' && (activeTool === 'pen' || activeTool === 'text_note') && (
             <div className="bg-slate-900/95 border-b border-slate-700/80 px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
               {activeTool === 'pen' ? (
                 <div className="flex items-center gap-2.5 flex-wrap">
@@ -3405,8 +4450,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* BARRA CONTESTUALE ATTIVA (OCR Progress / Casella Evidenziata / Calibrazione / Poligono / Feedback) */}
-          {pdfDoc && (isScanningOcr || calibrationDraft || polygonPts.length > 0 || pendingLengthPick || activeCell || lastFeedback) && (
+          {/* BARRA CONTESTUALE ATTIVA (solo quando serve in 2D o scansione OCR attiva) */}
+          {pdfDoc &&
+            (isScanningOcr ||
+              (viewMode === '2d' &&
+                (calibrationDraft || polygonPts.length > 0 || pendingLengthPick || activeCell || lastFeedback))) && (
             <div className="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex items-center gap-2.5 min-w-0 text-slate-200 flex-wrap flex-1">
                 {isScanningOcr && ocrProgress ? (
@@ -3519,255 +4567,108 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* VIEWPORT PDF */}
-          <div className="flex-1 relative flex min-h-0 overflow-hidden">
-            {/* PANNELLO FLUTTUANTE LAYER & APPUNTI / PROMEMORIA */}
-            {pdfDoc && isLayerPanelOpen && (
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                className="absolute top-3 left-3 z-40 w-80 max-h-[calc(100%-24px)] bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl text-slate-100 flex flex-col overflow-hidden"
-              >
-                <div className="px-3 py-2 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-bold">
-                    <Layers className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Layer, Appunti &amp; Promemoria</span>
-                  </div>
+          {/* BANNER AUTO-CALIBRAZIONE: in 3D/BIM mostra solo avviso se calibrazione manuale richiesta, lasciando il disegno al centro */}
+          {pdfDoc &&
+            autoCalibState.status !== 'idle' &&
+            (viewMode === '2d' || autoCalibState.status === 'needs_manual') && (
+            <div
+              className={`px-3 py-1.5 border-b flex items-center justify-between gap-3 flex-wrap text-xs shrink-0 ${
+                autoCalibState.status === 'needs_manual'
+                  ? 'bg-amber-950/90 border-amber-500/60 text-amber-100'
+                  : autoCalibState.status === 'auto_calibrated'
+                  ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-100'
+                  : autoCalibState.status === 'pending_ocr'
+                  ? 'bg-sky-950/75 border-sky-500/40 text-sky-100'
+                  : 'bg-slate-900 border-slate-700/80 text-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {autoCalibState.status === 'needs_manual' ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                ) : autoCalibState.status === 'auto_calibrated' || autoCalibState.status === 'manual_calibrated' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5 text-sky-400 shrink-0 animate-spin" />
+                )}
+                <span className="font-semibold truncate">{autoCalibState.message}</span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {autoCalibState.status === 'needs_manual' && (
                   <button
                     type="button"
-                    onClick={() => setIsLayerPanelOpen(false)}
-                    className="p-0.5 text-slate-400 hover:text-white rounded"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="p-2.5 space-y-2 overflow-y-auto text-xs">
-                  <div className="space-y-1">
-                    {layers.map((layer) => {
-                      const isActive = layer.id === activeLayerId;
-                      const polyCount = (measuredPolygonsByPage[currentPage] || []).filter(
-                        (p) => (p.layerId || DEFAULT_LAYER_IDS.MEASURES) === layer.id
-                      ).length;
-                      const lineCount = (measuredLinesByPage[currentPage] || []).filter(
-                        (l) => (l.layerId || DEFAULT_LAYER_IDS.MEASURES) === layer.id
-                      ).length;
-                      const noteCount = (textNotesByPage[currentPage] || []).filter(
-                        (n) => (n.layerId || DEFAULT_LAYER_IDS.NOTES) === layer.id
-                      ).length;
-                      const penCount = (penStrokesByPage[currentPage] || []).filter(
-                        (s) => (s.layerId || DEFAULT_LAYER_IDS.NOTES) === layer.id
-                      ).length;
-                      const itemCount = polyCount + lineCount + noteCount + penCount;
-
-                      return (
-                        <div
-                          key={layer.id}
-                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-colors ${
-                            isActive
-                              ? 'bg-sky-500/15 border-sky-400/60'
-                              : 'bg-slate-800/60 border-slate-700/70 hover:bg-slate-800'
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => setActiveLayerId(layer.id)}
-                            className="flex-1 min-w-0 flex items-center gap-2 text-left"
-                            title="Clicca per rendere questo layer attivo"
-                          >
-                            <span
-                              className={`w-3 h-3 rounded-full shrink-0 border ${
-                                isActive ? 'border-white ring-2 ring-sky-400' : 'border-slate-500'
-                              }`}
-                              style={{ backgroundColor: layer.color }}
-                            />
-                            <span className={`truncate font-semibold ${layer.visible ? 'text-white' : 'text-slate-500 line-through'}`}>
-                              {layer.name}
-                            </span>
-                            {itemCount > 0 && (
-                              <span className="ml-auto px-1.5 py-0.2 rounded bg-slate-950/70 text-[10px] font-mono text-slate-300">
-                                {itemCount}
-                              </span>
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLayers((prev) =>
-                                prev.map((l) => (l.id === layer.id ? { ...l, visible: !l.visible } : l))
-                              )
-                            }
-                            className={`p-1 rounded ${
-                              layer.visible ? 'text-sky-300 hover:bg-slate-700' : 'text-slate-500 hover:bg-slate-700'
-                            }`}
-                            title={layer.visible ? 'Nascondi layer' : 'Mostra layer'}
-                          >
-                            {layer.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLayers((prev) =>
-                                prev.map((l) => (l.id === layer.id ? { ...l, locked: !l.locked } : l))
-                              )
-                            }
-                            className={`p-1 rounded ${
-                              layer.locked ? 'text-amber-400 hover:bg-slate-700' : 'text-slate-400 hover:bg-slate-700'
-                            }`}
-                            title={layer.locked ? 'Sblocca layer' : 'Blocca layer da modifiche'}
-                          >
-                            {layer.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-                          </button>
-
-                          {layers.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nextLayers = layers.filter((l) => l.id !== layer.id);
-                                setLayers(nextLayers);
-                                if (activeLayerId === layer.id && nextLayers[0]) {
-                                  setActiveLayerId(nextLayers[0].id);
-                                }
-                              }}
-                              className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-slate-700"
-                              title="Elimina layer"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
+                    onClick={() => {
+                      setViewMode('2d');
+                      setActiveTool('calibrate');
+                      setRulerStart(null);
+                      setLaserOrigin(null);
+                      setLastFeedback(
+                        'Calibrazione manuale attiva: clicca 2 punti di una misura nota sulla piantina'
                       );
-                    })}
-                  </div>
-
-                  {/* CREA NUOVO LAYER */}
-                  <div className="pt-1.5 border-t border-slate-800 flex items-center gap-1.5">
-                    <input
-                      type="color"
-                      value={newLayerColor}
-                      onChange={(e) => setNewLayerColor(e.target.value)}
-                      className="w-6 h-6 rounded bg-transparent border border-slate-700 cursor-pointer shrink-0"
-                      title="Colore del nuovo layer"
-                    />
-                    <input
-                      type="text"
-                      value={newLayerName}
-                      onChange={(e) => setNewLayerName(e.target.value)}
-                      placeholder="Nuovo layer (es. Impianti)..."
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && newLayerName.trim()) {
-                          const created: PlanLayer = {
-                            id: `layer_${uid()}`,
-                            name: newLayerName.trim(),
-                            color: newLayerColor,
-                            visible: true,
-                            locked: false,
-                          };
-                          setLayers((prev) => [...prev, created]);
-                          setActiveLayerId(created.id);
-                          setNewLayerName('');
-                        }
-                      }}
-                      className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    />
-                    <button
-                      type="button"
-                      disabled={!newLayerName.trim()}
-                      onClick={() => {
-                        if (!newLayerName.trim()) return;
-                        const created: PlanLayer = {
-                          id: `layer_${uid()}`,
-                          name: newLayerName.trim(),
-                          color: newLayerColor,
-                          visible: true,
-                          locked: false,
-                        };
-                        setLayers((prev) => [...prev, created]);
-                        setActiveLayerId(created.id);
-                        setNewLayerName('');
-                      }}
-                      className="px-2 py-1 rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white font-bold text-[11px]"
-                    >
-                      + Layer
-                    </button>
-                  </div>
-
-                  {/* ELENCO RAPIDO APPUNTI & PROMEMORIA PAGINA CORRENTE */}
-                  <div className="pt-2 border-t border-slate-800 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Appunti &amp; Promemoria (Pag. {currentPage})
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveTool('text_note');
-                          if (layers.some((l) => l.id === DEFAULT_LAYER_IDS.NOTES)) {
-                            setActiveLayerId(DEFAULT_LAYER_IDS.NOTES);
-                          }
-                          setLastFeedback('Clicca sulla tavola per inserire un nuovo Appunto / Promemoria');
-                        }}
-                        className="text-[10px] font-bold text-sky-400 hover:text-sky-300"
-                      >
-                        + Scrivi sulla tavola
-                      </button>
-                    </div>
-
-                    {(textNotesByPage[currentPage] || []).length === 0 ? (
-                      <p className="text-[11px] text-slate-500 italic py-1">
-                        Nessun appunto o promemoria su questa pagina. Usa lo strumento Testo.
-                      </p>
-                    ) : (
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {(textNotesByPage[currentPage] || []).map((note) => {
-                          const lyr = layerMap.get(note.layerId || DEFAULT_LAYER_IDS.NOTES);
-                          return (
-                            <div
-                              key={note.id}
-                              onClick={() =>
-                                setEditingTextNote({
-                                  id: note.id,
-                                  x: note.x,
-                                  y: note.y,
-                                  text: note.text,
-                                  color: note.color,
-                                  fontSize: note.fontSize,
-                                  vertical: !!note.vertical,
-                                  bgOpaque: note.bgOpaque !== false,
-                                  isReminder: !!note.isReminder,
-                                  layerId: note.layerId || DEFAULT_LAYER_IDS.NOTES,
-                                })
-                              }
-                              className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/80 hover:bg-slate-800 border border-slate-700/70 cursor-pointer"
-                            >
-                              {note.isReminder ? (
-                                <Bookmark className="w-3 h-3 text-amber-400 shrink-0" />
-                              ) : (
-                                <span
-                                  className="w-2 h-2 rounded-full shrink-0"
-                                  style={{ backgroundColor: note.color }}
-                                />
-                              )}
-                              <span className="truncate flex-1 text-[11px] text-slate-200">{note.text}</span>
-                              {lyr && (
-                                <span className="text-[9px] px-1 rounded bg-slate-950/70 text-slate-400 truncate max-w-[70px]">
-                                  {lyr.name}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                    }}
+                    className="px-2.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <Crosshair className="w-3 h-3" />
+                    <span>Calibra ora</span>
+                  </button>
+                )}
+                {autoCalibState.status !== 'pending_ocr' && (
+                  <button
+                    type="button"
+                    onClick={() => executeAutoCalibration(true)}
+                    className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-semibold text-[11px] flex items-center gap-1 whitespace-nowrap"
+                    title="Riesegui auto-calibrazione sulla base delle quote orizzontali e verticali censite"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Auto-calibra</span>
+                  </button>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* VIEWPORT PDF 2D / MODELLO 3D PARETI / MODELLO BIM */}
+          <div className="flex-1 relative flex min-h-0 overflow-hidden">
+            {pdfDoc && (viewMode === '3d' || viewMode === 'bim') && (
+              <Plan3DViewer
+                mode={viewMode}
+                bimModel={bimModelState}
+                onUpdateBimObject={handleUpdateBimObject}
+                onDeleteBimObject={handleDeleteBimObject}
+                wallHeightM={defaultHeightM}
+                onWallHeightChange={(newH) => setDefaultHeightM(newH)}
+                cleanFloorCanvas={cleanedPlan?.cleanCanvas ?? canvasRef.current}
+                significantQuotes={cleanedPlan?.significantQuotes ?? []}
+                showQuotesLayer={showQuotesIn3D}
+                onToggleQuotesLayer={() => setShowQuotesIn3D((v) => !v)}
+                lumaVersion={lumaVersion}
+                sensitivity={wall3DSensitivity}
+                onSensitivityChange={setWall3DSensitivity}
+                onComputeBimObject={handleComputeBimObject}
+                onComputeMultipleBimObjects={handleComputeMultipleBimObjects}
+                activeCellLabel={activeCell ? FIELD_LABEL_IT[activeCell.field] : null}
+              />
             )}
+
+            {/* Zero pannelli flottanti sul disegno: Layer & Appunti sono ora nel menu a tendina AutoCAD in alto */}
 
             <div
               ref={scrollContainerRef}
-              onWheel={handleWheelZoom}
+              onMouseDown={(e) => {
+                if (e.button === 1 && scrollContainerRef.current) {
+                  e.preventDefault();
+                  setIsPanning(true);
+                  panOriginRef.current = {
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    scrollLeft: scrollContainerRef.current.scrollLeft,
+                    scrollTop: scrollContainerRef.current.scrollTop,
+                  };
+                }
+              }}
+              onAuxClick={(e) => {
+                if (e.button === 1) e.preventDefault();
+              }}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes('Files')) {
                   e.preventDefault();
@@ -3781,7 +4682,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 const file = e.dataTransfer.files?.[0];
                 if (file) void handleLoadPdfFile(file);
               }}
-              className={`flex-1 overflow-auto relative flex items-start justify-center p-4 select-none ${
+              className={`${
+                (viewMode === '3d' || viewMode === 'bim') && pdfDoc
+                  ? 'hidden'
+                  : 'flex-1 overflow-auto relative flex items-start justify-center p-4 select-none'
+              } ${
                 isPanning || isSpacePressed || activeTool === 'pan'
                   ? isPanning
                     ? 'cursor-grabbing'
@@ -3869,6 +4774,14 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
               >
                 <canvas ref={canvasRef} className="block" />
 
+                {/* Pianta 2D pulita da scritte e righe di quota (memorizzata in RAM) */}
+                {showClean2DPlan && cleanedPlan && (
+                  <canvas
+                    ref={cleanCanvasDisplayRef}
+                    className="absolute inset-0 w-full h-full pointer-events-none block"
+                  />
+                )}
+
                 {isRenderingPage && (
                   <div className="absolute top-2 right-2 bg-slate-900/80 text-white text-[10px] px-2 py-1 rounded font-medium pointer-events-none">
                     Rendering...
@@ -3886,6 +4799,46 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                     viewBox={`0 0 ${currentAnalysis.width} ${currentAnalysis.height}`}
                     className="absolute inset-0 w-full h-full pointer-events-none"
                   >
+                    {/* LAYER DEDICATO "QUOTE & MISURE PULITE" (attivo quando si visualizza la Pianta Pulita e il layer Quote è acceso) */}
+                    {showClean2DPlan &&
+                      cleanedPlan &&
+                      isLayerVisible(DEFAULT_LAYER_IDS.QUOTES) &&
+                      cleanedPlan.significantQuotes.map((sq) => {
+                        const isVert = sq.orientation === 'vertical';
+                        const isRoom = sq.kind === 'room';
+                        const fs = Math.max(8, 10 / zoom);
+                        const padX = Math.max(3, 4 / zoom);
+                        const wEst = Math.max(20 / zoom, sq.text.length * fs * 0.62 + padX * 2);
+                        const hEst = fs + padX * 1.4;
+                        return (
+                          <g
+                            key={sq.id}
+                            transform={`translate(${sq.xPt}, ${sq.yPt})${isVert ? ' rotate(-90)' : ''}`}
+                          >
+                            <rect
+                              x={-wEst / 2}
+                              y={-hEst / 2}
+                              width={wEst}
+                              height={hEst}
+                              rx={2.5 / zoom}
+                              fill={isRoom ? 'rgba(15, 23, 42, 0.88)' : 'rgba(245, 158, 11, 0.92)'}
+                              stroke={isRoom ? '#38bdf8' : '#78350f'}
+                              strokeWidth={0.8 / zoom}
+                            />
+                            <text
+                              x={0}
+                              y={fs * 0.34}
+                              textAnchor="middle"
+                              fill={isRoom ? '#f8fafc' : '#0f172a'}
+                              fontSize={fs}
+                              fontFamily={isRoom ? 'sans-serif' : 'monospace'}
+                              fontWeight="bold"
+                            >
+                              {sq.text}
+                            </text>
+                          </g>
+                        );
+                      })}
                     {showOverlayTokens &&
                       currentAnalysis.tokens.map((tok) => {
                         if (tok.kind === 'other' || tok.kind === 'scale') return null;

@@ -75,6 +75,7 @@ export interface SavedPlanSheet {
 
 export const DEFAULT_LAYER_IDS = {
   MEASURES: 'layer_misure',
+  QUOTES: 'layer_quote',
   NOTES: 'layer_appunti',
   SITE: 'layer_cantiere',
 } as const;
@@ -89,6 +90,13 @@ export function createDefaultPlanLayers(): PlanLayer[] {
       locked: false,
     },
     {
+      id: DEFAULT_LAYER_IDS.QUOTES,
+      name: 'Quote & Misure Pulite',
+      color: '#f59e0b',
+      visible: true,
+      locked: false,
+    },
+    {
       id: DEFAULT_LAYER_IDS.NOTES,
       name: 'Appunti & Promemoria',
       color: '#2563eb',
@@ -98,7 +106,7 @@ export function createDefaultPlanLayers(): PlanLayer[] {
     {
       id: DEFAULT_LAYER_IDS.SITE,
       name: 'Verifiche / Varianti',
-      color: '#f59e0b',
+      color: '#0ea5e9',
       visible: true,
       locked: false,
     },

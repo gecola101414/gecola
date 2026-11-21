@@ -52,6 +52,7 @@ import {
   CheckCircle2,
   MessageSquare,
   FolderSync,
+  Cuboid,
 } from 'lucide-react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { ref, set, onValue, off } from 'firebase/database';
@@ -3540,6 +3541,27 @@ function App() {
                     </div>
                   )}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!planMeasureTargetArticleId && articles.length > 0) {
+                      setPlanMeasureTargetArticleId(articles[0].id);
+                    }
+                    setIsPlanMeasureModalOpen(true);
+                    playUISound('toggle');
+                  }}
+                  className="px-3 py-1.5 transition-all flex items-center gap-1.5 text-amber-100 hover:text-white bg-amber-600/85 hover:bg-amber-500 border border-amber-400/70 rounded-lg shadow-xs cursor-pointer whitespace-nowrap shrink-0"
+                  title="Gestione Piantine PDF, Auto-Calibrazione, 3D Pareti e Modello BIM (senza dover passare da una voce)"
+                >
+                  <Cuboid className="w-4 h-4 text-amber-100 shrink-0" />
+                  <span className="text-xs font-bold">Piantine / BIM</span>
+                  {planSheets.length > 0 && (
+                    <span className="text-[10px] font-mono tabular-nums bg-slate-950/60 px-1.5 py-0.5 rounded text-amber-200">
+                      {planSheets.length}
+                    </span>
+                  )}
+                </button>
 
                 {isRegisteredUser && (
                   <button
