@@ -4,32 +4,45 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   AlertTriangle,
+  AppWindow,
   Box,
+  BoxSelect,
   Check,
   CheckSquare,
   ChevronDown,
   Cuboid,
+  DoorOpen,
+  Eraser,
   Eye,
+  FileImage,
   Layers,
   Loader2,
   MousePointerClick,
+  Pencil,
   Plus,
+  Redo2,
   RefreshCw,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
+  Square,
   Sun,
   Tag,
   Trash2,
+  Undo2,
+  Wand2,
   X,
 } from 'lucide-react';
 import { LaserSensitivity } from '../utils/planLaserRaycaster';
 import { SignificantQuoteItem } from '../utils/planCleanGeometry';
 import {
+  BimDoorObject,
   BimObject,
   BimObjectKind,
+  BimPillarObject,
   BimRoomObject,
   BimWallObject,
+  BimWindowObject,
   inferRoomFloorType,
   PlanBimModel,
 } from '../utils/planBimExtractor';
@@ -39,9 +52,16 @@ interface Plan3DViewerProps {
   bimModel: PlanBimModel;
   onUpdateBimObject: (updated: BimObject) => void;
   onDeleteBimObject: (id: string, kind: BimObjectKind) => void;
+  onDeleteMultipleBimObjects?: (items: Array<{ id: string; kind: BimObjectKind }>) => void;
+  onAddBimObject?: (newObj: BimObject) => void;
+  onCleanBimModel?: (action: 'short_fragments' | 'dedup_and_stairs') => void;
+  onUndoBim?: () => void;
+  onRedoBim?: () => void;
+  canUndoBim?: boolean;
+  canRedoBim?: boolean;
   wallHeightM: number;
   onWallHeightChange: (newHeightM: number) => void;
-  /** Floor-plan canvas (used only in optional Technical Blueprint dark view) */
+  /** Floor-plan canvas (used in Technical Blueprint view and optional Maquette PDF tracing underlay) */
   cleanFloorCanvas: HTMLCanvasElement | null;
   /** Significant quotes projected onto the toggleable Quote layer */
   significantQuotes: SignificantQuoteItem[];
@@ -65,14 +85,23 @@ interface Plan3DViewerProps {
 type CameraPreset = 'iso' | 'top' | 'front';
 type ClickMode = 'instant' | 'select';
 type BimFilter = 'all' | BimObjectKind;
-type OpenDropdown = 'view' | 'model' | 'bim' | null;
+type OpenDropdown = 'view' | 'edit' | 'model' | 'bim' | null;
 type VisualTheme = 'maquette' | 'blueprint';
+type EditTool = 'none' | 'erase_click' | 'erase_box' | 'draw_wall' | 'add_door' | 'add_window' | 'add_pillar';
+type NewWallPreset = 'perimeter' | 'partition';
 
 // Module-scoped scratch helpers (zero allocations during pointer/render)
 const _ndc = new THREE.Vector2();
 const _raycaster = new THREE.Raycaster();
 const _targetPos = new THREE.Vector3();
 const _targetLook = new THREE.Vector3();
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _planeHit = new THREE.Vector3();
+const _projVec = new THREE.Vector3();
+
+function makeCadUid(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
 
 function detectSoftwareWebGL(): boolean {
   try {
@@ -536,6 +565,7 @@ const DARK_ROOM_SLAB = 0x0ea5e9;
 
 // Highlight colors
 const COLOR_HOVER = 0xf59e0b;
+const COLOR_ERASE_HOVER = 0xef4444;
 const COLOR_SELECTED = 0x10b981;
 const COLOR_COMPUTED = 0x0284c7;
 
@@ -564,6 +594,13 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   bimModel,
   onUpdateBimObject,
   onDeleteBimObject,
+  onDeleteMultipleBimObjects,
+  onAddBimObject,
+  onCleanBimModel,
+  onUndoBim,
+  onRedoBim,
+  canUndoBim = false,
+  canRedoBim = false,
   wallHeightM,
   onWallHeightChange,
   cleanFloorCanvas,
@@ -587,7 +624,14 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   const menuBarRef = useRef<HTMLDivElement | null>(null);
 
   const [visualTheme, setVisualTheme] = useState<VisualTheme>('maquette');
+  const [showBlueprintOverlay, setShowBlueprintOverlay] = useState<boolean>(false);
+  const [showShadows, setShowShadows] = useState<boolean>(true);
   const [openMenu, setOpenMenu] = useState<OpenDropdown>(null);
+  const [editTool, setEditTool] = useState<EditTool>('none');
+  const [newWallPreset, setNewWallPreset] = useState<NewWallPreset>('partition');
+  const [drawStatusText, setDrawStatusText] = useState<string | null>(null);
+  const [eraseBoxRect, setEraseBoxRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
   const [clickMode, setClickMode] = useState<ClickMode>('instant');
   const [sides, setSides] = useState<1 | 2>(1);
   const [bimFilter, setBimFilter] = useState<BimFilter>('all');
@@ -644,9 +688,14 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   // Imperative Three.js refs
   const requestRenderRef = useRef<() => void>(() => {});
   const applyPresetRef = useRef<(preset: CameraPreset) => void>(() => {});
+  const applyShadowsRef = useRef<(enabled: boolean) => void>(() => {});
+  const showShadowsRef = useRef<boolean>(showShadows);
+  const controlsRef = useRef<OrbitControls | null>(null);
   const entriesRef = useRef<Map<string, InteractiveMeshEntry>>(new Map());
   const quotesGroupRef = useRef<THREE.Group | null>(null);
   const hoveredIdRef = useRef<string | null>(null);
+  const drawStartRef = useRef<{ xM: number; yM: number } | null>(null);
+  const clearCadPreviewRef = useRef<() => void>(() => {});
 
   const savedCameraRef = useRef<{ pos: THREE.Vector3; target: THREE.Vector3 } | null>(null);
   const lastModelKeyRef = useRef<string>('');
@@ -655,10 +704,17 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   const clickModeRef = useRef(clickMode);
   const sidesRef = useRef(sides);
   const onComputeBimObjectRef = useRef(onComputeBimObject);
+  const onDeleteBimObjectRef = useRef(onDeleteBimObject);
+  const onDeleteMultipleBimObjectsRef = useRef(onDeleteMultipleBimObjects);
+  const onAddBimObjectRef = useRef(onAddBimObject);
   const selectedIdsRef = useRef(selectedIds);
   const computedIdsRef = useRef(computedIds);
   const inspectedIdRef = useRef(inspectedId);
   const visualThemeRef = useRef(visualTheme);
+  const editToolRef = useRef<EditTool>(editTool);
+  const newWallPresetRef = useRef<NewWallPreset>(newWallPreset);
+  const wallHeightMRef = useRef<number>(wallHeightM);
+  const bimModelRef = useRef<PlanBimModel>(bimModel);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -673,6 +729,15 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     onComputeBimObjectRef.current = onComputeBimObject;
   }, [onComputeBimObject]);
   useEffect(() => {
+    onDeleteBimObjectRef.current = onDeleteBimObject;
+  }, [onDeleteBimObject]);
+  useEffect(() => {
+    onDeleteMultipleBimObjectsRef.current = onDeleteMultipleBimObjects;
+  }, [onDeleteMultipleBimObjects]);
+  useEffect(() => {
+    onAddBimObjectRef.current = onAddBimObject;
+  }, [onAddBimObject]);
+  useEffect(() => {
     selectedIdsRef.current = selectedIds;
   }, [selectedIds]);
   useEffect(() => {
@@ -684,6 +749,96 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
   useEffect(() => {
     visualThemeRef.current = visualTheme;
   }, [visualTheme]);
+  useEffect(() => {
+    showShadowsRef.current = showShadows;
+    applyShadowsRef.current(showShadows);
+  }, [showShadows]);
+  useEffect(() => {
+    editToolRef.current = editTool;
+    drawStartRef.current = null;
+    setDrawStatusText(null);
+    setEraseBoxRect(null);
+    clearCadPreviewRef.current();
+    // Configure OrbitControls left-drag without rebuilding the 3D scene
+    if (controlsRef.current) {
+      const blockLeftOrbit =
+        editTool === 'erase_box' ||
+        editTool === 'draw_wall' ||
+        editTool === 'add_door' ||
+        editTool === 'add_window' ||
+        editTool === 'add_pillar';
+      controlsRef.current.mouseButtons = {
+        LEFT: blockLeftOrbit ? (null as unknown as THREE.MOUSE) : THREE.MOUSE.ROTATE,
+        MIDDLE: THREE.MOUSE.PAN,
+        RIGHT: THREE.MOUSE.ROTATE,
+      };
+    }
+  }, [editTool]);
+  useEffect(() => {
+    newWallPresetRef.current = newWallPreset;
+  }, [newWallPreset]);
+  useEffect(() => {
+    wallHeightMRef.current = wallHeightM;
+  }, [wallHeightM]);
+  useEffect(() => {
+    bimModelRef.current = bimModel;
+  }, [bimModel]);
+
+  // CAD Keyboard Shortcuts (Esc, Ctrl+Z, Ctrl+Y, Delete/Backspace)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        if (onUndoBim && canUndoBim) {
+          e.preventDefault();
+          onUndoBim();
+        }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        if (onRedoBim && canRedoBim) {
+          e.preventDefault();
+          onRedoBim();
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (drawStartRef.current) {
+          drawStartRef.current = null;
+          setDrawStatusText(null);
+          clearCadPreviewRef.current();
+        } else if (editToolRef.current !== 'none') {
+          setEditTool('none');
+        }
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (inspectedIdRef.current) {
+          const obj = allObjectsMap.get(inspectedIdRef.current);
+          if (obj) {
+            e.preventDefault();
+            onDeleteBimObjectRef.current(obj.id, obj.kind);
+            setInspectedId(null);
+          }
+        } else if (selectedIdsRef.current.size > 0 && onDeleteMultipleBimObjectsRef.current) {
+          const items = Array.from(selectedIdsRef.current)
+            .map((id) => allObjectsMap.get(id))
+            .filter(Boolean)
+            .map((o) => ({ id: (o as BimObject).id, kind: (o as BimObject).kind }));
+          if (items.length > 0) {
+            e.preventDefault();
+            onDeleteMultipleBimObjectsRef.current(items);
+            setSelectedIds(new Set());
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [allObjectsMap, canUndoBim, canRedoBim, onUndoBim, onRedoBim]);
 
   const refreshObjectColors = useMemo(
     () => () => {
@@ -693,6 +848,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       const hov = hoveredIdRef.current;
       const insp = inspectedIdRef.current;
       const isMaq = visualThemeRef.current === 'maquette';
+      const isErasing = editToolRef.current === 'erase_click';
 
       entries.forEach((entry, id) => {
         const isHov = id === hov;
@@ -700,7 +856,16 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         const isSel = sel.has(id);
         const isComp = comp.has(id);
 
-        if (isHov || isInsp) {
+        if (isHov && isErasing) {
+          entry.materials.forEach((m) => {
+            m.color.setHex(COLOR_ERASE_HOVER);
+            m.emissive.setHex(0x450a0a);
+          });
+          if (entry.edgeMat) {
+            entry.edgeMat.color.setHex(0x991b1b);
+            entry.edgeMat.opacity = 1.0;
+          }
+        } else if (isHov || isInsp) {
           entry.materials.forEach((m) => {
             m.color.setHex(COLOR_HOVER);
             m.emissive.setHex(isMaq ? 0x261200 : 0x3b1704);
@@ -745,7 +910,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
   useEffect(() => {
     refreshObjectColors();
-  }, [selectedIds, computedIds, inspectedId, visualTheme, refreshObjectColors]);
+  }, [selectedIds, computedIds, inspectedId, visualTheme, editTool, refreshObjectColors]);
 
   useEffect(() => {
     if (quotesGroupRef.current) {
@@ -816,15 +981,19 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     pmremGenerator.dispose();
 
     // High-Contrast Architectural Studio Sunlight Rig (Maquette) vs Anti-Glare Technical Rig (Blueprint)
+    let hemiLight: THREE.HemisphereLight;
+    let keyLight: THREE.DirectionalLight;
+    const initialShadowsOn = showShadowsRef.current;
+
     if (isMaquette) {
       // Lower hemisphere bounce + strong diagonal sun creates crisp sunlit vs shaded white walls & interior shadows
-      const hemiLight = new THREE.HemisphereLight(0xf5f8fc, 0xbdb5a8, 0.52);
+      hemiLight = new THREE.HemisphereLight(0xf5f8fc, 0xbdb5a8, initialShadowsOn ? 0.52 : 0.78);
       scene.add(hemiLight);
 
-      const keyLight = new THREE.DirectionalLight(0xfff5e6, 1.85);
+      keyLight = new THREE.DirectionalLight(0xfff5e6, initialShadowsOn ? 1.85 : 1.25);
       keyLight.position.set(diag * 0.68, diag * 1.12, diag * 0.56);
       if (!isSoftwareGl) {
-        keyLight.castShadow = true;
+        keyLight.castShadow = initialShadowsOn;
         keyLight.shadow.mapSize.set(2048, 2048);
         const pad = diag * 0.85;
         keyLight.shadow.camera.left = -pad;
@@ -846,13 +1015,13 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.34);
       scene.add(ambientLight);
 
-      const hemiLight = new THREE.HemisphereLight(0xe2e8f0, 0x334155, 0.48);
+      hemiLight = new THREE.HemisphereLight(0xe2e8f0, 0x334155, initialShadowsOn ? 0.48 : 0.68);
       scene.add(hemiLight);
 
-      const keyLight = new THREE.DirectionalLight(0xfff8ee, 1.15);
+      keyLight = new THREE.DirectionalLight(0xfff8ee, initialShadowsOn ? 1.15 : 0.9);
       keyLight.position.set(diag * 0.72, diag * 1.38, diag * 0.58);
       if (!isSoftwareGl) {
-        keyLight.castShadow = true;
+        keyLight.castShadow = initialShadowsOn;
         keyLight.shadow.mapSize.set(2048, 2048);
         const pad = diag * 0.78;
         keyLight.shadow.camera.left = -pad;
@@ -873,6 +1042,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
     // Standard CAD Controls: Wheel zoom to cursor, Middle-click PAN, Left/Right drag Orbit
     const controls = new OrbitControls(camera, renderer.domElement);
+    controlsRef.current = controls;
     controls.enableDamping = !isSoftwareGl;
     controls.dampingFactor = 0.08;
     controls.enableZoom = true;
@@ -881,8 +1051,14 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     controls.enablePan = true;
     controls.screenSpacePanning = true;
     controls.panSpeed = 1.15;
+    const initBlockLeft =
+      editToolRef.current === 'erase_box' ||
+      editToolRef.current === 'draw_wall' ||
+      editToolRef.current === 'add_door' ||
+      editToolRef.current === 'add_window' ||
+      editToolRef.current === 'add_pillar';
     controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
+      LEFT: initBlockLeft ? (null as unknown as THREE.MOUSE) : THREE.MOUSE.ROTATE,
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.ROTATE,
     };
@@ -923,6 +1099,9 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     // --- BASE / GROUND PLANE ---
     const roomsWithPolygons = rooms.filter((r) => r.polygonM && r.polygonM.length >= 3);
 
+    let shadowGroundMesh: THREE.Mesh | null = null;
+    const aoStrips: THREE.Mesh[] = [];
+
     if (isMaquette) {
       // Seamless pure white studio floor catching crisp-yet-soft exterior shadows
       const shadowGroundGeo = new THREE.PlaneGeometry(diag * 14, diag * 14);
@@ -931,8 +1110,44 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       const shadowGround = new THREE.Mesh(shadowGroundGeo, shadowGroundMat);
       shadowGround.position.set(0, -0.165, 0);
       shadowGround.receiveShadow = !isSoftwareGl;
+      shadowGround.visible = initialShadowsOn;
+      shadowGroundMesh = shadowGround;
       scene.add(shadowGround);
       disposables.push(shadowGroundGeo, shadowGroundMat);
+
+      // Optional semi-transparent PDF floor-plan reference underlay in Maquette mode for 1:1 CAD tracing & cleanup
+      if (showBlueprintOverlay && cleanFloorCanvas && cleanFloorCanvas.width > 0 && cleanFloorCanvas.height > 0) {
+        const texCanvas = document.createElement('canvas');
+        const maxTex = isSoftwareGl ? 1024 : 2048;
+        const tScale = Math.min(1, maxTex / Math.max(cleanFloorCanvas.width, cleanFloorCanvas.height));
+        texCanvas.width = Math.max(64, Math.round(cleanFloorCanvas.width * tScale));
+        texCanvas.height = Math.max(64, Math.round(cleanFloorCanvas.height * tScale));
+        const tCtx = texCanvas.getContext('2d');
+        if (tCtx) {
+          tCtx.fillStyle = '#ffffff';
+          tCtx.fillRect(0, 0, texCanvas.width, texCanvas.height);
+          tCtx.drawImage(cleanFloorCanvas, 0, 0, texCanvas.width, texCanvas.height);
+          const refTex = new THREE.CanvasTexture(texCanvas);
+          refTex.colorSpace = THREE.SRGBColorSpace;
+          refTex.anisotropy = Math.min(8, maxAniso);
+          refTex.needsUpdate = true;
+          const refGeo = new THREE.PlaneGeometry(planWidthM, planHeightM);
+          refGeo.rotateX(-Math.PI / 2);
+          const refMat = new THREE.MeshBasicMaterial({
+            map: refTex,
+            transparent: true,
+            opacity: 0.46,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -3,
+            polygonOffsetUnits: -3,
+          });
+          const refMesh = new THREE.Mesh(refGeo, refMat);
+          refMesh.position.set(planWidthM * 0.5 - centerX, 0.022, planHeightM * 0.5 - centerZ);
+          scene.add(refMesh);
+          disposables.push(refTex, refGeo, refMat);
+        }
+      }
 
       if (roomsWithPolygons.length === 0 && hasGeo) {
         // Compute tight interior silhouette strips strictly inside the walls (NEVER a giant protruding bbox!)
@@ -1101,6 +1316,8 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
             aoPlaneGeo.rotateX(-Math.PI / 2);
             const aoStrip = new THREE.Mesh(aoPlaneGeo, wallAoMat);
             aoStrip.position.set(0, 0.015, 0);
+            aoStrip.visible = initialShadowsOn;
+            aoStrips.push(aoStrip);
             wallGroup.add(aoStrip);
             disposables.push(aoPlaneGeo);
           }
@@ -1798,12 +2015,127 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       setCameraPreset('iso', true);
     }
 
-    // CAD Mouse & BIM Object Picking
-    let pointerDownPos: { x: number; y: number } | null = null;
-    let isMiddlePanning = false;
-    let lastHoverTime = 0;
+    // --- LIVE 3D CAD PREVIEW GHOSTS (Wall drawing, Snap marker, Door/Window/Pillar placement) ---
+    const cadPreviewGroup = new THREE.Group();
+    const snapRingGeo = new THREE.RingGeometry(0.09, 0.17, 24);
+    snapRingGeo.rotateX(-Math.PI / 2);
+    const snapRingMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      side: THREE.DoubleSide,
+      depthTest: false,
+    });
+    const snapRing = new THREE.Mesh(snapRingGeo, snapRingMat);
+    snapRing.position.y = 0.05;
+    snapRing.visible = false;
 
-    const pickObjAt = (clientX: number, clientY: number): BimObject | null => {
+    const previewWallGeo = new THREE.BoxGeometry(1, 1, 1);
+    previewWallGeo.translate(0, 0.5, 0);
+    const previewWallMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x065f46,
+      transparent: true,
+      opacity: 0.55,
+      roughness: 0.5,
+      depthWrite: false,
+    });
+    const previewWallMesh = new THREE.Mesh(previewWallGeo, previewWallMat);
+    previewWallMesh.visible = false;
+
+    const previewOpeningMat = new THREE.MeshStandardMaterial({
+      color: 0x0ea5e9,
+      emissive: 0x0369a1,
+      transparent: true,
+      opacity: 0.6,
+      roughness: 0.4,
+      depthWrite: false,
+    });
+    const previewOpeningMesh = new THREE.Mesh(previewWallGeo, previewOpeningMat);
+    previewOpeningMesh.visible = false;
+
+    cadPreviewGroup.add(snapRing, previewWallMesh, previewOpeningMesh);
+    scene.add(cadPreviewGroup);
+    disposables.push(snapRingGeo, snapRingMat, previewWallGeo, previewWallMat, previewOpeningMat);
+
+    const hideCadPreviews = () => {
+      snapRing.visible = false;
+      previewWallMesh.visible = false;
+      previewOpeningMesh.visible = false;
+      requestRender();
+    };
+    clearCadPreviewRef.current = hideCadPreviews;
+
+    // Collect existing wall endpoints for AutoCAD endpoint snapping
+    const wallSnapPts: Array<{ xM: number; yM: number }> = [];
+    for (const w of walls) {
+      wallSnapPts.push({ xM: w.x1M, yM: w.y1M }, { xM: w.x2M, yM: w.y2M });
+    }
+
+    const raycastGroundPlanM = (clientX: number, clientY: number): { xM: number; yM: number } | null => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      _raycaster.setFromCamera(_ndc, camera);
+      const hit = _raycaster.ray.intersectPlane(_groundPlane, _planeHit);
+      if (!hit) return null;
+      return {
+        xM: hit.x + centerX,
+        yM: hit.z + centerZ,
+      };
+    };
+
+    const snapPlanPoint = (
+      raw: { xM: number; yM: number },
+      anchor: { xM: number; yM: number } | null,
+      forceOrtho: boolean
+    ): { xM: number; yM: number; snapped: boolean } => {
+      let xM = raw.xM;
+      let yM = raw.yM;
+      let snapped = false;
+
+      // 1. Endpoint snap to existing walls (within 32 cm)
+      let bestDist = 0.32;
+      for (const pt of wallSnapPts) {
+        const d = Math.hypot(pt.xM - raw.xM, pt.yM - raw.yM);
+        if (d < bestDist) {
+          bestDist = d;
+          xM = pt.xM;
+          yM = pt.yM;
+          snapped = true;
+        }
+      }
+
+      // 2. Auto-ortho (within ~6°) or forced ortho (Shift) relative to start point
+      if (anchor && !snapped) {
+        const dx = xM - anchor.xM;
+        const dy = yM - anchor.yM;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0.08) {
+          const ang = Math.atan2(dy, dx);
+          const nearest90 = Math.round(ang / (Math.PI / 2)) * (Math.PI / 2);
+          if (forceOrtho || Math.abs(ang - nearest90) < 0.11) {
+            const isHoriz = Math.abs(Math.cos(nearest90)) > 0.5;
+            if (isHoriz) {
+              yM = anchor.yM;
+            } else {
+              xM = anchor.xM;
+            }
+            snapped = true;
+          }
+        }
+      }
+
+      return {
+        xM: Math.round(xM * 100) / 100,
+        yM: Math.round(yM * 100) / 100,
+        snapped,
+      };
+    };
+
+    const pickObjWithPointAt = (
+      clientX: number,
+      clientY: number
+    ): { obj: BimObject; point: THREE.Vector3 } | null => {
       const rect = renderer.domElement.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return null;
       _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -1813,8 +2145,42 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       if (hits.length === 0) return null;
       const bimId = hits[0].object.userData?.bimId as string | undefined;
       if (!bimId) return null;
-      return newEntries.get(bimId)?.obj ?? null;
+      const entry = newEntries.get(bimId);
+      if (!entry) return null;
+      return { obj: entry.obj, point: hits[0].point };
     };
+
+    const pickObjAt = (clientX: number, clientY: number): BimObject | null =>
+      pickObjWithPointAt(clientX, clientY)?.obj ?? null;
+
+    const projectWallHitPlacement = (
+      wall: BimWallObject,
+      hitPoint: THREE.Vector3,
+      openingWidthM: number
+    ) => {
+      const dx = wall.x2M - wall.x1M;
+      const dy = wall.y2M - wall.y1M;
+      const len = Math.max(0.2, Math.hypot(dx, dy));
+      const ux = dx / len;
+      const uy = dy / len;
+      const px = hitPoint.x + centerX;
+      const py = hitPoint.z + centerZ;
+      const rawT = (px - wall.x1M) * ux + (py - wall.y1M) * uy;
+      const half = Math.min(openingWidthM * 0.5, len * 0.45);
+      const clampedT = Math.max(half, Math.min(len - half, rawT));
+      const cxM = Math.round((wall.x1M + ux * clampedT) * 100) / 100;
+      const cyM = Math.round((wall.y1M + uy * clampedT) * 100) / 100;
+      const angleRad =
+        typeof wall.angleRad === 'number' ? wall.angleRad : Math.atan2(dy, dx);
+      const orientation: 'H' | 'V' = Math.abs(Math.cos(angleRad)) >= 0.5 ? 'H' : 'V';
+      return { cxM, cyM, angleRad, orientation, thicknessM: wall.thicknessM };
+    };
+
+    // CAD Mouse & BIM Object Picking + Edit Tools
+    let pointerDownPos: { x: number; y: number } | null = null;
+    let eraseBoxStart: { x: number; y: number } | null = null;
+    let isMiddlePanning = false;
+    let lastHoverTime = 0;
 
     const onMouseDownPreventAutoscroll = (e: MouseEvent) => {
       if (e.button === 1) e.preventDefault();
@@ -1835,21 +2201,153 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       }
       if (e.button === 0) {
         pointerDownPos = { x: e.clientX, y: e.clientY };
+        if (editToolRef.current === 'erase_box') {
+          const rect = renderer.domElement.getBoundingClientRect();
+          const lx = e.clientX - rect.left;
+          const ly = e.clientY - rect.top;
+          eraseBoxStart = { x: lx, y: ly };
+          setEraseBoxRect({ x: lx, y: ly, w: 0, h: 0 });
+        }
       }
     };
 
     const onPointerMove = (e: PointerEvent) => {
       if (isMiddlePanning) return;
+      const tool = editToolRef.current;
+
+      // Active Box-Eraser drag
+      if (tool === 'erase_box' && eraseBoxStart) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const cx = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const cy = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+        setEraseBoxRect({
+          x: Math.min(eraseBoxStart.x, cx),
+          y: Math.min(eraseBoxStart.y, cy),
+          w: Math.abs(cx - eraseBoxStart.x),
+          h: Math.abs(cy - eraseBoxStart.y),
+        });
+        renderer.domElement.style.cursor = 'crosshair';
+        return;
+      }
+
       const now = performance.now();
-      if (now - lastHoverTime < 45) return;
+      if (now - lastHoverTime < 28) return;
       lastHoverTime = now;
 
+      // CAD Draw Wall live 3D preview
+      if (tool === 'draw_wall') {
+        renderer.domElement.style.cursor = 'crosshair';
+        const raw = raycastGroundPlanM(e.clientX, e.clientY);
+        if (!raw) {
+          hideCadPreviews();
+          return;
+        }
+        const snapped = snapPlanPoint(raw, drawStartRef.current, e.shiftKey);
+        snapRing.position.set(snapped.xM - centerX, 0.05, snapped.yM - centerZ);
+        snapRingMat.color.setHex(snapped.snapped ? 0x22c55e : 0x38bdf8);
+        snapRing.visible = true;
+
+        if (drawStartRef.current) {
+          const sx = drawStartRef.current.xM;
+          const sy = drawStartRef.current.yM;
+          const dx = snapped.xM - sx;
+          const dy = snapped.yM - sy;
+          const len = Math.hypot(dx, dy);
+          if (len >= 0.08) {
+            const ang = Math.atan2(dy, dx);
+            const thick = newWallPresetRef.current === 'perimeter' ? 0.3 : 0.12;
+            const wH = wallHeightMRef.current;
+            previewWallMesh.position.set((sx + snapped.xM) * 0.5 - centerX, 0, (sy + snapped.yM) * 0.5 - centerZ);
+            previewWallMesh.rotation.y = -ang;
+            previewWallMesh.scale.set(len, wH, thick);
+            previewWallMesh.visible = true;
+            setDrawStatusText(
+              `Nuovo ${newWallPresetRef.current === 'perimeter' ? 'Muro Perimetrale (0.30m)' : 'Tramezzo (0.12m)'} · L = ${len.toFixed(2)} m · Clicca per confermare (Esc annulla)`
+            );
+          } else {
+            previewWallMesh.visible = false;
+          }
+        } else {
+          previewWallMesh.visible = false;
+          setDrawStatusText(
+            snapped.snapped
+              ? 'Snap angolo attivo · Clicca punto iniziale del muro'
+              : 'Clicca punto iniziale del muro (Shift: ortogonale · Tasto destro: ruota)'
+          );
+        }
+        previewOpeningMesh.visible = false;
+        requestRender();
+        return;
+      }
+
+      // CAD Add Door / Window live preview on hovered wall
+      if (tool === 'add_door' || tool === 'add_window') {
+        renderer.domElement.style.cursor = 'crosshair';
+        const hitInfo = pickObjWithPointAt(e.clientX, e.clientY);
+        if (hitInfo && hitInfo.obj.kind === 'wall') {
+          const opW = tool === 'add_door' ? 0.85 : 1.2;
+          const opH = tool === 'add_door' ? 2.1 : 1.4;
+          const opY = tool === 'add_door' ? 0 : 1.0;
+          const placed = projectWallHitPlacement(hitInfo.obj, hitInfo.point, opW);
+          previewOpeningMesh.position.set(placed.cxM - centerX, opY, placed.cyM - centerZ);
+          previewOpeningMesh.rotation.y = -placed.angleRad;
+          previewOpeningMesh.scale.set(opW, opH, placed.thicknessM + 0.08);
+          previewOpeningMat.color.setHex(tool === 'add_door' ? 0xf59e0b : 0x0ea5e9);
+          previewOpeningMesh.visible = true;
+          snapRing.visible = false;
+          previewWallMesh.visible = false;
+          setDrawStatusText(
+            tool === 'add_door'
+              ? `Clicca sul muro ${hitInfo.obj.code} per aprire Porta (0,85 × 2,10 m)`
+              : `Clicca sul muro ${hitInfo.obj.code} per aprire Finestra (1,20 × 1,40 m)`
+          );
+          requestRender();
+        } else {
+          previewOpeningMesh.visible = false;
+          setDrawStatusText(
+            tool === 'add_door'
+              ? 'Passa il mouse sopra un muro per posizionare una Porta'
+              : 'Passa il mouse sopra un muro per posizionare una Finestra'
+          );
+          requestRender();
+        }
+        return;
+      }
+
+      // CAD Add Pillar live preview on floor
+      if (tool === 'add_pillar') {
+        renderer.domElement.style.cursor = 'crosshair';
+        const raw = raycastGroundPlanM(e.clientX, e.clientY);
+        if (raw) {
+          const snapped = snapPlanPoint(raw, null, false);
+          previewWallMesh.position.set(snapped.xM - centerX, 0, snapped.yM - centerZ);
+          previewWallMesh.rotation.y = 0;
+          previewWallMesh.scale.set(0.35, wallHeightMRef.current, 0.35);
+          previewWallMesh.visible = true;
+          snapRing.visible = false;
+          previewOpeningMesh.visible = false;
+          setDrawStatusText('Clicca sul pavimento per posizionare Pilastro 0,35 × 0,35 m');
+          requestRender();
+        }
+        return;
+      }
+
+      // Default or Erase-Click hover picking
       const hit = pickObjAt(e.clientX, e.clientY);
       const hitId = hit?.id ?? null;
       if (hitId !== hoveredIdRef.current) {
         hoveredIdRef.current = hitId;
         setHoveredObj(hit);
-        renderer.domElement.style.cursor = hit ? 'pointer' : 'grab';
+        renderer.domElement.style.cursor =
+          tool === 'erase_click'
+            ? hit
+              ? 'crosshair'
+              : 'grab'
+            : tool === 'erase_box'
+            ? 'crosshair'
+            : hit
+            ? 'pointer'
+            : 'grab';
         refreshObjectColors();
       }
     };
@@ -1860,11 +2358,192 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         renderer.domElement.style.cursor = hoveredIdRef.current ? 'pointer' : 'grab';
         return;
       }
-      if (!pointerDownPos || e.button !== 0) return;
+      if (e.button !== 0) return;
+
+      const tool = editToolRef.current;
+
+      // Complete Box-Eraser selection
+      if (tool === 'erase_box' && eraseBoxStart) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const endX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const endY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+        const minX = Math.min(eraseBoxStart.x, endX);
+        const maxX = Math.max(eraseBoxStart.x, endX);
+        const minY = Math.min(eraseBoxStart.y, endY);
+        const maxY = Math.max(eraseBoxStart.y, endY);
+        eraseBoxStart = null;
+        pointerDownPos = null;
+        setEraseBoxRect(null);
+
+        if (maxX - minX >= 8 && maxY - minY >= 8 && onDeleteMultipleBimObjectsRef.current) {
+          const isInsideBox = (wx: number, wy: number, wz: number): boolean => {
+            _projVec.set(wx, wy, wz).project(camera);
+            if (_projVec.z < -1 || _projVec.z > 1) return false;
+            const sx = (_projVec.x * 0.5 + 0.5) * rect.width;
+            const sy = (-_projVec.y * 0.5 + 0.5) * rect.height;
+            return sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
+          };
+
+          const toDelete: Array<{ id: string; kind: BimObjectKind }> = [];
+          newEntries.forEach(({ obj }) => {
+            if (obj.kind === 'room') return; // Protect room floor slabs during bulk wall cleanup
+            if (obj.kind === 'wall') {
+              const midIn = isInsideBox(obj.cxM - centerX, obj.heightM * 0.5, obj.cyM - centerZ);
+              const p1In = isInsideBox(obj.x1M - centerX, obj.heightM * 0.5, obj.y1M - centerZ);
+              const p2In = isInsideBox(obj.x2M - centerX, obj.heightM * 0.5, obj.y2M - centerZ);
+              if (midIn || (p1In && p2In)) {
+                toDelete.push({ id: obj.id, kind: 'wall' });
+              }
+            } else {
+              const cy = obj.kind === 'window' ? obj.sillHeightM + obj.heightM * 0.5 : obj.heightM * 0.5;
+              if (isInsideBox(obj.cxM - centerX, cy, obj.cyM - centerZ)) {
+                toDelete.push({ id: obj.id, kind: obj.kind });
+              }
+            }
+          });
+          if (toDelete.length > 0) {
+            onDeleteMultipleBimObjectsRef.current(toDelete);
+          }
+        }
+        return;
+      }
+
+      if (!pointerDownPos) return;
       const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       pointerDownPos = null;
-      if (dist > 5) return;
+      if (dist > 6) return;
 
+      // Tool: 1-Click Eraser
+      if (tool === 'erase_click') {
+        const hit = pickObjAt(e.clientX, e.clientY);
+        if (hit) {
+          onDeleteBimObjectRef.current(hit.id, hit.kind);
+          if (inspectedIdRef.current === hit.id) setInspectedId(null);
+        }
+        return;
+      }
+
+      // Tool: 2-Point Snapped Wall Drawer
+      if (tool === 'draw_wall') {
+        const raw = raycastGroundPlanM(e.clientX, e.clientY);
+        if (!raw) return;
+        const snapped = snapPlanPoint(raw, drawStartRef.current, e.shiftKey);
+        if (!drawStartRef.current) {
+          drawStartRef.current = { xM: snapped.xM, yM: snapped.yM };
+          setDrawStatusText('Punto iniziale fissato · Muovi e clicca punto finale del muro (Esc annulla)');
+        } else {
+          const sx = drawStartRef.current.xM;
+          const sy = drawStartRef.current.yM;
+          const len = Math.hypot(snapped.xM - sx, snapped.yM - sy);
+          drawStartRef.current = null;
+          hideCadPreviews();
+          if (len >= 0.2 && onAddBimObjectRef.current) {
+            const isPerim = newWallPresetRef.current === 'perimeter';
+            const angleRad = Math.atan2(snapped.yM - sy, snapped.xM - sx);
+            const orientation: 'H' | 'V' = Math.abs(Math.cos(angleRad)) >= 0.5 ? 'H' : 'V';
+            const nextNum = bimModelRef.current.walls.length + 1;
+            const code = `${isPerim ? 'MP' : 'TR'}${nextNum}`;
+            const newWall: BimWallObject = {
+              id: makeCadUid('wall'),
+              kind: 'wall',
+              code,
+              name: `${isPerim ? 'Muro Perimetrale' : 'Tramezzo'} ${code}`,
+              category: isPerim ? 'Muro Perimetrale' : 'Tramezzo Interno',
+              material: isPerim ? 'Muratura / Tamponatura' : 'Laterizio / Cartongesso',
+              x1M: sx,
+              y1M: sy,
+              x2M: snapped.xM,
+              y2M: snapped.yM,
+              cxM: Math.round(((sx + snapped.xM) * 0.5) * 100) / 100,
+              cyM: Math.round(((sy + snapped.yM) * 0.5) * 100) / 100,
+              lengthM: Math.round(len * 100) / 100,
+              thicknessM: isPerim ? 0.3 : 0.12,
+              heightM: wallHeightMRef.current,
+              orientation,
+              angleRad,
+            };
+            onAddBimObjectRef.current(newWall);
+            setDrawStatusText(`Muro ${code} (${newWall.lengthM.toFixed(2)} m) aggiunto · Clicca per disegnarne un altro`);
+          }
+        }
+        return;
+      }
+
+      // Tool: Add Door or Window on clicked Wall (auto-carves opening!)
+      if (tool === 'add_door' || tool === 'add_window') {
+        const hitInfo = pickObjWithPointAt(e.clientX, e.clientY);
+        if (!hitInfo || hitInfo.obj.kind !== 'wall' || !onAddBimObjectRef.current) return;
+        const opW = tool === 'add_door' ? 0.85 : 1.2;
+        const placed = projectWallHitPlacement(hitInfo.obj, hitInfo.point, opW);
+        hideCadPreviews();
+
+        if (tool === 'add_door') {
+          const nextNum = bimModelRef.current.doors.length + 1;
+          const code = `P${nextNum}`;
+          const newDoor: BimDoorObject = {
+            id: makeCadUid('door'),
+            kind: 'door',
+            code,
+            name: `Porta ${code}`,
+            doorType: 'Porta Interna',
+            cxM: placed.cxM,
+            cyM: placed.cyM,
+            widthM: opW,
+            heightM: 2.1,
+            thicknessM: placed.thicknessM,
+            orientation: placed.orientation,
+            angleRad: placed.angleRad,
+            swingSign: 1,
+          };
+          onAddBimObjectRef.current(newDoor);
+        } else {
+          const nextNum = bimModelRef.current.windows.length + 1;
+          const code = `F${nextNum}`;
+          const newWin: BimWindowObject = {
+            id: makeCadUid('win'),
+            kind: 'window',
+            code,
+            name: `Finestra ${code}`,
+            windowType: 'Finestra PVC/Alluminio',
+            cxM: placed.cxM,
+            cyM: placed.cyM,
+            widthM: opW,
+            heightM: 1.4,
+            sillHeightM: 1.0,
+            thicknessM: placed.thicknessM,
+            orientation: placed.orientation,
+            angleRad: placed.angleRad,
+          };
+          onAddBimObjectRef.current(newWin);
+        }
+        return;
+      }
+
+      // Tool: Add Structural Pillar on clicked Floor
+      if (tool === 'add_pillar') {
+        const raw = raycastGroundPlanM(e.clientX, e.clientY);
+        if (!raw || !onAddBimObjectRef.current) return;
+        const snapped = snapPlanPoint(raw, null, false);
+        hideCadPreviews();
+        const nextNum = bimModelRef.current.pillars.length + 1;
+        const code = `PL${nextNum}`;
+        const newPillar: BimPillarObject = {
+          id: makeCadUid('pil'),
+          kind: 'pillar',
+          code,
+          name: `Pilastro ${code}`,
+          material: 'C.A. gettato in opera',
+          cxM: snapped.xM,
+          cyM: snapped.yM,
+          widthM: 0.35,
+          depthM: 0.35,
+          heightM: wallHeightMRef.current,
+        };
+        onAddBimObjectRef.current(newPillar);
+        return;
+      }
+
+      // Normal 3D / BIM Selection & Computation
       const hit = pickObjAt(e.clientX, e.clientY);
       if (!hit) {
         if (modeRef.current === 'bim') setInspectedId(null);
@@ -1903,6 +2582,8 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
 
     const onPointerLeave = () => {
       isMiddlePanning = false;
+      eraseBoxStart = null;
+      setEraseBoxRect(null);
       if (hoveredIdRef.current !== null) {
         hoveredIdRef.current = null;
         setHoveredObj(null);
@@ -1931,6 +2612,23 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     });
     resizeObserver.observe(container);
 
+    applyShadowsRef.current = (enabled: boolean) => {
+      if (!isSoftwareGl) {
+        keyLight.castShadow = enabled;
+        renderer.shadowMap.needsUpdate = true;
+      }
+      if (isMaquette) {
+        hemiLight.intensity = enabled ? 0.52 : 0.78;
+        keyLight.intensity = enabled ? 1.85 : 1.25;
+      } else {
+        hemiLight.intensity = enabled ? 0.48 : 0.68;
+        keyLight.intensity = enabled ? 1.15 : 0.9;
+      }
+      if (shadowGroundMesh) shadowGroundMesh.visible = enabled;
+      for (const strip of aoStrips) strip.visible = enabled;
+      requestRender();
+    };
+
     refreshObjectColors();
     requestRender();
 
@@ -1941,6 +2639,9 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       controls.removeEventListener('start', onControlStart);
       controls.removeEventListener('change', onControlChange);
       controls.dispose();
+      controlsRef.current = null;
+      clearCadPreviewRef.current = () => {};
+      applyShadowsRef.current = () => {};
       domEl.removeEventListener('mousedown', onMouseDownPreventAutoscroll);
       domEl.removeEventListener('auxclick', onAuxClick);
       domEl.removeEventListener('contextmenu', onContextMenu);
@@ -1961,6 +2662,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
     mode,
     bimFilter,
     visualTheme,
+    showBlueprintOverlay,
     cleanFloorCanvas,
     significantQuotes,
     wallHeightM,
@@ -2124,6 +2826,48 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                     {showQuotesLayer ? 'ON' : 'OFF'}
                   </span>
                 </button>
+                {visualTheme === 'maquette' && cleanFloorCanvas && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowBlueprintOverlay((v) => !v);
+                      setOpenMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <FileImage className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Ricalca Pianta PDF</span>
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold ${
+                        showBlueprintOverlay ? 'text-emerald-400' : 'text-slate-500'
+                      }`}
+                    >
+                      {showBlueprintOverlay ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowShadows((v) => !v);
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sun className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Ombre 3D</span>
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold ${
+                      showShadows ? 'text-emerald-400' : 'text-slate-500'
+                    }`}
+                  >
+                    {showShadows ? 'ON' : 'OFF'}
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -2135,6 +2879,191 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                   <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
                   <span>Ripristina Camera</span>
                 </button>
+              </div>
+            )}
+          </div>
+
+          {/* MENU A TENDINA 2: MODIFICA & PULIZIA CAD RAPIDA */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setOpenMenu((m) => (m === 'edit' ? null : 'edit'))}
+              className={`px-2.5 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                editTool !== 'none'
+                  ? 'bg-emerald-600 text-white'
+                  : openMenu === 'edit'
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-200 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <Pencil className="w-3.5 h-3.5 text-emerald-300" />
+              <span>Modifica</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+            {openMenu === 'edit' && (
+              <div className="absolute left-0 top-full mt-1 w-64 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl py-1.5 z-50 text-xs">
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-400">
+                  Pulizia Manuale Rapida
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditTool((t) => (t === 'erase_click' ? 'none' : 'erase_click'));
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Eraser className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Gomma Rapida (1 Clic)</span>
+                  </span>
+                  {editTool === 'erase_click' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditTool((t) => (t === 'erase_box' ? 'none' : 'erase_box'));
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <BoxSelect className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Riquadro Gomma (Pulisci Zona)</span>
+                  </span>
+                  {editTool === 'erase_box' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+
+                <div className="my-1.5 border-t border-slate-800" />
+                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  Disegna / Aggiungi Oggetti CAD
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditTool((t) => (t === 'draw_wall' ? 'none' : 'draw_wall'));
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Pencil className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Disegna Muro (2 Punti + Snap)</span>
+                  </span>
+                  {editTool === 'draw_wall' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditTool((t) => (t === 'add_door' ? 'none' : 'add_door'));
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <DoorOpen className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Inserisci Porta su Muro</span>
+                  </span>
+                  {editTool === 'add_door' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditTool((t) => (t === 'add_window' ? 'none' : 'add_window'));
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <AppWindow className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Inserisci Finestra su Muro</span>
+                  </span>
+                  {editTool === 'add_window' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditTool((t) => (t === 'add_pillar' ? 'none' : 'add_pillar'));
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Square className="w-3.5 h-3.5 text-slate-300" />
+                    <span>Inserisci Pilastro C.A.</span>
+                  </span>
+                  {editTool === 'add_pillar' && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+
+                {onCleanBimModel && (
+                  <>
+                    <div className="my-1.5 border-t border-slate-800" />
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                      Pulizia Automatica 1-Clic
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onCleanBimModel('short_fragments');
+                        setOpenMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center gap-1.5"
+                    >
+                      <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Elimina frammenti corti (&lt; 0,65m)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onCleanBimModel('dedup_and_stairs');
+                        setOpenMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Unisci muri doppi &amp; rimuovi scale</span>
+                    </button>
+                  </>
+                )}
+
+                <div className="my-1.5 border-t border-slate-800" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowShadows((v) => !v);
+                    setOpenMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left text-slate-200 hover:bg-slate-800 flex items-center justify-between"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Sun className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Ombre 3D</span>
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold ${
+                      showShadows ? 'text-emerald-400' : 'text-slate-500'
+                    }`}
+                  >
+                    {showShadows ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+
+                {editTool !== 'none' && (
+                  <>
+                    <div className="my-1.5 border-t border-slate-800" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditTool('none');
+                        setOpenMenu(null);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-slate-300 hover:bg-slate-800 flex items-center gap-1.5"
+                    >
+                      <X className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Esci da Modifica (Esc)</span>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -2419,7 +3348,7 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
           )}
         </div>
 
-        {/* AZIONI RAPIDE SELEZIONE (A DESTRA NELLA BARRA — ZERO OVERLAY SUL DISEGNO) */}
+        {/* AZIONI RAPIDE SELEZIONE + UNDO/REDO (A DESTRA NELLA BARRA — ZERO OVERLAY SUL DISEGNO) */}
         <div className="flex items-center gap-1.5">
           {selectedObjects.length > 0 && (
             <>
@@ -2437,8 +3366,24 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                 className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Computa {selectedObjects.length} selez.</span>
+                <span>Computa {selectedObjects.length}</span>
               </button>
+              {onDeleteMultipleBimObjects && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDeleteMultipleBimObjects(
+                      selectedObjects.map((o) => ({ id: o.id, kind: o.kind }))
+                    );
+                    setSelectedIds(new Set());
+                  }}
+                  className="px-2 py-1 rounded bg-rose-700 hover:bg-rose-600 text-white text-[11px] font-bold inline-flex items-center gap-1 whitespace-nowrap"
+                  title="Elimina tutti gli oggetti selezionati (Canc)"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Elimina</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSelectedIds(new Set())}
@@ -2448,6 +3393,29 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
                 <X className="w-3.5 h-3.5" />
               </button>
             </>
+          )}
+
+          {onUndoBim && (
+            <button
+              type="button"
+              disabled={!canUndoBim}
+              onClick={onUndoBim}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none"
+              title="Annulla ultima modifica 3D/BIM (Ctrl+Z)"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onRedoBim && (
+            <button
+              type="button"
+              disabled={!canRedoBim}
+              onClick={onRedoBim}
+              className="p-1 rounded text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none"
+              title="Ripristina modifica annullata (Ctrl+Y)"
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
           )}
 
           <button
@@ -2460,6 +3428,101 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* BARRA STRUMENTO MODIFICA CAD ATTIVO (ANCORATA SOTTO IL MENU — ZERO OVERLAY SUL DISEGNO) */}
+      {editTool !== 'none' && (
+        <div className="bg-slate-950 border-b border-emerald-500/50 px-3 py-1.5 flex items-center justify-between gap-2 flex-wrap shrink-0 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2 py-0.5 rounded bg-emerald-600/20 border border-emerald-500/40 text-emerald-300 font-bold text-[11px] inline-flex items-center gap-1">
+              {editTool === 'erase_click' && <><Eraser className="w-3 h-3 text-rose-400" /> Gomma 1-Clic</>}
+              {editTool === 'erase_box' && <><BoxSelect className="w-3 h-3 text-rose-400" /> Riquadro Gomma</>}
+              {editTool === 'draw_wall' && <><Pencil className="w-3 h-3 text-emerald-400" /> Disegna Muro</>}
+              {editTool === 'add_door' && <><DoorOpen className="w-3 h-3 text-amber-400" /> Inserisci Porta</>}
+              {editTool === 'add_window' && <><AppWindow className="w-3 h-3 text-sky-400" /> Inserisci Finestra</>}
+              {editTool === 'add_pillar' && <><Square className="w-3 h-3 text-slate-300" /> Inserisci Pilastro</>}
+            </span>
+
+            {editTool === 'draw_wall' && (
+              <div className="inline-flex items-center gap-1 bg-slate-900 rounded p-0.5 border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setNewWallPreset('perimeter')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                    newWallPreset === 'perimeter' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  Perimetrale 30cm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewWallPreset('partition')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                    newWallPreset === 'partition' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  Tramezzo 12cm
+                </button>
+              </div>
+            )}
+
+            <span className="text-slate-300 text-[11px]">
+              {editTool === 'erase_click' && 'Clicca su qualsiasi muro o oggetto di disturbo per eliminarlo subito (Ctrl+Z annulla).'}
+              {editTool === 'erase_box' && 'Trascina un riquadro con tasto sinistro per cancellare un’intera zona · Tasto destro: ruota.'}
+              {editTool === 'draw_wall' && 'Clicca 2 punti con snap automatico agli angoli (Shift: ortogonale) · Tasto destro: ruota.'}
+              {editTool === 'add_door' && 'Clicca su un muro per inserire una porta e aprire automaticamente il vano.'}
+              {editTool === 'add_window' && 'Clicca su un muro per inserire una finestra e aprire automaticamente il vano.'}
+              {editTool === 'add_pillar' && 'Clicca sul pavimento per inserire un pilastro strutturale 35×35 cm.'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {visualTheme === 'maquette' && cleanFloorCanvas && (
+              <button
+                type="button"
+                onClick={() => setShowBlueprintOverlay((v) => !v)}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold inline-flex items-center gap-1 border ${
+                  showBlueprintOverlay
+                    ? 'bg-cyan-600/25 border-cyan-400/60 text-cyan-200'
+                    : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+                }`}
+                title="Mostra in trasparenza la pianta PDF originale sotto la maquette per ricalcare o pulire al millimetro"
+              >
+                <FileImage className="w-3 h-3" />
+                <span>Ricalca PDF {showBlueprintOverlay ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowShadows((v) => !v)}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold inline-flex items-center gap-1 border ${
+                showShadows
+                  ? 'bg-amber-600/20 border-amber-400/50 text-amber-200'
+                  : 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white'
+              }`}
+              title="Attiva o disattiva le ombre nel 3D"
+            >
+              <Sun className="w-3 h-3" />
+              <span>Ombre {showShadows ? 'ON' : 'OFF'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => applyPresetRef.current('top')}
+              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-semibold"
+              title="Passa alla vista dall'alto (perfetta per ricalcare o pulire)"
+            >
+              Vista TOP
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditTool('none')}
+              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold inline-flex items-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              <span>Fine</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* BARRA STATO ANALISI ARCHITETTONICA (ANCORATA SOPRA IL CANVAS — ZERO SOVRAPPOSIZIONI) */}
       {isAnalyzingAi && (
@@ -2766,13 +3829,26 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       <div className="flex-1 relative min-h-0 overflow-hidden">
         <div ref={canvasMountRef} className="w-full h-full" />
 
-        {bimModel.walls.length === 0 && !isAnalyzingAi && (
+        {/* Riquadro Gomma attivo solo durante il trascinamento */}
+        {eraseBoxRect && eraseBoxRect.w > 2 && eraseBoxRect.h > 2 && (
+          <div
+            className="absolute pointer-events-none z-20 border-2 border-rose-500 bg-rose-500/20 rounded-sm"
+            style={{
+              left: eraseBoxRect.x,
+              top: eraseBoxRect.y,
+              width: eraseBoxRect.w,
+              height: eraseBoxRect.h,
+            }}
+          />
+        )}
+
+        {bimModel.walls.length === 0 && !isAnalyzingAi && editTool === 'none' && (
           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
             <div className="pointer-events-auto bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-center max-w-sm shadow-2xl">
               <Box className="w-7 h-7 text-amber-400 mx-auto mb-2" />
               <div className="text-sm font-bold text-white">Nessuna parete rilevata nella pianta</div>
               <p className="text-xs text-slate-400 mt-1">
-                Premi <strong className="text-indigo-300">Ricostruisci Pulito</strong> nella barra in alto per far ricostruire il modello architettonico, oppure regola la calibrazione.
+                Premi <strong className="text-indigo-300">Ricostruisci Pulito</strong> in alto oppure usa <strong className="text-emerald-300">Modifica → Disegna Muro</strong> con <strong className="text-cyan-300">Ricalca PDF</strong>.
               </p>
             </div>
           </div>
@@ -2782,9 +3858,17 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
       {/* BARRA DI STATO CAD INFERIORE (FUORI DAL DISEGNO — LETTURA OGGETTO HOVER + TOTALI + COMANDI MOUSE) */}
       <div className="bg-slate-950 border-t border-slate-800 px-3 py-1 flex items-center justify-between gap-3 text-[11px] shrink-0 overflow-x-auto">
         <div className="flex items-center gap-2 min-w-0 truncate">
-          {hoveredObj ? (
+          {drawStatusText ? (
+            <span className="font-mono font-semibold text-emerald-300 truncate">{drawStatusText}</span>
+          ) : hoveredObj ? (
             <>
-              <span className="font-mono font-bold text-amber-400 shrink-0">{hoveredObj.code}</span>
+              <span
+                className={`font-mono font-bold shrink-0 ${
+                  editTool === 'erase_click' ? 'text-rose-400' : 'text-amber-400'
+                }`}
+              >
+                {editTool === 'erase_click' ? `ELIMINA ${hoveredObj.code}` : hoveredObj.code}
+              </span>
               <span className="font-semibold text-white truncate">{hoveredObj.name}</span>
               <span className="text-slate-600">·</span>
               <span className="font-mono tabular-nums text-emerald-400 font-bold whitespace-nowrap">
@@ -2807,7 +3891,9 @@ export const Plan3DViewer: React.FC<Plan3DViewerProps> = ({
         </div>
 
         <div className="text-[10px] text-slate-500 whitespace-nowrap shrink-0 hidden sm:block">
-          Rotella: Zoom · Clic rotella: Pan · Trascina: Orbita
+          {editTool !== 'none'
+            ? 'Tasto destro: Orbita · Rotella: Zoom · Clic rotella: Pan · Ctrl+Z: Annulla'
+            : 'Rotella: Zoom · Clic rotella: Pan · Trascina: Orbita'}
         </div>
       </div>
     </div>

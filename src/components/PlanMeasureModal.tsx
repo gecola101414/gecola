@@ -105,8 +105,10 @@ import {
 import {
   BimObject,
   BimObjectKind,
+  cleanArchitecturalWalls,
   extractPlanBimModel,
   PlanBimModel,
+  splitWallsAroundOpenings,
 } from '../utils/planBimExtractor';
 import { analyzePlanBimWithAi } from '../utils/planBimAiClient';
 import { Plan3DViewer } from './Plan3DViewer';
@@ -399,6 +401,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const aiBimCacheRef = useRef<Map<string, PlanBimModel>>(new Map());
   const aiAutoAttemptedRef = useRef<Set<string>>(new Set());
   const aiBimAbortRef = useRef<AbortController | null>(null);
+  const bimUndoStackRef = useRef<PlanBimModel[]>([]);
+  const bimRedoStackRef = useRef<PlanBimModel[]>([]);
+  const [bimHistoryCounts, setBimHistoryCounts] = useState<{ undo: number; redo: number }>({ undo: 0, redo: 0 });
   const [aiBimOverride, setAiBimOverride] = useState<{ key: string; model: PlanBimModel } | null>(null);
   const [isAnalyzingAiBim, setIsAnalyzingAiBim] = useState<boolean>(false);
   const [aiBimError, setAiBimError] = useState<string | null>(null);
@@ -2837,6 +2842,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   // Sincronizza il modello BIM editabile dando priorità al modello pulito AI quando presente
   useEffect(() => {
     const baseModel = activeAiBimModel ?? extractedBimModel;
+    bimUndoStackRef.current = [];
+    bimRedoStackRef.current = [];
+    setBimHistoryCounts({ undo: 0, redo: 0 });
     setBimModelState({
       ...baseModel,
       walls: baseModel.walls.map((w) => ({ ...w, heightM: defaultHeightM })),
@@ -2855,36 +2863,184 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     }));
   }, [defaultHeightM]);
 
-  // Modifica in tempo reale di un oggetto BIM (Parete, Porta, Finestra, Pilastro, Vano)
-  const handleUpdateBimObject = useCallback((updated: BimObject) => {
+  const applyBimEdit = useCallback((updater: (prev: PlanBimModel) => PlanBimModel, feedback?: string) => {
     setBimModelState((prev) => {
-      if (updated.kind === 'wall') {
-        return { ...prev, walls: prev.walls.map((w) => (w.id === updated.id ? updated : w)) };
-      }
-      if (updated.kind === 'door') {
-        return { ...prev, doors: prev.doors.map((d) => (d.id === updated.id ? updated : d)) };
-      }
-      if (updated.kind === 'window') {
-        return { ...prev, windows: prev.windows.map((wn) => (wn.id === updated.id ? updated : wn)) };
-      }
-      if (updated.kind === 'pillar') {
-        return { ...prev, pillars: prev.pillars.map((p) => (p.id === updated.id ? updated : p)) };
-      }
-      return { ...prev, rooms: prev.rooms.map((r) => (r.id === updated.id ? updated : r)) };
+      const next = updater(prev);
+      if (next === prev) return prev;
+      bimUndoStackRef.current = [...bimUndoStackRef.current.slice(-29), prev];
+      bimRedoStackRef.current = [];
+      setBimHistoryCounts({ undo: bimUndoStackRef.current.length, redo: 0 });
+      return next;
     });
+    if (feedback) setLastFeedback(feedback);
   }, []);
 
-  // Eliminazione di un oggetto BIM in 1 clic
-  const handleDeleteBimObject = useCallback((id: string, kind: BimObjectKind) => {
+  const handleUndoBim = useCallback(() => {
     setBimModelState((prev) => {
-      if (kind === 'wall') return { ...prev, walls: prev.walls.filter((w) => w.id !== id) };
-      if (kind === 'door') return { ...prev, doors: prev.doors.filter((d) => d.id !== id) };
-      if (kind === 'window') return { ...prev, windows: prev.windows.filter((wn) => wn.id !== id) };
-      if (kind === 'pillar') return { ...prev, pillars: prev.pillars.filter((p) => p.id !== id) };
-      return { ...prev, rooms: prev.rooms.filter((r) => r.id !== id) };
+      if (bimUndoStackRef.current.length === 0) return prev;
+      const previous = bimUndoStackRef.current[bimUndoStackRef.current.length - 1];
+      bimUndoStackRef.current = bimUndoStackRef.current.slice(0, -1);
+      bimRedoStackRef.current = [...bimRedoStackRef.current.slice(-29), prev];
+      setBimHistoryCounts({ undo: bimUndoStackRef.current.length, redo: bimRedoStackRef.current.length });
+      return previous;
     });
-    setLastFeedback('Oggetto rimosso dal modello BIM');
+    setLastFeedback('Modifica 3D/BIM annullata');
   }, []);
+
+  const handleRedoBim = useCallback(() => {
+    setBimModelState((prev) => {
+      if (bimRedoStackRef.current.length === 0) return prev;
+      const restored = bimRedoStackRef.current[bimRedoStackRef.current.length - 1];
+      bimRedoStackRef.current = bimRedoStackRef.current.slice(0, -1);
+      bimUndoStackRef.current = [...bimUndoStackRef.current.slice(-29), prev];
+      setBimHistoryCounts({ undo: bimUndoStackRef.current.length, redo: bimRedoStackRef.current.length });
+      return restored;
+    });
+    setLastFeedback('Modifica 3D/BIM ripristinata');
+  }, []);
+
+  // Modifica in tempo reale di un oggetto BIM (Parete, Porta, Finestra, Pilastro, Vano)
+  const handleUpdateBimObject = useCallback(
+    (updated: BimObject) => {
+      applyBimEdit((prev) => {
+        if (updated.kind === 'wall') {
+          return {
+            ...prev,
+            walls: prev.walls.map((w) => {
+              if (w.id !== updated.id) return w;
+              // Se è cambiata la lunghezza dal pannello BIM, aggiorna coerentemente gli estremi x1/y1/x2/y2
+              if (Math.abs(w.lengthM - updated.lengthM) > 0.001) {
+                const ang =
+                  typeof updated.angleRad === 'number'
+                    ? updated.angleRad
+                    : Math.atan2(w.y2M - w.y1M, w.x2M - w.x1M);
+                const half = updated.lengthM * 0.5;
+                const ux = Math.cos(ang);
+                const uy = Math.sin(ang);
+                return {
+                  ...updated,
+                  x1M: Math.round((updated.cxM - ux * half) * 100) / 100,
+                  y1M: Math.round((updated.cyM - uy * half) * 100) / 100,
+                  x2M: Math.round((updated.cxM + ux * half) * 100) / 100,
+                  y2M: Math.round((updated.cyM + uy * half) * 100) / 100,
+                  angleRad: ang,
+                };
+              }
+              return updated;
+            }),
+          };
+        }
+        if (updated.kind === 'door') {
+          return { ...prev, doors: prev.doors.map((d) => (d.id === updated.id ? updated : d)) };
+        }
+        if (updated.kind === 'window') {
+          return { ...prev, windows: prev.windows.map((wn) => (wn.id === updated.id ? updated : wn)) };
+        }
+        if (updated.kind === 'pillar') {
+          return { ...prev, pillars: prev.pillars.map((p) => (p.id === updated.id ? updated : p)) };
+        }
+        return { ...prev, rooms: prev.rooms.map((r) => (r.id === updated.id ? updated : r)) };
+      });
+    },
+    [applyBimEdit]
+  );
+
+  // Eliminazione di un oggetto BIM in 1 clic
+  const handleDeleteBimObject = useCallback(
+    (id: string, kind: BimObjectKind) => {
+      applyBimEdit((prev) => {
+        if (kind === 'wall') return { ...prev, walls: prev.walls.filter((w) => w.id !== id) };
+        if (kind === 'door') return { ...prev, doors: prev.doors.filter((d) => d.id !== id) };
+        if (kind === 'window') return { ...prev, windows: prev.windows.filter((wn) => wn.id !== id) };
+        if (kind === 'pillar') return { ...prev, pillars: prev.pillars.filter((p) => p.id !== id) };
+        return { ...prev, rooms: prev.rooms.filter((r) => r.id !== id) };
+      }, 'Oggetto rimosso dal modello 3D/BIM (Ctrl+Z per annullare)');
+    },
+    [applyBimEdit]
+  );
+
+  // Eliminazione multipla in 1 colpo (Riquadro Gomma o Multi-Selezione)
+  const handleDeleteMultipleBimObjects = useCallback(
+    (items: Array<{ id: string; kind: BimObjectKind }>) => {
+      if (items.length === 0) return;
+      const dropIds = new Set(items.map((it) => it.id));
+      applyBimEdit(
+        (prev) => ({
+          ...prev,
+          walls: prev.walls.filter((w) => !dropIds.has(w.id)),
+          doors: prev.doors.filter((d) => !dropIds.has(d.id)),
+          windows: prev.windows.filter((wn) => !dropIds.has(wn.id)),
+          pillars: prev.pillars.filter((p) => !dropIds.has(p.id)),
+          rooms: prev.rooms.filter((r) => !dropIds.has(r.id)),
+        }),
+        `Rimossi ${items.length} oggetti dal modello 3D/BIM (Ctrl+Z per annullare)`
+      );
+    },
+    [applyBimEdit]
+  );
+
+  // Aggiunta manuale CAD di un nuovo Muro, Porta (con foro automatico!), Finestra (con foro automatico!) o Pilastro
+  const handleAddBimObject = useCallback(
+    (newObj: BimObject) => {
+      applyBimEdit((prev) => {
+        if (newObj.kind === 'wall') {
+          const nextWalls = [...prev.walls, newObj];
+          const minX = Math.min(prev.boundsM.minX, newObj.x1M, newObj.x2M);
+          const maxX = Math.max(prev.boundsM.maxX, newObj.x1M, newObj.x2M);
+          const minY = Math.min(prev.boundsM.minY, newObj.y1M, newObj.y2M);
+          const maxY = Math.max(prev.boundsM.maxY, newObj.y1M, newObj.y2M);
+          return {
+            ...prev,
+            walls: nextWalls,
+            boundsM: prev.walls.length === 0
+              ? {
+                  minX: Math.min(newObj.x1M, newObj.x2M),
+                  maxX: Math.max(newObj.x1M, newObj.x2M),
+                  minY: Math.min(newObj.y1M, newObj.y2M),
+                  maxY: Math.max(newObj.y1M, newObj.y2M),
+                }
+              : { minX, maxX, minY, maxY },
+          };
+        }
+        if (newObj.kind === 'door') {
+          const carvedWalls = splitWallsAroundOpenings(prev.walls, [newObj], []);
+          return { ...prev, walls: carvedWalls, doors: [...prev.doors, newObj] };
+        }
+        if (newObj.kind === 'window') {
+          const carvedWalls = splitWallsAroundOpenings(prev.walls, [], [newObj]);
+          return { ...prev, walls: carvedWalls, windows: [...prev.windows, newObj] };
+        }
+        if (newObj.kind === 'pillar') {
+          return { ...prev, pillars: [...prev.pillars, newObj] };
+        }
+        return { ...prev, rooms: [...prev.rooms, newObj] };
+      }, `Aggiunto ${newObj.name} al modello 3D/BIM`);
+    },
+    [applyBimEdit]
+  );
+
+  // Pulizia automatica rapida 1-clic (frammenti corti o muri doppi / gradini scale)
+  const handleCleanBimModel = useCallback(
+    (action: 'short_fragments' | 'dedup_and_stairs') => {
+      if (action === 'short_fragments') {
+        applyBimEdit((prev) => {
+          const kept = prev.walls.filter((w) => w.lengthM >= 0.65);
+          if (kept.length === prev.walls.length) return prev;
+          return { ...prev, walls: kept };
+        }, 'Puliti i frammenti di parete corti (< 0,65 m)');
+        return;
+      }
+      applyBimEdit((prev) => {
+        const cleanedWalls = splitWallsAroundOpenings(
+          cleanArchitecturalWalls(prev.walls),
+          prev.doors,
+          prev.windows
+        );
+        return { ...prev, walls: cleanedWalls };
+      }, 'Pulizia automatica applicata (muri doppi uniti e gradini rimossi)');
+    },
+    [applyBimEdit]
+  );
 
   const totalBimObjectsCount =
     bimModelState.walls.length +
@@ -4704,6 +4860,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 bimModel={bimModelState}
                 onUpdateBimObject={handleUpdateBimObject}
                 onDeleteBimObject={handleDeleteBimObject}
+                onDeleteMultipleBimObjects={handleDeleteMultipleBimObjects}
+                onAddBimObject={handleAddBimObject}
+                onCleanBimModel={handleCleanBimModel}
+                onUndoBim={handleUndoBim}
+                onRedoBim={handleRedoBim}
+                canUndoBim={bimHistoryCounts.undo > 0}
+                canRedoBim={bimHistoryCounts.redo > 0}
                 wallHeightM={defaultHeightM}
                 onWallHeightChange={(newH) => setDefaultHeightM(newH)}
                 cleanFloorCanvas={canvasRef.current}
