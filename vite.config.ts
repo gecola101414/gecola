@@ -115,6 +115,7 @@ function vendorPdfOcrAssetsPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: '/',
   plugins: [react(), vendorPdfOcrAssetsPlugin()],
   server: {
     port: 3000,
@@ -126,25 +127,30 @@ export default defineConfig({
     },
   },
   build: {
+    target: 'es2020',
     // DISABILITA LE MAPPE (Nasconde il codice originale)
     sourcemap: false,
 
     // MINIFICAZIONE AGGRESSIVA
     minify: 'esbuild',
 
-    // NOMI FILE CASUALI (Hash)
+    // NOMI FILE CASUALI (Hash) — NON separare react da react-dom/client (causa crash React 19 in produzione!)
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[hash].js',
         chunkFileNames: 'assets/[hash].js',
         assetFileNames: 'assets/[hash].[ext]',
         compact: true,
-        manualChunks: {
-          'pdf-engine': ['jspdf', 'jspdf-autotable'],
-          'react-vendor': ['react', 'react-dom']
-        }
-      }
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('jspdf')) return 'pdf-engine';
+          if (id.includes('/three/')) return 'three-engine';
+          if (id.includes('pdfjs-dist')) return 'pdfjs-engine';
+          if (id.includes('tesseract.js')) return 'ocr-engine';
+          if (id.includes('firebase')) return 'firebase-vendor';
+        },
+      },
     },
-    chunkSizeWarningLimit: 1000
-  }
+    chunkSizeWarningLimit: 1600,
+  },
 })

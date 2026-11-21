@@ -76,7 +76,8 @@ import WbsImportOptionsModal, { WbsActionMode } from './components/WbsImportOpti
 import HelpManualModal from './components/HelpManualModal';
 import RebarCalculatorModal from './components/RebarCalculatorModal';
 import PaintingCalculatorModal from './components/PaintingCalculatorModal';
-import PlanMeasureModal, { PlanMeasureExportRow } from './components/PlanMeasureModal';
+import type { PlanMeasureExportRow } from './components/PlanMeasureModal';
+const PlanMeasureModal = React.lazy(() => import('./components/PlanMeasureModal'));
 import {
   SavedPlanSheet,
   loadPlanWorkspaceFromIdb,
@@ -112,8 +113,10 @@ import {
   preloadPdfLibs,
 } from './services/pdfGenerator';
 import { VoiceField, MEASUREMENT_FIELDS, analyzeVoiceTranscript } from './services/voiceDictationService';
-import { PdfConverterModal } from './components/PdfConverterModal';
-import { ConvertedComputoResult } from './utils/pdfComputoConverter';
+const PdfConverterModal = React.lazy(() =>
+  import('./components/PdfConverterModal').then((m) => ({ default: m.PdfConverterModal }))
+);
+import type { ConvertedComputoResult } from './utils/pdfComputoConverter';
 import {
   MIME_ARTICLE,
   MIME_MEASUREMENT,
@@ -563,10 +566,20 @@ function App() {
   useEffect(() => {
     if (clientIp) return;
     let isMounted = true;
+    const fetchWithTimeout = async (url: string, ms: number) => {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), ms);
+      try {
+        return await fetch(url, { signal: controller.signal });
+      } finally {
+        window.clearTimeout(timer);
+      }
+    };
+
     const resolveClientIp = async () => {
       // 1. Primary: api.ipify.org
       try {
-        const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(3000) });
+        const res = await fetchWithTimeout('https://api.ipify.org?format=json', 3000);
         if (res.ok) {
           const data = await res.json();
           const ip = (data?.ip || '').trim();
@@ -583,7 +596,7 @@ function App() {
 
       // 2. Secondary fallback: icanhazip.com
       try {
-        const res2 = await fetch('https://icanhazip.com', { signal: AbortSignal.timeout(3000) });
+        const res2 = await fetchWithTimeout('https://icanhazip.com', 3000);
         if (res2.ok) {
           const text = (await res2.text()).trim();
           if (text && isMounted) {
@@ -599,7 +612,7 @@ function App() {
 
       // 3. Tertiary fallback: api.seeip.org
       try {
-        const res3 = await fetch('https://api.seeip.org/jsonip', { signal: AbortSignal.timeout(3000) });
+        const res3 = await fetchWithTimeout('https://api.seeip.org/jsonip', 3000);
         if (res3.ok) {
           const data3 = await res3.json();
           const ip3 = (data3?.ip || '').trim();
@@ -5020,18 +5033,28 @@ function App() {
             onClose={() => setIsPaintingModalOpen(false)}
             onAdd={handleAddPaintingMeasurements}
           />
-          <PlanMeasureModal
-            isOpen={isPlanMeasureModalOpen}
-            onClose={() => setIsPlanMeasureModalOpen(false)}
-            onAdd={handleAddPlanMeasurements}
-            articles={articles}
-            targetArticleId={planMeasureTargetArticleId}
-            onSelectTargetArticle={(id) => setPlanMeasureTargetArticleId(id)}
-            planSheets={planSheets}
-            activePlanSheetId={activePlanSheetId}
-            onPlanSheetsChange={setPlanSheets}
-            onSelectActivePlanSheet={setActivePlanSheetId}
-          />
+          {isPlanMeasureModalOpen && (
+            <React.Suspense
+              fallback={
+                <div className="fixed inset-0 z-[10050] bg-slate-950/90 flex items-center justify-center text-white text-sm font-semibold">
+                  Caricamento modulo Piantine PDF / 3D / BIM...
+                </div>
+              }
+            >
+              <PlanMeasureModal
+                isOpen={isPlanMeasureModalOpen}
+                onClose={() => setIsPlanMeasureModalOpen(false)}
+                onAdd={handleAddPlanMeasurements}
+                articles={articles}
+                targetArticleId={planMeasureTargetArticleId}
+                onSelectTargetArticle={(id) => setPlanMeasureTargetArticleId(id)}
+                planSheets={planSheets}
+                activePlanSheetId={activePlanSheetId}
+                onPlanSheetsChange={setPlanSheets}
+                onSelectActivePlanSheet={setActivePlanSheetId}
+              />
+            </React.Suspense>
+          )}
 
           {/* MODALE CON ROTELLINA CHE GIRA DURANTE LA GENERAZIONE PDF */}
           {isGeneratingPdf && (
@@ -5162,12 +5185,22 @@ function App() {
             </div>
           )}
 
-          <PdfConverterModal
-            isOpen={isPdfModalOpen}
-            onClose={() => setIsPdfModalOpen(false)}
-            onImportComplete={handlePdfComputoImport}
-            playUISound={playUISound}
-          />
+          {isPdfModalOpen && (
+            <React.Suspense
+              fallback={
+                <div className="fixed inset-0 z-[9999] bg-slate-950/80 flex items-center justify-center text-white text-sm font-semibold">
+                  Caricamento convertitore PDF...
+                </div>
+              }
+            >
+              <PdfConverterModal
+                isOpen={isPdfModalOpen}
+                onClose={() => setIsPdfModalOpen(false)}
+                onImportComplete={handlePdfComputoImport}
+                playUISound={playUISound}
+              />
+            </React.Suspense>
+          )}
         </>
       )}
     </div>

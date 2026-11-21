@@ -455,3 +455,194 @@ export function buildCleanedArchitecturalPlan(
     erasedDimLinesCount,
   };
 }
+
+export type WallsOnlyFilterStrength = 'soft' | 'standard' | 'strong';
+
+/**
+ * Morphological "Walls-Only" filter for the 2D Pulito workspace.
+ * Removes light hatches, furniture outlines, thin dimension ticks, door-swing arcs,
+ * and isolated dust specks while preserving solid architectural walls, double-line walls,
+ * and structural pillars so 3D and BIM extraction becomes razor-clean.
+ */
+export function buildWallsOnlyFilterCanvas(
+  sourceCanvas: HTMLCanvasElement,
+  pageWidthPt: number,
+  pageHeightPt: number,
+  metersPerPt: number,
+  strength: WallsOnlyFilterStrength = 'standard'
+): { canvas: HTMLCanvasElement; grid: PlanLumaGrid } | null {
+  const width = sourceCanvas.width;
+  const height = sourceCanvas.height;
+  if (width <= 4 || height <= 4 || pageWidthPt <= 0 || pageHeightPt <= 0) return null;
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = width;
+  outCanvas.height = height;
+  const ctx = outCanvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(sourceCanvas, 0, 0);
+
+  const imgData = ctx.getImageData(0, 0, width, height);
+  const data = imgData.data;
+  const total = width * height;
+
+  // 1. Threshold grayscale intensity (discards pale hatches, grid lines, and colored notes)
+  const lumaThresh = strength === 'soft' ? 190 : strength === 'standard' ? 158 : 128;
+  const mask = new Uint8Array(total);
+  for (let i = 0, p = 0; i < total; i++, p += 4) {
+    const a = data[p + 3];
+    if (a < 40) continue;
+    const r = data[p];
+    const g = data[p + 1];
+    const b = data[p + 2];
+    const lum = (r * 77 + g * 150 + b * 29) >> 8;
+    // Discard strongly saturated light markup colors (e.g. cyan/amber/green/red thin annotations)
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+    const sat = maxC - minC;
+    if (sat > 55 && lum > 85) continue;
+    if (lum < lumaThresh) mask[i] = 1;
+  }
+
+  // 2. Measure minimum structural span in pixels (~5cm–8cm depending on strength)
+  const scaleX = width / pageWidthPt;
+  const scaleY = height / pageHeightPt;
+  const avgMPerPx = (metersPerPt / scaleX + metersPerPt / scaleY) * 0.5;
+  const minRunPx =
+    strength === 'soft'
+      ? Math.max(2, Math.round(0.035 / Math.max(0.002, avgMPerPx)))
+      : strength === 'standard'
+      ? Math.max(2, Math.round(0.055 / Math.max(0.002, avgMPerPx)))
+      : Math.max(3, Math.round(0.085 / Math.max(0.002, avgMPerPx)));
+
+  // Keep pixels that either belong to:
+  // (a) thick solid strokes (>= minRunPx in both directions or strong local density), OR
+  // (b) long continuous straight architectural lines (double-line hollow walls, >= ~0.42m continuous)
+  const minLongWallPx = Math.max(18, Math.round((strength === 'strong' ? 0.55 : 0.38) / Math.max(0.002, avgMPerPx)));
+  const keep = new Uint8Array(total);
+
+  // Pass A: Thick solid regions (fast 2D morphological check via neighbor density)
+  const rad = strength === 'soft' ? 1 : strength === 'standard' ? 1 : 2;
+  const minNeighbors = strength === 'soft' ? 4 : strength === 'standard' ? 6 : 13;
+  for (let y = rad; y < height - rad; y++) {
+    const rowOff = y * width;
+    for (let x = rad; x < width - rad; x++) {
+      if (!mask[rowOff + x]) continue;
+      let cnt = 0;
+      for (let dy = -rad; dy <= rad; dy++) {
+        const rOff = (y + dy) * width;
+        for (let dx = -rad; dx <= rad; dx++) {
+          if (mask[rOff + x + dx]) cnt++;
+        }
+      }
+      if (cnt >= minNeighbors) {
+        keep[rowOff + x] = 1;
+      }
+    }
+  }
+
+  // Pass B: Preserve long straight horizontal/vertical wall outlines (hollow double-line walls)
+  // Horizontal runs
+  for (let y = 1; y < height - 1; y++) {
+    const rowOff = y * width;
+    let x = 0;
+    while (x < width) {
+      if (!mask[rowOff + x]) {
+        x++;
+        continue;
+      }
+      const start = x;
+      let gap = 0;
+      let lastDark = x;
+      while (x < width) {
+        if (mask[rowOff + x] || mask[rowOff - width + x] || mask[rowOff + width + x]) {
+          lastDark = x;
+          gap = 0;
+        } else {
+          gap++;
+          if (gap > 2) break;
+        }
+        x++;
+      }
+      if (lastDark - start + 1 >= minLongWallPx) {
+        for (let k = start; k <= lastDark; k++) {
+          if (mask[rowOff + k]) keep[rowOff + k] = 1;
+        }
+      }
+    }
+  }
+
+  // Vertical runs
+  for (let x = 1; x < width - 1; x++) {
+    let y = 0;
+    while (y < height) {
+      if (!mask[y * width + x]) {
+        y++;
+        continue;
+      }
+      const start = y;
+      let gap = 0;
+      let lastDark = y;
+      while (y < height) {
+        const idx = y * width + x;
+        if (mask[idx] || mask[idx - 1] || mask[idx + 1]) {
+          lastDark = y;
+          gap = 0;
+        } else {
+          gap++;
+          if (gap > 2) break;
+        }
+        y++;
+      }
+      if (lastDark - start + 1 >= minLongWallPx) {
+        for (let k = start; k <= lastDark; k++) {
+          const idx = k * width + x;
+          if (mask[idx]) keep[idx] = 1;
+        }
+      }
+    }
+  }
+
+  // Pass C: Despeckle tiny isolated fragments (< minRunPx * 3 pixels in small connected bursts)
+  const finalMask = new Uint8Array(total);
+  for (let y = 1; y < height - 1; y++) {
+    const rowOff = y * width;
+    for (let x = 1; x < width - 1; x++) {
+      if (!keep[rowOff + x]) continue;
+      let nb = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const rOff = (y + dy) * width;
+        for (let dx = -1; dx <= 1; dx++) {
+          if (keep[rOff + x + dx]) nb++;
+        }
+      }
+      if (nb >= (strength === 'soft' ? 2 : 3)) {
+        finalMask[rowOff + x] = 1;
+      }
+    }
+  }
+
+  // Render crisp high-contrast architectural walls onto clean white paper
+  for (let i = 0, p = 0; i < total; i++, p += 4) {
+    if (finalMask[i]) {
+      data[p] = 24;
+      data[p + 1] = 28;
+      data[p + 2] = 36;
+      data[p + 3] = 255;
+    } else {
+      data[p] = 255;
+      data[p + 1] = 255;
+      data[p + 2] = 255;
+      data[p + 3] = 255;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  const grid = extractCanvasLumaGrid(outCanvas, pageWidthPt, pageHeightPt);
+  if (!grid) return null;
+  return { canvas: outCanvas, grid };
+}
+

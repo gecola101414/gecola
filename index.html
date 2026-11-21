@@ -219,7 +219,36 @@
         <p>GeCoLa Professional Protection System</p>
       </div>
     </noscript>
-    <div id="root"></div>
+    <div id="root">
+      <div id="gecola-boot-splash" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:Inter,system-ui,sans-serif;padding:24px;text-align:center;">
+        <div style="font-size:20px;font-weight:800;letter-spacing:-0.02em;margin-bottom:8px;">GeCoLa <span style="color:#f59e0b;">WEB</span></div>
+        <div id="gecola-boot-msg" style="font-size:12px;color:#94a3b8;">Avvio dell'applicazione in corso...</div>
+      </div>
+    </div>
+    <script>
+      (function () {
+        function showBootError(msg) {
+          var el = document.getElementById('gecola-boot-msg');
+          if (!el) return;
+          el.innerHTML =
+            '<span style="color:#fca5a5;display:block;margin-bottom:12px;">' +
+            String(msg || 'Errore di caricamento moduli JavaScript.') +
+            '</span>' +
+            '<button onclick="location.reload()" style="background:#f59e0b;color:#0f172a;border:0;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer;">Ricarica pagina</button>';
+        }
+        window.addEventListener('error', function (e) {
+          if (document.getElementById('gecola-boot-splash')) {
+            showBootError(e && e.message ? e.message : 'Impossibile caricare gli script dell\'applicazione.');
+          }
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          if (document.getElementById('gecola-boot-splash')) {
+            var reason = e && e.reason ? (e.reason.message || String(e.reason)) : 'Errore di inizializzazione.';
+            showBootError(reason);
+          }
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

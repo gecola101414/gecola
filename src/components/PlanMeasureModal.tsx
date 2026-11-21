@@ -109,6 +109,7 @@ import {
   PlanBimModel,
 } from '../utils/planBimExtractor';
 import { Plan3DViewer } from './Plan3DViewer';
+import { PlanClean2DEditor } from './PlanClean2DEditor';
 
 export interface PlanMeasureExportRow {
   description: string;
@@ -372,9 +373,12 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const canvasLumaRef = useRef<PlanLumaGrid | null>(null);
   const [lumaVersion, setLumaVersion] = useState<number>(0);
 
-  // Vista 2D Pianta / 3D Pareti / BIM Editabile + Pianta Pulita in memoria & Auto-Calibrazione H/V
-  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'bim'>('2d');
+  // Vista 2D Pianta / 2D Pulito (Solo Pareti) / 3D Pareti / BIM Editabile + Pianta Pulita in memoria & Auto-Calibrazione H/V
+  const [viewMode, setViewMode] = useState<'2d' | 'clean2d' | '3d' | 'bim'>('2d');
   const [showClean2DPlan, setShowClean2DPlan] = useState<boolean>(false);
+  const [manualCleanByPageKey, setManualCleanByPageKey] = useState<
+    Record<string, { canvas: HTMLCanvasElement; grid: PlanLumaGrid; version: number }>
+  >({});
   const [showQuotesIn3D, setShowQuotesIn3D] = useState<boolean>(false);
   const [wall3DSensitivity, setWall3DSensitivity] = useState<LaserSensitivity>('medium');
   const [autoCalibState, setAutoCalibState] = useState<{
@@ -2705,22 +2709,39 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     return built;
   }, [pdfDoc, currentSheetId, currentPage, lumaVersion, currentAnalysis?.tokens, metersPerPt]);
 
+  const cleanPageKey = `${currentSheetId || 'local'}_${currentPage}`;
+  const activeManualClean = manualCleanByPageKey[cleanPageKey] || null;
+
+  // Pianta pulita effettiva: se l'utente ha pulito manualmente in "2D Pulito", usa quella per 3D e BIM!
+  const effectiveCleanedPlan = useMemo<CleanedPlanResult | null>(() => {
+    if (activeManualClean) {
+      return {
+        cleanCanvas: activeManualClean.canvas,
+        cleanGrid: activeManualClean.grid,
+        significantQuotes: cleanedPlan?.significantQuotes || [],
+        erasedTextCount: cleanedPlan?.erasedTextCount || 0,
+        erasedDimLinesCount: cleanedPlan?.erasedDimLinesCount || 0,
+      };
+    }
+    return cleanedPlan;
+  }, [activeManualClean, cleanedPlan]);
+
   // Disegna la pianta 2D pulita sul canvas overlay quando l'utente attiva "Pianta Pulita" in 2D
   useEffect(() => {
     const target = cleanCanvasDisplayRef.current;
-    if (!showClean2DPlan || !target || !cleanedPlan?.cleanCanvas) return;
-    target.width = cleanedPlan.cleanCanvas.width;
-    target.height = cleanedPlan.cleanCanvas.height;
+    if (!showClean2DPlan || !target || !effectiveCleanedPlan?.cleanCanvas) return;
+    target.width = effectiveCleanedPlan.cleanCanvas.width;
+    target.height = effectiveCleanedPlan.cleanCanvas.height;
     const ctx = target.getContext('2d');
     if (ctx) {
       ctx.clearRect(0, 0, target.width, target.height);
-      ctx.drawImage(cleanedPlan.cleanCanvas, 0, 0);
+      ctx.drawImage(effectiveCleanedPlan.cleanCanvas, 0, 0);
     }
-  }, [showClean2DPlan, cleanedPlan, zoom]);
+  }, [showClean2DPlan, effectiveCleanedPlan, zoom]);
 
-  // 2. ESTRAZIONE AUTOMATICA MODELLO 3D + BIM EDITABILE DALLA PIANTA PULITA (senza righe di quota!)
+  // 2. ESTRAZIONE AUTOMATICA MODELLO 3D + BIM EDITABILE DALLA PIANTA PULITA (auto o rifinita a mano in 2D Pulito!)
   const extractedBimModel = useMemo<PlanBimModel>(() => {
-    const gridToUse = cleanedPlan?.cleanGrid ?? canvasLumaRef.current;
+    const gridToUse = effectiveCleanedPlan?.cleanGrid ?? canvasLumaRef.current;
     if (!pdfDoc || lumaVersion === 0 || !gridToUse) {
       return {
         walls: [],
@@ -2744,7 +2765,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   }, [
     pdfDoc,
     lumaVersion,
-    cleanedPlan,
+    effectiveCleanedPlan,
     metersPerPt,
     currentAnalysis?.tokens,
     currentAnalysis?.rooms,
@@ -3225,6 +3246,31 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   >
                     <FileText className="w-3.5 h-3.5" />
                     <span>2D Pianta</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode('clean2d');
+                      setOpenCadMenu(null);
+                    }}
+                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      viewMode === 'clean2d'
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'text-emerald-300 hover:text-white hover:bg-emerald-950/60'
+                    }`}
+                    title="2D Pulito (Solo Pareti): pulisci manualmente la piantina per generare un 3D e un BIM perfetti"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                    <span>2D Pulito</span>
+                    {activeManualClean && (
+                      <span
+                        className={`px-1 rounded text-[10px] font-mono ${
+                          viewMode === 'clean2d' ? 'bg-slate-950/20 text-slate-950' : 'bg-emerald-500/20 text-emerald-200'
+                        }`}
+                      >
+                        ✓
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"
@@ -4627,8 +4673,39 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* VIEWPORT PDF 2D / MODELLO 3D PARETI / MODELLO BIM */}
+          {/* VIEWPORT PDF 2D / 2D PULITO (SOLO PARETI) / MODELLO 3D PARETI / MODELLO BIM */}
           <div className="flex-1 relative flex min-h-0 overflow-hidden">
+            {pdfDoc && viewMode === 'clean2d' && (
+              <PlanClean2DEditor
+                workingCanvas={effectiveCleanedPlan?.cleanCanvas ?? canvasRef.current}
+                autoCleanedCanvas={cleanedPlan?.cleanCanvas ?? canvasRef.current}
+                originalPdfCanvas={canvasRef.current}
+                pageWidthPt={currentAnalysis?.width || canvasLumaRef.current?.pageWidthPt || 842}
+                pageHeightPt={currentAnalysis?.height || canvasLumaRef.current?.pageHeightPt || 595}
+                metersPerPt={metersPerPt}
+                bimModel={bimModelState}
+                hasManualEdits={Boolean(activeManualClean)}
+                onCommitCleanCanvas={(canvas, grid) => {
+                  setManualCleanByPageKey((prev) => ({
+                    ...prev,
+                    [cleanPageKey]: {
+                      canvas,
+                      grid,
+                      version: (prev[cleanPageKey]?.version || 0) + 1,
+                    },
+                  }));
+                }}
+                onResetToAutoClean={() => {
+                  setManualCleanByPageKey((prev) => {
+                    const next = { ...prev };
+                    delete next[cleanPageKey];
+                    return next;
+                  });
+                }}
+                onGoToMode={(targetMode) => setViewMode(targetMode)}
+              />
+            )}
+
             {pdfDoc && (viewMode === '3d' || viewMode === 'bim') && (
               <Plan3DViewer
                 mode={viewMode}
@@ -4637,11 +4714,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 onDeleteBimObject={handleDeleteBimObject}
                 wallHeightM={defaultHeightM}
                 onWallHeightChange={(newH) => setDefaultHeightM(newH)}
-                cleanFloorCanvas={cleanedPlan?.cleanCanvas ?? canvasRef.current}
-                significantQuotes={cleanedPlan?.significantQuotes ?? []}
+                cleanFloorCanvas={effectiveCleanedPlan?.cleanCanvas ?? canvasRef.current}
+                significantQuotes={effectiveCleanedPlan?.significantQuotes ?? []}
                 showQuotesLayer={showQuotesIn3D}
                 onToggleQuotesLayer={() => setShowQuotesIn3D((v) => !v)}
-                lumaVersion={lumaVersion}
+                lumaVersion={lumaVersion + (activeManualClean?.version || 0) * 1000}
                 sensitivity={wall3DSensitivity}
                 onSensitivityChange={setWall3DSensitivity}
                 onComputeBimObject={handleComputeBimObject}
@@ -4683,7 +4760,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 if (file) void handleLoadPdfFile(file);
               }}
               className={`${
-                (viewMode === '3d' || viewMode === 'bim') && pdfDoc
+                viewMode !== '2d' && pdfDoc
                   ? 'hidden'
                   : 'flex-1 overflow-auto relative flex items-start justify-center p-4 select-none'
               } ${
