@@ -38,6 +38,9 @@ import {
   Lock,
   Unlock,
   Bookmark,
+  Target,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Article } from '../types';
 import {
@@ -75,6 +78,16 @@ import {
   SavedPlanSheet,
   uint8ToBase64,
 } from '../utils/planProjectStorage';
+import {
+  computeVirtualLaserArea,
+  computeVirtualLaserShot,
+  extractCanvasLumaGrid,
+  LaserMode,
+  LaserPoint,
+  LaserSensitivity,
+  PlanLumaGrid,
+  playLaserBeep,
+} from '../utils/planLaserRaycaster';
 
 export interface PlanMeasureExportRow {
   description: string;
@@ -102,6 +115,7 @@ type ActiveTool =
   | 'highlight'
   | 'pick'
   | 'ruler'
+  | 'laser'
   | 'polygon'
   | 'calibrate'
   | 'edit_ocr'
@@ -298,8 +312,26 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   // Quota picker singolo (L + W pairing quando nessuna casella è evidenziata)
   const [pendingLengthPick, setPendingLengthPick] = useState<{ val: number; label: string } | null>(null);
 
-  // Righello & Calibrazione & Poligono + Superfici/Linee persistenti per pagina
+  // Righello, Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Areale m²), Calibrazione & Poligono + Segni persistenti (Righello/Poligono)
   const [rulerStart, setRulerStart] = useState<{ x: number; y: number } | null>(null);
+  const [laserOrigin, setLaserOrigin] = useState<LaserPoint | null>(null);
+  const [laserMode, setLaserMode] = useState<LaserMode>('single');
+  const [laserOrtho, setLaserOrtho] = useState<boolean>(true);
+  const [laserSensitivity, setLaserSensitivity] = useState<LaserSensitivity>('medium');
+  const [laserIgnoreText, setLaserIgnoreText] = useState<boolean>(true);
+  const [laserSoundEnabled, setLaserSoundEnabled] = useState<boolean>(true);
+  const [isShiftPressed, setIsShiftPressed] = useState<boolean>(false);
+  const [laserFlashShot, setLaserFlashShot] = useState<{ p1: LaserPoint; p2: LaserPoint; meters: number } | null>(null);
+  const [laserAreaFlash, setLaserAreaFlash] = useState<{
+    svgFillPath: string;
+    svgBorderPath: string;
+    areaM2: number;
+    centroid: LaserPoint;
+  } | null>(null);
+  const laserFlashTimerRef = useRef<number | null>(null);
+  const canvasLumaRef = useRef<PlanLumaGrid | null>(null);
+  const [lumaVersion, setLumaVersion] = useState<number>(0);
+
   const [polygonPts, setPolygonPts] = useState<Array<{ x: number; y: number }>>([]);
   const [calibrationDraft, setCalibrationDraft] = useState<{ distPt: number; realMetersStr: string } | null>(null);
   const [measuredPolygonsByPage, setMeasuredPolygonsByPage] = useState<Record<number, MeasuredPolygon[]>>({});
@@ -374,6 +406,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   useEffect(() => {
     setHighlightDrag(null);
     setRulerStart(null);
+    setLaserOrigin(null);
+    setLaserFlashShot(null);
+    setLaserAreaFlash(null);
+    canvasLumaRef.current = null;
     setPolygonPts([]);
     setCalibrationDraft(null);
     setPendingLengthPick(null);
@@ -385,10 +421,18 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     draggingNoteRef.current = null;
   }, [currentPage]);
 
-  // Cleanup timer lampeggio & eventuale OCR attivo
+  // Reset origine laser quando si cambia strumento
+  useEffect(() => {
+    if (activeTool !== 'laser') {
+      setLaserOrigin(null);
+    }
+  }, [activeTool]);
+
+  // Cleanup timer lampeggio, laser flash & eventuale OCR attivo
   useEffect(() => {
     return () => {
       if (flashTimerRef.current) window.clearInterval(flashTimerRef.current);
+      if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
       if (ocrAbortRef.current) ocrAbortRef.current.abort();
     };
   }, []);
@@ -1216,7 +1260,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) return;
 
         canvas.width = Math.max(1, Math.floor(viewport.width));
@@ -1232,6 +1276,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         await task.promise;
 
         if (cancelled) return;
+
+        // Estrae e memorizza in cache la mappa di luminanza per il raycasting in tempo reale del Laser Virtuale
+        canvasLumaRef.current = extractCanvasLumaGrid(canvas, pageAnalysis.width, pageAnalysis.height);
+        setLumaVersion((v) => v + 1);
 
         // OCR integrato nella fase di rendering: parte subito riusando il canvas se ad alta risoluzione
         const hasOcrTokens = pageAnalysis.tokens.some((t) => t.source === 'ocr');
@@ -1271,6 +1319,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       if (e.code === 'Space' && !isInput) {
         e.preventDefault();
         setIsSpacePressed(true);
+      } else if (e.key === 'Shift') {
+        setIsShiftPressed(true);
       } else if (e.key === 'Escape') {
         if (editingTextNote) {
           setEditingTextNote(null);
@@ -1282,6 +1332,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           setActivePenStroke(null);
         } else if (highlightDrag) {
           setHighlightDrag(null);
+        } else if (laserOrigin) {
+          setLaserOrigin(null);
         } else if (rulerStart) {
           setRulerStart(null);
         } else if (polygonPts.length > 0) {
@@ -1308,12 +1360,19 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') setIsSpacePressed(false);
+      if (e.key === 'Shift') setIsShiftPressed(false);
+    };
+    const onWindowBlur = () => {
+      setIsSpacePressed(false);
+      setIsShiftPressed(false);
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onWindowBlur);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
     };
   }, [
     isOpen,
@@ -1322,6 +1381,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     newTokenDraft,
     activePenStroke,
     highlightDrag,
+    laserOrigin,
+    laserMode,
     rulerStart,
     polygonPts.length,
     calibrationDraft,
@@ -1779,11 +1840,213 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
     if (e.button !== 0) return;
 
-    const useSnap = activeTool === 'ruler' || activeTool === 'polygon' || activeTool === 'calibrate';
+    const useSnap =
+      activeTool === 'ruler' ||
+      activeTool === 'polygon' ||
+      activeTool === 'calibrate' ||
+      (activeTool === 'laser' && laserMode === 'single' && !laserOrigin);
     const { pt } = getPdfCoords(e.clientX, e.clientY, useSnap);
 
     if (activeTool === 'highlight') {
       setHighlightDrag({ x1: pt.x, y1: pt.y, x2: pt.x, y2: pt.y });
+      return;
+    }
+
+    if (activeTool === 'laser') {
+      // Le misure dei laser entrano direttamente nella cella evidenziata (o nuova riga) SENZA lasciare segni permanenti in pianta
+      const commitLinearLaser = (
+        p1: LaserPoint,
+        p2: LaserPoint,
+        distM: number,
+        hitWall: boolean,
+        detailLabel?: string
+      ) => {
+        if (distM <= 0.01) return;
+
+        if (laserSoundEnabled) playLaserBeep();
+
+        setLaserAreaFlash(null);
+        setLaserFlashShot({ p1, p2, meters: distM });
+        if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
+        laserFlashTimerRef.current = window.setTimeout(() => setLaserFlashShot(null), 480);
+
+        const sourceTag = detailLabel || (hitWall ? 'Laser su parete' : 'Laser virtuale');
+        if (insertValueIntoActiveCell(distM, sourceTag)) {
+          return;
+        }
+
+        // Nessuna casella evidenziata: crea un nuovo rigo saltando Par.Ug., inserisce Lung. e passa subito a Larg.
+        const newId = uid();
+        const exportVal = metersToUnit(distM, exportUnit);
+        const convNote =
+          exportUnit !== 'm'
+            ? `${sourceTag} ${distM.toFixed(2)} m → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}`
+            : sourceTag;
+
+        const newDraft: InternalMeasureDraft = {
+          id: newId,
+          description: laserMode === 'dual' ? 'Misura da laser 2 raggi' : 'Misura da laser virtuale',
+          type: 'positive',
+          multiplier: undefined,
+          length: exportVal,
+          height:
+            extractionMode === 'walls_perim_h' || extractionMode === 'volume'
+              ? metersToUnit(defaultHeightM, exportUnit)
+              : undefined,
+          sourceNote: convNote,
+        };
+        setQueuedRows((prev) => [...prev, newDraft]);
+        triggerCellBlink(newId, 'length');
+        if (extractionMode !== 'linear' && extractionMode !== 'count') {
+          setActiveCell({ rowId: newId, field: 'width' });
+          setLastFeedback(
+            `${sourceTag}: ${distM.toFixed(2)} m${exportUnit !== 'm' ? ` → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : ''} inserito in Lung. · Passato a Larg.`
+          );
+        } else {
+          setLastFeedback(
+            `${sourceTag}: ${distM.toFixed(2)} m${exportUnit !== 'm' ? ` → ${formatMeasureVal(exportVal, exportUnit)} ${exportUnit}` : ''} acquisito`
+          );
+        }
+      };
+
+      const grid = canvasLumaRef.current;
+      const ignoreBboxes =
+        laserIgnoreText && currentAnalysis ? currentAnalysis.tokens.map((t) => t.bbox) : undefined;
+      const effectiveOrtho = isShiftPressed ? !laserOrtho : laserOrtho;
+
+      // Primo clic comune a tutti e 3 i laser: posiziona il punto di partenza (origine)
+      if (!laserOrigin) {
+        setLaserOrigin(pt);
+        if (laserMode === 'area') {
+          setLastFeedback(
+            activeCell
+              ? `Laser Areale avviato: muoviti verso il 2° punto per espandere la superficie e clicca per inserire in ${FIELD_LABEL_IT[activeCell.field]}`
+              : 'Laser Areale avviato: muoviti verso il 2° punto nel vano per elaborare la superficie e clicca per acquisire'
+          );
+        } else if (laserMode === 'dual') {
+          setLastFeedback(
+            activeCell
+              ? `Laser 2 Raggi posizionato: sposta il mouse su un lato per sommare Sx+Dx e clicca per inserire in ${FIELD_LABEL_IT[activeCell.field]}`
+              : 'Laser 2 Raggi posizionato: sposta il mouse su un lato (orizzontale o verticale) per sommare i due raggi e clicca'
+          );
+        } else {
+          setLastFeedback(
+            activeCell
+              ? `Laser posizionato: muovi il mouse verso la parete e clicca per inserire in ${FIELD_LABEL_IT[activeCell.field]}`
+              : 'Laser posizionato: muovi il mouse per mirare la parete opposta e clicca per acquisire'
+          );
+        }
+        return;
+      }
+
+      // Secondo clic — LASER 3 (AREALE m²): acquisisce la superficie espansa senza salvare poligoni in pianta
+      if (laserMode === 'area') {
+        const origin = laserOrigin;
+        setLaserOrigin(null);
+        if (!grid) {
+          setLastFeedback('Attendi il completamento del rendering della piantina per attivare il Laser Areale.');
+          return;
+        }
+        const areaRes = computeVirtualLaserArea({
+          grid,
+          originPt: origin,
+          cursorPt: pt,
+          sensitivity: laserSensitivity,
+          ignoreBboxes,
+        });
+        if (!areaRes) {
+          setLastFeedback('Nessuna superficie rilevata tra i due punti: prova a posizionarti dentro il vano.');
+          return;
+        }
+        const areaM2 = Math.round(areaRes.areaPt2 * metersPerPt * metersPerPt * 100) / 100;
+        const perimM = Math.round(areaRes.perimPt * metersPerPt * 100) / 100;
+        if (areaM2 <= 0.01) return;
+
+        if (laserSoundEnabled) playLaserBeep();
+
+        setLaserFlashShot(null);
+        setLaserAreaFlash({
+          svgFillPath: areaRes.svgFillPath,
+          svgBorderPath: areaRes.svgBorderPath,
+          areaM2,
+          centroid: areaRes.centroid,
+        });
+        if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
+        laserFlashTimerRef.current = window.setTimeout(() => setLaserAreaFlash(null), 540);
+
+        // Trova eventuale nome vano vicino al baricentro per la descrizione della riga
+        let roomName = 'Superficie da laser areale';
+        if (currentAnalysis) {
+          let bestD = 95;
+          for (const rt of currentAnalysis.tokens) {
+            if (rt.kind !== 'room') continue;
+            const d = Math.hypot(rt.cx - areaRes.centroid.x, rt.cy - areaRes.centroid.y);
+            if (d < bestD) {
+              bestD = d;
+              roomName = rt.str;
+            }
+          }
+        }
+
+        const isPerimMode = extractionMode === 'linear' || extractionMode === 'walls_perim_h';
+        if (activeCell) {
+          insertValueIntoActiveCell(
+            isPerimMode ? perimM : areaM2,
+            isPerimMode ? `Laser areale (P ${perimM.toFixed(2)}m)` : `Laser areale ${areaM2.toFixed(2)} m²`,
+            !isPerimMode
+          );
+          return;
+        }
+
+        const rows = buildMeasurementsFromRoom(roomName, {
+          areaMq: areaM2,
+          perimeterM: perimM,
+          mode: extractionMode === 'area_lw' ? 'area_lw' : extractionMode,
+          defaultHeightM,
+          sourceNote: `Laser areale ${areaM2.toFixed(2)} m² (P ${perimM.toFixed(2)} m)`,
+        });
+        appendDrafts(
+          rows,
+          undefined,
+          `Laser Areale ${roomName}: ${areaM2.toFixed(2)} m² (Perim. ${perimM.toFixed(2)} m) caricato nel computo`,
+          { isDirectArea: !isPerimMode && extractionMode !== 'volume' }
+        );
+        return;
+      }
+
+      // Secondo clic — LASER 1 (1 Raggio) o LASER 2 (2 Raggi Sx+Dx sommati)
+      const origin = laserOrigin;
+      setLaserOrigin(null);
+      if (grid) {
+        const shot = computeVirtualLaserShot({
+          grid,
+          mode: laserMode,
+          originPt: origin,
+          cursorPt: pt,
+          orthoLock: effectiveOrtho,
+          sensitivity: laserSensitivity,
+          ignoreBboxes,
+        });
+        if (shot) {
+          const distM = Math.round(shot.distPt * metersPerPt * 100) / 100;
+          if (shot.mode === 'dual') {
+            const d1M = Math.round(shot.d1Pt * metersPerPt * 100) / 100;
+            const d2M = Math.round(shot.d2Pt * metersPerPt * 100) / 100;
+            commitLinearLaser(
+              shot.p1,
+              shot.p2,
+              distM,
+              shot.hitWall1 && shot.hitWall2,
+              `Laser 2 raggi (${d1M.toFixed(2)}+${d2M.toFixed(2)}m)`
+            );
+          } else {
+            commitLinearLaser(shot.p1, shot.p2, distM, shot.hitWall2);
+          }
+          return;
+        }
+      }
+      const fallbackDistM = Math.round(Math.hypot(pt.x - origin.x, pt.y - origin.y) * metersPerPt * 100) / 100;
+      commitLinearLaser(origin, pt, fallbackDistM, false);
       return;
     }
 
@@ -1953,7 +2216,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       return;
     }
 
-    const useSnap = activeTool === 'ruler' || activeTool === 'polygon' || activeTool === 'calibrate';
+    const useSnap =
+      activeTool === 'ruler' ||
+      activeTool === 'polygon' ||
+      activeTool === 'calibrate' ||
+      (activeTool === 'laser' && laserMode === 'single' && !laserOrigin);
     const { pt, snap } = getPdfCoords(e.clientX, e.clientY, useSnap);
     setCursorPt(pt);
     setSnappedVertex(snap);
@@ -2197,12 +2464,82 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     onClose();
   };
 
+  // Calcolo in tempo reale dei 2 Laser lineari (1 Raggio & 2 Raggi Sx+Dx sommati)
+  const liveLaserShot = useMemo(() => {
+    if (activeTool !== 'laser' || laserMode === 'area' || !laserOrigin || !cursorPt || !currentAnalysis) return null;
+    const grid = canvasLumaRef.current;
+    if (!grid) return null;
+    const ignoreBboxes = laserIgnoreText ? currentAnalysis.tokens.map((t) => t.bbox) : undefined;
+    const effectiveOrtho = isShiftPressed ? !laserOrtho : laserOrtho;
+    return computeVirtualLaserShot({
+      grid,
+      mode: laserMode,
+      originPt: laserOrigin,
+      cursorPt,
+      orthoLock: effectiveOrtho,
+      sensitivity: laserSensitivity,
+      ignoreBboxes,
+    });
+  }, [
+    activeTool,
+    cursorPt,
+    currentAnalysis,
+    laserMode,
+    laserOrigin,
+    laserIgnoreText,
+    isShiftPressed,
+    laserOrtho,
+    laserSensitivity,
+    lumaVersion,
+  ]);
+
+  // Calcolo in tempo reale del Laser 3 Areale (scansione superficie m² & perimetro tra Punto 1 e Punto 2)
+  const liveLaserArea = useMemo(() => {
+    if (activeTool !== 'laser' || laserMode !== 'area' || !laserOrigin || !cursorPt || !currentAnalysis) return null;
+    const grid = canvasLumaRef.current;
+    if (!grid) return null;
+    const ignoreBboxes = laserIgnoreText ? currentAnalysis.tokens.map((t) => t.bbox) : undefined;
+    return computeVirtualLaserArea({
+      grid,
+      originPt: laserOrigin,
+      cursorPt,
+      sensitivity: laserSensitivity,
+      ignoreBboxes,
+    });
+  }, [
+    activeTool,
+    cursorPt,
+    currentAnalysis,
+    laserMode,
+    laserOrigin,
+    laserIgnoreText,
+    laserSensitivity,
+    lumaVersion,
+  ]);
+
   if (!isOpen) return null;
 
   const liveRulerMeters =
     rulerStart && cursorPt
       ? Math.round(Math.hypot(cursorPt.x - rulerStart.x, cursorPt.y - rulerStart.y) * metersPerPt * 100) / 100
       : 0;
+
+  const liveLaserMeters = liveLaserShot
+    ? Math.round(liveLaserShot.distPt * metersPerPt * 100) / 100
+    : 0;
+  const liveLaserD1Meters = liveLaserShot
+    ? Math.round(liveLaserShot.d1Pt * metersPerPt * 100) / 100
+    : 0;
+  const liveLaserD2Meters = liveLaserShot
+    ? Math.round(liveLaserShot.d2Pt * metersPerPt * 100) / 100
+    : 0;
+
+  const liveLaserAreaM2 = liveLaserArea
+    ? Math.round(liveLaserArea.areaPt2 * metersPerPt * metersPerPt * 100) / 100
+    : 0;
+  const liveLaserPerimM = liveLaserArea
+    ? Math.round(liveLaserArea.perimPt * metersPerPt * 100) / 100
+    : 0;
 
   const livePolyAreaM2 =
     polygonPts.length >= 2 && cursorPt
@@ -2404,6 +2741,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   onClick={() => {
                     setActiveTool('ruler');
                     setRulerStart(null);
+                    setLaserOrigin(null);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                     activeTool === 'ruler'
@@ -2418,8 +2756,34 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    setActiveTool('laser');
+                    setRulerStart(null);
+                    setLaserOrigin(null);
+                    setPolygonPts([]);
+                    setLastFeedback(
+                      laserMode === 'area'
+                        ? 'Laser Areale attivo: clicca il 1° punto nel vano, spostati verso il 2° punto per espandere la superficie e clicca per acquisire'
+                        : laserMode === 'dual'
+                        ? 'Laser 2 Raggi (Sx+Dx) attivo: clicca dentro la stanza, sposta il mouse su un lato per sommare le due pareti e clicca'
+                        : 'Laser 1 Raggio attivo: clicca il punto di partenza, punta col mouse verso la parete e clicca per acquisire'
+                    );
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    activeTool === 'laser'
+                      ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-400/60'
+                      : 'text-red-300 hover:text-white hover:bg-red-950/60'
+                  }`}
+                  title="Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Areale m²): inserisce subito nella cella evidenziata senza sporcare la pianta"
+                >
+                  <Target className="w-3.5 h-3.5" />
+                  <span>Laser</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
                     setActiveTool('polygon');
                     setPolygonPts([]);
+                    setLaserOrigin(null);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                     activeTool === 'polygon'
@@ -2436,6 +2800,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   onClick={() => {
                     setActiveTool('calibrate');
                     setRulerStart(null);
+                    setLaserOrigin(null);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                     activeTool === 'calibrate'
@@ -2452,6 +2817,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   onClick={() => {
                     setActiveTool('edit_ocr');
                     setRulerStart(null);
+                    setLaserOrigin(null);
                     setPolygonPts([]);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
@@ -2470,6 +2836,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                     setActiveTool('pen');
                     setPenEraserMode(false);
                     setRulerStart(null);
+                    setLaserOrigin(null);
                     setPolygonPts([]);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
@@ -2491,6 +2858,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   onClick={() => {
                     setActiveTool('text_note');
                     setRulerStart(null);
+                    setLaserOrigin(null);
                     setPolygonPts([]);
                   }}
                   className={`px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
@@ -2714,6 +3082,150 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                     <Maximize2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-BAR CONTESTUALE LASER VIRTUALE (3 MODALITÀ: 1 RAGGIO, 2 RAGGI SX+DX, AREALE m²) */}
+          {pdfDoc && activeTool === 'laser' && (
+            <div className="bg-slate-900/95 border-b border-red-900/60 px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-bold text-red-400 flex items-center gap-1 whitespace-nowrap shrink-0">
+                  <Target className="w-3.5 h-3.5" />
+                  Laser
+                </span>
+
+                {/* 3 Modalità Laser */}
+                <div className="flex items-center bg-slate-950 rounded-md p-0.5 border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLaserMode('single');
+                      setLaserOrigin(null);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                      laserMode === 'single'
+                        ? 'bg-red-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                    title="Laser 1: clicca l'origine e punta col mouse verso la parete"
+                  >
+                    1 Raggio
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLaserMode('dual');
+                      setLaserOrigin(null);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                      laserMode === 'dual'
+                        ? 'bg-red-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                    title="Laser 2: clicca dentro la stanza, sposta il mouse su un lato → spara a destra e sinistra e somma le due distanze"
+                  >
+                    2 Raggi (Sx+Dx)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLaserMode('area');
+                      setLaserOrigin(null);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                      laserMode === 'area'
+                        ? 'bg-red-600 text-white'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                    title="Laser 3 Areale: clicca un punto e spostati verso il secondo → espande il laser su tutte le pareti e calcola i m²"
+                  >
+                    Areale (m²)
+                  </button>
+                </div>
+
+                {laserMode !== 'area' && (
+                  <button
+                    type="button"
+                    onClick={() => setLaserOrtho((v) => !v)}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${
+                      laserOrtho
+                        ? 'bg-red-500/20 border-red-400/60 text-red-200'
+                        : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-white'
+                    }`}
+                    title="Blocca il raggio a 0°/90° (tieni Shift per angolo libero 360°)"
+                  >
+                    Orto 0°/90°
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setLaserIgnoreText((v) => !v)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border transition-colors whitespace-nowrap ${
+                    laserIgnoreText
+                      ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-200'
+                      : 'bg-slate-950 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                  title="Attraversa nomi vano e quote senza fermarsi sulle scritte, rilevando solo le pareti"
+                >
+                  Salta testi
+                </button>
+
+                {/* Sensibilità rilevamento parete */}
+                <div
+                  className="flex items-center bg-slate-950 rounded-md p-0.5 border border-slate-700"
+                  title="Sensibilità di arresto del laser sullo spessore/contrasto delle linee di parete"
+                >
+                  <span className="px-1.5 text-[10px] font-semibold text-slate-400 whitespace-nowrap">Pareti:</span>
+                  {(
+                    [
+                      { id: 'thin', label: 'Sottili' },
+                      { id: 'medium', label: 'Media' },
+                      { id: 'thick', label: 'Spessi' },
+                    ] as Array<{ id: LaserSensitivity; label: string }>
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setLaserSensitivity(opt.id)}
+                      className={`px-1.5 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                        laserSensitivity === opt.id
+                          ? 'bg-slate-700 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setLaserSoundEnabled((v) => !v)}
+                  className={`p-1 rounded-md border transition-colors ${
+                    laserSoundEnabled
+                      ? 'bg-slate-800 border-slate-600 text-slate-200 hover:text-white'
+                      : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
+                  }`}
+                  title={laserSoundEnabled ? 'Disattiva beep distanziometro' : 'Attiva beep distanziometro'}
+                >
+                  {laserSoundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-400 whitespace-nowrap">
+                {laserMode === 'area'
+                  ? laserOrigin
+                    ? 'Muoviti verso il 2° punto per espandere la superficie · Clic acquisisce in cella · Esc/Dx annulla'
+                    : 'Clicca il 1° punto dentro il vano → muoviti verso il 2° punto per calcolare i m²'
+                  : laserMode === 'dual'
+                  ? laserOrigin
+                    ? 'Sposta su un lato per sommare Sx+Dx (Shift = obliquo) · Clic acquisisce in cella · Esc/Dx annulla'
+                    : 'Clicca un punto nella stanza → sposta il mouse su un lato per sommare i due raggi'
+                  : laserOrigin
+                  ? 'Muovi per mirare la parete (Shift = obliquo) · Clic acquisisce in cella · Esc/Dx annulla'
+                  : 'Clicca punto di partenza → punta col mouse verso la parete → clicca'}
               </div>
             </div>
           )}
@@ -3276,6 +3788,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                     : 'cursor-grab'
                   : activeTool === 'highlight' ||
                     activeTool === 'ruler' ||
+                    activeTool === 'laser' ||
                     activeTool === 'polygon' ||
                     activeTool === 'calibrate' ||
                     activeTool === 'pen'
@@ -3304,7 +3817,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 </div>
                 <h3 className="text-base font-bold text-white mb-2">Apri o Trascina qui la Tavola PDF</h3>
                 <p className="text-xs text-slate-300 leading-relaxed mb-5">
-                  Scorri le planimetrie, evidenzia un vano o le quote, oppure evidenzia una casella nella tabella computo a destra e prendi la misura direttamente col <span className="text-emerald-300 font-semibold">Righello</span> sulla tavola — senza AutoCAD.
+                  Scorri le planimetrie, evidenzia un vano o le quote, oppure evidenzia una casella nella tabella computo a destra e prendi la misura direttamente col <span className="text-emerald-300 font-semibold">Righello</span> o col <span className="text-red-400 font-semibold">Laser Virtuale</span> — senza AutoCAD.
                 </p>
                 <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-colors">
                   <Upload className="w-4 h-4" />
@@ -3318,6 +3831,12 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 onMouseDown={handleCanvasMouseDown}
                 onMouseMove={handleCanvasMouseMove}
                 onMouseUp={handleCanvasMouseUp}
+                onContextMenu={(e) => {
+                  if (activeTool === 'laser' && laserOrigin) {
+                    e.preventDefault();
+                    setLaserOrigin(null);
+                  }
+                }}
                 onMouseLeave={() => {
                   if (activePenStroke) handleCanvasMouseUp();
                 }}
@@ -3519,16 +4038,29 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                         .map((ln) => {
                           const isFlashed = flashMarkIds.has(ln.id);
                           const canClickLine = activeTool === 'pick' || activeTool === 'highlight';
+                          const lineColor = isFlashed ? '#f59e0b' : ln.isLaser ? '#ef4444' : '#10b981';
                           return (
                             <g key={ln.id}>
+                              {ln.isLaser && (
+                                <line
+                                  x1={ln.p1.x}
+                                  y1={ln.p1.y}
+                                  x2={ln.p2.x}
+                                  y2={ln.p2.y}
+                                  stroke="#ef4444"
+                                  strokeOpacity={0.22}
+                                  strokeWidth={4.5 / zoom}
+                                  strokeLinecap="round"
+                                />
+                              )}
                               <line
                                 x1={ln.p1.x}
                                 y1={ln.p1.y}
                                 x2={ln.p2.x}
                                 y2={ln.p2.y}
-                                stroke={isFlashed ? '#f59e0b' : '#10b981'}
-                                strokeWidth={(isFlashed ? 2.8 : 1.6) / zoom}
-                                strokeDasharray={`${4 / zoom} ${2 / zoom}`}
+                                stroke={lineColor}
+                                strokeWidth={(isFlashed ? 2.8 : ln.isLaser ? 1.5 : 1.6) / zoom}
+                                strokeDasharray={ln.isLaser ? undefined : `${4 / zoom} ${2 / zoom}`}
                               />
                               <line
                                 x1={ln.p1.x}
@@ -3548,13 +4080,474 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                                   }
                                 }}
                               >
-                                <title>{`Misura ${ln.meters.toFixed(2)} m — Clicca per inserire nel computo`}</title>
+                                <title>{`${ln.isLaser ? 'Laser' : 'Misura'} ${ln.meters.toFixed(2)} m — Clicca per inserire nel computo`}</title>
                               </line>
-                              <circle cx={ln.p1.x} cy={ln.p1.y} r={2.6 / zoom} fill={isFlashed ? '#f59e0b' : '#10b981'} />
-                              <circle cx={ln.p2.x} cy={ln.p2.y} r={2.6 / zoom} fill={isFlashed ? '#f59e0b' : '#10b981'} />
+                              <circle cx={ln.p1.x} cy={ln.p1.y} r={2.6 / zoom} fill={lineColor} />
+                              <circle cx={ln.p2.x} cy={ln.p2.y} r={2.6 / zoom} fill={lineColor} />
                             </g>
                           );
                         })}
+
+                    {/* LASER VIRTUALE — MIRINO PRE-ORIGINE (TUTTE E 3 LE MODALITÀ) */}
+                    {activeTool === 'laser' && !laserOrigin && cursorPt && (
+                      <g>
+                        <circle
+                          cx={cursorPt.x}
+                          cy={cursorPt.y}
+                          r={8.5 / zoom}
+                          fill="none"
+                          stroke="#ef4444"
+                          strokeOpacity={0.75}
+                          strokeWidth={1.1 / zoom}
+                          strokeDasharray={`${3 / zoom} ${2 / zoom}`}
+                        />
+                        {laserMode === 'dual' && (
+                          <>
+                            <line
+                              x1={cursorPt.x - 13 / zoom}
+                              y1={cursorPt.y}
+                              x2={cursorPt.x + 13 / zoom}
+                              y2={cursorPt.y}
+                              stroke="#ef4444"
+                              strokeOpacity={0.55}
+                              strokeWidth={0.9 / zoom}
+                            />
+                            <line
+                              x1={cursorPt.x}
+                              y1={cursorPt.y - 13 / zoom}
+                              x2={cursorPt.x}
+                              y2={cursorPt.y + 13 / zoom}
+                              stroke="#ef4444"
+                              strokeOpacity={0.55}
+                              strokeWidth={0.9 / zoom}
+                            />
+                          </>
+                        )}
+                        {laserMode === 'area' && (
+                          <rect
+                            x={cursorPt.x - 5.5 / zoom}
+                            y={cursorPt.y - 5.5 / zoom}
+                            width={11 / zoom}
+                            height={11 / zoom}
+                            fill="rgba(239, 68, 68, 0.16)"
+                            stroke="#ef4444"
+                            strokeWidth={0.9 / zoom}
+                          />
+                        )}
+                        <circle cx={cursorPt.x} cy={cursorPt.y} r={2.4 / zoom} fill="#ff1a3c" />
+                      </g>
+                    )}
+
+                    {/* LASER 1 (1 RAGGIO) & LASER 2 (2 RAGGI SX+DX SOMMATI) */}
+                    {activeTool === 'laser' && liveLaserShot && (
+                      <g>
+                        {/* Guida sottile verso il cursore per orientamento */}
+                        {cursorPt && (
+                          <line
+                            x1={liveLaserShot.emitter.x}
+                            y1={liveLaserShot.emitter.y}
+                            x2={cursorPt.x}
+                            y2={cursorPt.y}
+                            stroke="#ef4444"
+                            strokeOpacity={0.28}
+                            strokeWidth={0.9 / zoom}
+                            strokeDasharray={`${3 / zoom} ${3 / zoom}`}
+                          />
+                        )}
+
+                        {/* Alone esterno del fascio laser */}
+                        <line
+                          x1={liveLaserShot.p1.x}
+                          y1={liveLaserShot.p1.y}
+                          x2={liveLaserShot.p2.x}
+                          y2={liveLaserShot.p2.y}
+                          stroke="#ff1a3c"
+                          strokeOpacity={0.26}
+                          strokeWidth={7.5 / zoom}
+                          strokeLinecap="round"
+                        />
+                        {/* Fascio laser rosso vivo */}
+                        <line
+                          x1={liveLaserShot.p1.x}
+                          y1={liveLaserShot.p1.y}
+                          x2={liveLaserShot.p2.x}
+                          y2={liveLaserShot.p2.y}
+                          stroke="#ff1a3c"
+                          strokeWidth={1.9 / zoom}
+                          strokeLinecap="round"
+                        />
+                        {/* Filamento interno ad alta luminosità */}
+                        <line
+                          x1={liveLaserShot.p1.x}
+                          y1={liveLaserShot.p1.y}
+                          x2={liveLaserShot.p2.x}
+                          y2={liveLaserShot.p2.y}
+                          stroke="#fff1f2"
+                          strokeOpacity={0.92}
+                          strokeWidth={0.65 / zoom}
+                          strokeLinecap="round"
+                        />
+
+                        {/* Emettitore laser (punto di origine posizionato dall'utente) */}
+                        <circle
+                          cx={liveLaserShot.emitter.x}
+                          cy={liveLaserShot.emitter.y}
+                          r={5.5 / zoom}
+                          fill="#0f172a"
+                          fillOpacity={0.85}
+                          stroke="#ff1a3c"
+                          strokeWidth={1.4 / zoom}
+                        />
+                        <circle
+                          cx={liveLaserShot.emitter.x}
+                          cy={liveLaserShot.emitter.y}
+                          r={2.1 / zoom}
+                          fill="#fff1f2"
+                        />
+
+                        {/* Punto di impatto P2 sulla parete */}
+                        <g transform={`translate(${liveLaserShot.p2.x}, ${liveLaserShot.p2.y})`}>
+                          <circle
+                            r={7.5 / zoom}
+                            fill={liveLaserShot.hitWall2 ? '#ff1a3c' : '#f59e0b'}
+                            fillOpacity={0.22}
+                          />
+                          <circle
+                            r={3.2 / zoom}
+                            fill={liveLaserShot.hitWall2 ? '#ff1a3c' : '#f59e0b'}
+                            stroke="#ffffff"
+                            strokeWidth={0.9 / zoom}
+                          />
+                          <line
+                            x1={-8 / zoom}
+                            y1={0}
+                            x2={8 / zoom}
+                            y2={0}
+                            stroke={liveLaserShot.hitWall2 ? '#ff1a3c' : '#f59e0b'}
+                            strokeWidth={1 / zoom}
+                          />
+                          <line
+                            x1={0}
+                            y1={-8 / zoom}
+                            x2={0}
+                            y2={8 / zoom}
+                            stroke={liveLaserShot.hitWall2 ? '#ff1a3c' : '#f59e0b'}
+                            strokeWidth={1 / zoom}
+                          />
+                        </g>
+
+                        {/* Punto di impatto opposto P1 in modalità 2 Raggi (Sx+Dx) */}
+                        {liveLaserShot.mode === 'dual' && (
+                          <g transform={`translate(${liveLaserShot.p1.x}, ${liveLaserShot.p1.y})`}>
+                            <circle
+                              r={7.5 / zoom}
+                              fill={liveLaserShot.hitWall1 ? '#ff1a3c' : '#f59e0b'}
+                              fillOpacity={0.22}
+                            />
+                            <circle
+                              r={3.2 / zoom}
+                              fill={liveLaserShot.hitWall1 ? '#ff1a3c' : '#f59e0b'}
+                              stroke="#ffffff"
+                              strokeWidth={0.9 / zoom}
+                            />
+                            <line
+                              x1={-8 / zoom}
+                              y1={0}
+                              x2={8 / zoom}
+                              y2={0}
+                              stroke={liveLaserShot.hitWall1 ? '#ff1a3c' : '#f59e0b'}
+                              strokeWidth={1 / zoom}
+                            />
+                            <line
+                              x1={0}
+                              y1={-8 / zoom}
+                              x2={0}
+                              y2={8 / zoom}
+                              stroke={liveLaserShot.hitWall1 ? '#ff1a3c' : '#f59e0b'}
+                              strokeWidth={1 / zoom}
+                            />
+                          </g>
+                        )}
+
+                        {/* Etichette parziali Sx & Dx sui due semiraggi (modalità 2 Raggi) */}
+                        {liveLaserShot.mode === 'dual' &&
+                          (() => {
+                            const isVerticalBeam =
+                              Math.abs(liveLaserShot.p2.y - liveLaserShot.p1.y) >
+                              Math.abs(liveLaserShot.p2.x - liveLaserShot.p1.x);
+                            const halves = [
+                              {
+                                a: liveLaserShot.emitter,
+                                b: liveLaserShot.p1,
+                                lenPt: liveLaserShot.d1Pt,
+                                valM: liveLaserD1Meters,
+                              },
+                              {
+                                a: liveLaserShot.emitter,
+                                b: liveLaserShot.p2,
+                                lenPt: liveLaserShot.d2Pt,
+                                valM: liveLaserD2Meters,
+                              },
+                            ];
+                            return halves.map((h, idx) => {
+                              if (h.lenPt * zoom < 34) return null;
+                              const hx = (h.a.x + h.b.x) / 2 + (isVerticalBeam ? -26 / zoom : 0);
+                              const hy = (h.a.y + h.b.y) / 2 + (isVerticalBeam ? 0 : 12 / zoom);
+                              const pw = 42 / zoom;
+                              const ph = 13 / zoom;
+                              return (
+                                <g key={idx} transform={`translate(${hx}, ${hy})`}>
+                                  <rect
+                                    x={-pw / 2}
+                                    y={-ph / 2}
+                                    width={pw}
+                                    height={ph}
+                                    rx={2.5 / zoom}
+                                    fill="#0f172a"
+                                    fillOpacity={0.86}
+                                    stroke="#ef4444"
+                                    strokeOpacity={0.55}
+                                    strokeWidth={0.8 / zoom}
+                                  />
+                                  <text
+                                    textAnchor="middle"
+                                    dominantBaseline="central"
+                                    fill="#fecdd3"
+                                    fontSize={7.5 / zoom}
+                                    fontFamily="monospace"
+                                    fontWeight="bold"
+                                  >
+                                    {h.valM.toFixed(2)}m
+                                  </text>
+                                </g>
+                              );
+                            });
+                          })()}
+
+                        {/* Display numerico distanziometro laser (somma totale in 2 Raggi o distanza in 1 Raggio) */}
+                        {(() => {
+                          const anchorX =
+                            liveLaserShot.mode === 'dual'
+                              ? liveLaserShot.emitter.x
+                              : (liveLaserShot.p1.x + liveLaserShot.p2.x) / 2;
+                          const anchorY =
+                            liveLaserShot.mode === 'dual'
+                              ? liveLaserShot.emitter.y
+                              : (liveLaserShot.p1.y + liveLaserShot.p2.y) / 2;
+                          const isVerticalBeam =
+                            Math.abs(liveLaserShot.p2.y - liveLaserShot.p1.y) >
+                            Math.abs(liveLaserShot.p2.x - liveLaserShot.p1.x);
+                          const offX = isVerticalBeam ? 44 / zoom : 0;
+                          const offY = isVerticalBeam ? 0 : -18 / zoom;
+
+                          const labelText =
+                            liveLaserShot.mode === 'dual'
+                              ? exportUnit !== 'm'
+                                ? `Σ ${liveLaserMeters.toFixed(2)}m→${formatMeasureVal(metersToUnit(liveLaserMeters, exportUnit), exportUnit)}${exportUnit}`
+                                : `${liveLaserD1Meters.toFixed(2)}+${liveLaserD2Meters.toFixed(2)}=${liveLaserMeters.toFixed(2)}m`
+                              : exportUnit !== 'm'
+                              ? `${liveLaserMeters.toFixed(2)}m→${formatMeasureVal(metersToUnit(liveLaserMeters, exportUnit), exportUnit)}${exportUnit}`
+                              : `${liveLaserMeters.toFixed(2)} m`;
+
+                          const boxW = Math.max(66, labelText.length * 5.7 + 16) / zoom;
+                          const boxH = 18 / zoom;
+                          const locked =
+                            liveLaserShot.mode === 'dual'
+                              ? liveLaserShot.hitWall1 && liveLaserShot.hitWall2
+                              : liveLaserShot.hitWall2;
+                          return (
+                            <g transform={`translate(${anchorX + offX}, ${anchorY + offY})`}>
+                              <rect
+                                x={-boxW / 2}
+                                y={-boxH / 2}
+                                width={boxW}
+                                height={boxH}
+                                rx={3.5 / zoom}
+                                fill="#090d16"
+                                fillOpacity={0.95}
+                                stroke={locked ? '#ef4444' : '#f59e0b'}
+                                strokeWidth={1.15 / zoom}
+                              />
+                              <circle
+                                cx={-boxW / 2 + 6.5 / zoom}
+                                cy={0}
+                                r={2.3 / zoom}
+                                fill={locked ? '#ff1a3c' : '#f59e0b'}
+                              />
+                              <text
+                                textAnchor="middle"
+                                dominantBaseline="central"
+                                x={4 / zoom}
+                                y={0}
+                                fill="#ffffff"
+                                fontSize={8.6 / zoom}
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                              >
+                                {labelText}
+                              </text>
+                            </g>
+                          );
+                        })()}
+                      </g>
+                    )}
+
+                    {/* LASER 3 — LASER AREALE (ESPANSIONE SUPERFICIE SULLE PARETI TRA PUNTO 1 E PUNTO 2) */}
+                    {activeTool === 'laser' && laserMode === 'area' && liveLaserArea && (
+                      <g>
+                        {/* Superficie rilevata illuminata dal campo laser */}
+                        <path
+                          d={liveLaserArea.svgFillPath}
+                          fill="#ff1a3c"
+                          fillOpacity={0.2}
+                          stroke="none"
+                        />
+                        {/* Alone perimetrale di impatto sulle pareti */}
+                        <path
+                          d={liveLaserArea.svgBorderPath}
+                          fill="none"
+                          stroke="#ff1a3c"
+                          strokeOpacity={0.34}
+                          strokeWidth={4.2 / zoom}
+                          strokeLinecap="round"
+                        />
+                        {/* Bordo laser nitido sulle pareti incontrate */}
+                        <path
+                          d={liveLaserArea.svgBorderPath}
+                          fill="none"
+                          stroke="#ff1a3c"
+                          strokeWidth={1.4 / zoom}
+                          strokeLinecap="round"
+                        />
+
+                        {/* Raggi di scansione ottica dal percorso P1 → P2 verso le pareti */}
+                        {liveLaserArea.scanRays.map((ray, idx) => (
+                          <line
+                            key={idx}
+                            x1={ray.from.x}
+                            y1={ray.from.y}
+                            x2={ray.to.x}
+                            y2={ray.to.y}
+                            stroke="#ff1a3c"
+                            strokeOpacity={0.32}
+                            strokeWidth={0.85 / zoom}
+                            strokeDasharray={`${3 / zoom} ${2.5 / zoom}`}
+                          />
+                        ))}
+
+                        {/* Vettore di espansione dal Punto 1 al Punto 2 */}
+                        <line
+                          x1={liveLaserArea.origin.x}
+                          y1={liveLaserArea.origin.y}
+                          x2={liveLaserArea.cursor.x}
+                          y2={liveLaserArea.cursor.y}
+                          stroke="#fff1f2"
+                          strokeOpacity={0.85}
+                          strokeWidth={1.2 / zoom}
+                          strokeDasharray={`${4 / zoom} ${2.5 / zoom}`}
+                        />
+
+                        {/* Punto 1 (Origine) & Punto 2 (Cursore espansione) */}
+                        <circle
+                          cx={liveLaserArea.origin.x}
+                          cy={liveLaserArea.origin.y}
+                          r={5 / zoom}
+                          fill="#0f172a"
+                          stroke="#ff1a3c"
+                          strokeWidth={1.4 / zoom}
+                        />
+                        <circle cx={liveLaserArea.origin.x} cy={liveLaserArea.origin.y} r={2 / zoom} fill="#fff1f2" />
+                        <circle
+                          cx={liveLaserArea.cursor.x}
+                          cy={liveLaserArea.cursor.y}
+                          r={4 / zoom}
+                          fill="#ff1a3c"
+                          stroke="#ffffff"
+                          strokeWidth={1 / zoom}
+                        />
+
+                        {/* Display centrale Laser Areale: m² e Perimetro */}
+                        {(() => {
+                          const isPerimMode = extractionMode === 'linear' || extractionMode === 'walls_perim_h';
+                          const mainText = isPerimMode
+                            ? `P ${liveLaserPerimM.toFixed(2)} m · ${liveLaserAreaM2.toFixed(2)} m²`
+                            : `${liveLaserAreaM2.toFixed(2)} m² · P ${liveLaserPerimM.toFixed(2)}m`;
+                          const boxW = Math.max(96, mainText.length * 5.6 + 18) / zoom;
+                          const boxH = 20 / zoom;
+                          return (
+                            <g transform={`translate(${liveLaserArea.centroid.x}, ${liveLaserArea.centroid.y})`}>
+                              <rect
+                                x={-boxW / 2}
+                                y={-boxH / 2}
+                                width={boxW}
+                                height={boxH}
+                                rx={4 / zoom}
+                                fill="#090d16"
+                                fillOpacity={0.95}
+                                stroke={liveLaserArea.enclosed ? '#ef4444' : '#f59e0b'}
+                                strokeWidth={1.25 / zoom}
+                              />
+                              <circle
+                                cx={-boxW / 2 + 7 / zoom}
+                                cy={0}
+                                r={2.5 / zoom}
+                                fill={liveLaserArea.enclosed ? '#ff1a3c' : '#f59e0b'}
+                              />
+                              <text
+                                textAnchor="middle"
+                                dominantBaseline="central"
+                                x={4 / zoom}
+                                y={0}
+                                fill="#ffffff"
+                                fontSize={9 / zoom}
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                              >
+                                {mainText}
+                              </text>
+                            </g>
+                          );
+                        })()}
+                      </g>
+                    )}
+
+                    {/* FLASH DI CONFERMA IMPULSO LASER APPENA ACQUISITO (LINEARE O AREALE — NON RESTA IN PIANTA) */}
+                    {laserFlashShot && (
+                      <g>
+                        <line
+                          x1={laserFlashShot.p1.x}
+                          y1={laserFlashShot.p1.y}
+                          x2={laserFlashShot.p2.x}
+                          y2={laserFlashShot.p2.y}
+                          stroke="#fb7185"
+                          strokeOpacity={0.55}
+                          strokeWidth={11 / zoom}
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={laserFlashShot.p1.x}
+                          y1={laserFlashShot.p1.y}
+                          x2={laserFlashShot.p2.x}
+                          y2={laserFlashShot.p2.y}
+                          stroke="#ffffff"
+                          strokeWidth={2.4 / zoom}
+                          strokeLinecap="round"
+                        />
+                      </g>
+                    )}
+
+                    {laserAreaFlash && (
+                      <g>
+                        <path d={laserAreaFlash.svgFillPath} fill="#fb7185" fillOpacity={0.42} stroke="none" />
+                        <path
+                          d={laserAreaFlash.svgBorderPath}
+                          fill="none"
+                          stroke="#ffffff"
+                          strokeWidth={2.2 / zoom}
+                          strokeLinecap="round"
+                        />
+                      </g>
+                    )}
 
                     {rulerStart && cursorPt && (
                       <g>
@@ -3739,9 +4732,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                             key={ln.id}
                             onMouseDown={(e) => e.stopPropagation()}
                             style={{ left: `${mx}px`, top: `${my}px`, transform: 'translate(-50%, -50%)' }}
-                            className={`absolute z-[15] pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/90 border text-white shadow text-[10px] font-mono font-bold whitespace-nowrap transition-transform ${
+                            className={`absolute z-[15] pointer-events-auto inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-white shadow text-[10px] font-mono font-bold whitespace-nowrap transition-transform ${
+                              ln.isLaser ? 'bg-red-950/92' : 'bg-emerald-950/90'
+                            } ${
                               isFlashed
                                 ? 'border-amber-400 ring-2 ring-amber-400 scale-105'
+                                : ln.isLaser
+                                ? 'border-red-400/75 hover:border-amber-300 hover:scale-105'
                                 : 'border-emerald-400/70 hover:border-amber-300 hover:scale-105'
                             }`}
                           >
@@ -3751,9 +4748,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                                 e.stopPropagation();
                                 handleReuseLine(ln);
                               }}
-                              className="cursor-pointer hover:text-amber-300"
+                              className="cursor-pointer hover:text-amber-300 inline-flex items-center gap-1"
                               title="Clicca per inserire questa misura nel computo"
                             >
+                              {ln.isLaser && <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />}
                               {exportUnit !== 'm'
                                 ? `${ln.meters.toFixed(2)}m → ${formatMeasureVal(conv, exportUnit)}${exportUnit}`
                                 : `${ln.meters.toFixed(2)} m`}
@@ -3768,7 +4766,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                                     [currentPage]: (prev[currentPage] || []).filter((x) => x.id !== ln.id),
                                   }));
                                 }}
-                                className="p-0.5 rounded hover:bg-rose-500/30 text-emerald-300 hover:text-rose-200"
+                                className={`p-0.5 rounded hover:bg-rose-500/30 hover:text-rose-200 ${
+                                  ln.isLaser ? 'text-red-300' : 'text-emerald-300'
+                                }`}
                                 title="Cancella questa linea"
                               >
                                 <X className="w-2.5 h-2.5" />

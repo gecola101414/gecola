@@ -737,13 +737,7 @@ function App() {
   const [collabStatus, setCollabStatus] = useState<CollabStatusInfo>({ mode: 'local', connected: false });
   const [activeChatChannel, setActiveChatChannel] = useState('generale');
   const [unreadChatCount, setUnreadChatCount] = useState(0);
-  const [customOperatorName, setCustomOperatorName] = useState<string>(() => {
-    try {
-      return localStorage.getItem('gecola_operator_name') || '';
-    } catch {
-      return '';
-    }
-  });
+  const [customOperatorName, setCustomOperatorName] = useState<string>('');
   const localOperatorIdRef = useRef<string>(getOrCreateLocalOperatorId());
   const collabSessionRef = useRef<CollabSessionHandle | null>(null);
   const isChatOpenRef = useRef(isChatDrawerOpen);
@@ -2960,6 +2954,21 @@ function App() {
     e.target.value = '';
   };
 
+  const isRegisteredUser = Boolean(user && user !== 'visitor');
+  const currentOperatorId =
+    user && user !== 'visitor' && (user as FirebaseUser).uid
+      ? (user as FirebaseUser).uid
+      : localOperatorIdRef.current;
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`gecola_operator_name_${currentOperatorId}`) || '';
+      setCustomOperatorName(saved);
+    } catch {
+      setCustomOperatorName('');
+    }
+  }, [currentOperatorId]);
+
   const currentOperatorName = useMemo(() => {
     if (customOperatorName.trim()) return customOperatorName.trim();
     if (user && user !== 'visitor' && (user as FirebaseUser).email) {
@@ -2984,12 +2993,10 @@ function App() {
     const cleaned = name.trim() || 'Operatore GeCoLa';
     setCustomOperatorName(cleaned);
     try {
-      localStorage.setItem('gecola_operator_name', cleaned);
+      localStorage.setItem(`gecola_operator_name_${currentOperatorId}`, cleaned);
     } catch {}
     collabSessionRef.current?.updatePresence(cleaned, activeChatChannel);
   };
-
-  const isRegisteredUser = Boolean(user && user !== 'visitor');
 
   // Unified real-time sync for Team Chat + Shared Folder (ONLY for registered authenticated users)
   useEffect(() => {
@@ -3005,7 +3012,7 @@ function App() {
     }
     resetCollabBackendCache();
     const session = startCollabSession({
-      userId: localOperatorIdRef.current,
+      userId: currentOperatorId,
       userName: currentOperatorName,
       channel: activeChatChannel,
       onStatusChange: (status) => {
@@ -3022,7 +3029,7 @@ function App() {
           if (prev.some((m) => m.id === incoming.id)) return prev;
           return [...prev, incoming];
         });
-        if (!isChatOpenRef.current && incoming.senderId !== localOperatorIdRef.current) {
+        if (!isChatOpenRef.current && incoming.senderId !== currentOperatorId) {
           setUnreadChatCount((c) => c + 1);
           playUISound('toggle');
         }
@@ -3048,7 +3055,7 @@ function App() {
         collabSessionRef.current = null;
       }
     };
-  }, [isRegisteredUser, user]);
+  }, [isRegisteredUser, currentOperatorId]);
 
   useEffect(() => {
     collabSessionRef.current?.updatePresence(currentOperatorName, activeChatChannel);
@@ -3139,7 +3146,7 @@ function App() {
       payload,
       notifyInChat,
       chatChannel: activeChatChannel,
-      senderId: localOperatorIdRef.current,
+      senderId: currentOperatorId,
     });
     setSharedFolderRefreshSignal((n) => n + 1);
     playUISound('confirm');
@@ -3160,7 +3167,7 @@ function App() {
     const saved = await postChatMessage({
       id,
       channel: activeChatChannel,
-      senderId: localOperatorIdRef.current,
+      senderId: currentOperatorId,
       senderName: currentOperatorName,
       text,
     });
@@ -4903,7 +4910,7 @@ function App() {
             planSheets={planSheets}
             activePlanSheetId={activePlanSheetId}
             operatorName={currentOperatorName}
-            operatorId={localOperatorIdRef.current}
+            operatorId={currentOperatorId}
             chatChannel={activeChatChannel}
             allowSharedFolder={isRegisteredUser}
             onOpenSharedFolder={() => setIsSharedFolderModalOpen(true)}
@@ -4932,7 +4939,7 @@ function App() {
                 onChannelChange={setActiveChatChannel}
                 projectChannelId={projectChatChannelId}
                 projectTitle={projectInfo.title}
-                currentUserId={localOperatorIdRef.current}
+                currentUserId={currentOperatorId}
                 currentUserName={currentOperatorName}
                 onChangeDisplayName={handleChangeOperatorName}
                 onSendMessage={handleSendChatMessage}

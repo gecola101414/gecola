@@ -48,6 +48,7 @@ export interface MeasuredRulerLine {
   meters: number;
   label?: string;
   layerId?: string;
+  isLaser?: boolean;
 }
 
 export interface SavedPlanSheet {
