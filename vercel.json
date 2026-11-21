@@ -3,6 +3,11 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "cleanUrls": true,
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     {
       "source": "/((?!assets/|pdfjs-|tesseract/|pdf\\.worker\\.min\\.mjs|api/|favicon|.*\\.(?:js|mjs|css|wasm|gz|png|jpg|jpeg|gif|svg|ico|json|ttf|otf|bcmap|pfb)$).*)",

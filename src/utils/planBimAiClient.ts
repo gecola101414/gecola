@@ -109,29 +109,41 @@ function polygonPerimeterM(pts: Array<{ x: number; y: number }>): number {
 
 /**
  * Downscales the rendered PDF canvas to a crisp JPEG suitable for Gemini Vision
- * architectural blueprint analysis (max 1536px on longest edge).
+ * architectural blueprint analysis while staying safely under Vercel's 4.5MB body limit.
  */
 function encodeFloorPlanCanvas(canvas: HTMLCanvasElement): { base64: string; mimeType: 'image/jpeg' } {
-  const maxDim = 1536;
-  const scale = Math.min(1, maxDim / Math.max(canvas.width, canvas.height));
-  const w = Math.max(256, Math.round(canvas.width * scale));
-  const h = Math.max(256, Math.round(canvas.height * scale));
+  const MAX_BASE64_CHARS = 3_200_000;
+  const presets: Array<{ maxDim: number; quality: number }> = [
+    { maxDim: 1536, quality: 0.88 },
+    { maxDim: 1280, quality: 0.78 },
+    { maxDim: 1024, quality: 0.7 },
+  ];
 
-  const out = document.createElement('canvas');
-  out.width = w;
-  out.height = h;
-  const ctx = out.getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(canvas, 0, 0, w, h);
+  let lastBase64 = '';
+  for (const preset of presets) {
+    const scale = Math.min(1, preset.maxDim / Math.max(canvas.width, canvas.height));
+    const w = Math.max(256, Math.round(canvas.width * scale));
+    const h = Math.max(256, Math.round(canvas.height * scale));
+
+    const out = document.createElement('canvas');
+    out.width = w;
+    out.height = h;
+    const ctx = out.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(canvas, 0, 0, w, h);
+    }
+    const dataUrl = out.toDataURL('image/jpeg', preset.quality);
+    const comma = dataUrl.indexOf(',');
+    const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+    lastBase64 = base64;
+    if (base64.length <= MAX_BASE64_CHARS) {
+      return { base64, mimeType: 'image/jpeg' };
+    }
   }
-  const dataUrl = out.toDataURL('image/jpeg', 0.9);
-  const comma = dataUrl.indexOf(',');
-  return {
-    base64: comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl,
-    mimeType: 'image/jpeg',
-  };
+
+  return { base64: lastBase64, mimeType: 'image/jpeg' };
 }
 
 /**
@@ -176,6 +188,12 @@ export async function analyzePlanBimWithAi(
 
   const json = (await resp.json().catch(() => ({}))) as AiBimApiResponse;
   if (!resp.ok || !json.ok || !json.data) {
+    if (resp.status === 413) {
+      throw new Error('Immagine planimetria troppo pesante per il server (HTTP 413).');
+    }
+    if (resp.status === 504) {
+      throw new Error('Timeout della funzione AI su Vercel (HTTP 504). Riprova tra qualche secondo.');
+    }
     throw new Error(json.error || `Analisi AI BIM non riuscita (HTTP ${resp.status}).`);
   }
 
