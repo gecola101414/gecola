@@ -348,7 +348,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const [laserOrigin, setLaserOrigin] = useState<LaserPoint | null>(null);
   const [laserMode, setLaserMode] = useState<LaserMode>('cross');
   const [laserOrtho, setLaserOrtho] = useState<boolean>(true);
-  const [laserSensitivity, setLaserSensitivity] = useState<LaserSensitivity>('medium');
+  const [laserSensitivity, setLaserSensitivity] = useState<LaserSensitivity>(50);
   const [laserIgnoreText, setLaserIgnoreText] = useState<boolean>(true);
   const [laserSoundEnabled, setLaserSoundEnabled] = useState<boolean>(true);
   const [isShiftPressed, setIsShiftPressed] = useState<boolean>(false);
@@ -4055,26 +4055,20 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   title="Sensibilità di arresto del laser sullo spessore/contrasto delle linee di parete"
                 >
                   <span className="px-1.5 text-[10px] font-semibold text-slate-400 whitespace-nowrap">Pareti:</span>
-                  {(
-                    [
-                      { id: 'thin', label: 'Sottili' },
-                      { id: 'medium', label: 'Media' },
-                      { id: 'thick', label: 'Spessi' },
-                    ] as Array<{ id: LaserSensitivity; label: string }>
-                  ).map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setLaserSensitivity(opt.id)}
-                      className={`px-1.5 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                        laserSensitivity === opt.id
-                          ? 'bg-slate-700 text-white'
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                  <span className="text-[10px] text-slate-500">Sottili</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={laserSensitivity}
+                    onChange={(e) => setLaserSensitivity(Number(e.target.value))}
+                    onDoubleClick={() => setLaserSensitivity(50)}
+                    className="w-24 mx-1.5 h-1 cursor-pointer accent-sky-500"
+                    aria-label="Sensibilità laser"
+                  />
+                  <span className="text-[10px] text-slate-500">Spessi</span>
+                  <span className="w-7 text-right text-[10px] font-mono text-slate-300">{laserSensitivity}</span>
                 </div>
 
                 <button

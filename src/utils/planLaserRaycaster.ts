@@ -1,6 +1,7 @@
 import { PlanBBox } from './pdfPlanExtractor';
 
-export type LaserSensitivity = 'thin' | 'medium' | 'thick';
+/** 0 = linee sottili (più sensibile), 50 = media, 100 = linee spesse */
+export type LaserSensitivity = number;
 export type LaserMode = 'single' | 'dual' | 'cross' | 'area';
 
 export interface PlanLumaGrid {
@@ -115,14 +116,16 @@ function getSensitivityParams(sensitivity: LaserSensitivity): {
   minConsecutiveSteps: number;
   usePerpProbe: boolean;
 } {
-  if (sensitivity === 'thin') {
-    return { threshold: 200, minConsecutiveSteps: 2, usePerpProbe: true };
-  }
-  if (sensitivity === 'thick') {
-    return { threshold: 118, minConsecutiveSteps: 5, usePerpProbe: false };
-  }
-  // 'medium' — balanced for architectural CAD & scanned floor plans
-  return { threshold: 158, minConsecutiveSteps: 3, usePerpProbe: true };
+  // Slider 0..100: 0 = linee sottili (200), 50 = media (158, bilanciata per CAD e scansioni), 100 = spesse (118)
+  const s = Math.max(0, Math.min(100, Number.isFinite(sensitivity) ? sensitivity : 50));
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  const threshold = s <= 50 ? lerp(200, 158, s / 50) : lerp(158, 118, (s - 50) / 50);
+  const steps = s <= 50 ? lerp(2, 3, s / 50) : lerp(3, 5, (s - 50) / 50);
+  return {
+    threshold: Math.round(threshold),
+    minConsecutiveSteps: Math.max(2, Math.round(steps)),
+    usePerpProbe: s < 75,
+  };
 }
 
 export function buildLaserIgnoreRects(grid: PlanLumaGrid, ignoreBboxes?: PlanBBox[]): LaserPixelRect[] {
@@ -165,7 +168,7 @@ export function castSingleLaserRay(
   originPt: LaserPoint,
   dirX: number,
   dirY: number,
-  sensitivity: LaserSensitivity = 'medium',
+  sensitivity: LaserSensitivity = 50,
   ignoreRects: LaserPixelRect[] = []
 ): LaserRayHit {
   const len = Math.hypot(dirX, dirY);
@@ -558,7 +561,7 @@ export function computeVirtualLaserArea(params: {
 
   // 2. Build local wall occupancy mask (1 = wall, 0 = open space)
   const wallMask = new Uint8Array(totalCells);
-  const blockCheck = sensitivity === 'thick' ? 1 : Math.min(2, cellPx);
+  const blockCheck = sensitivity >= 75 ? 1 : Math.min(2, cellPx);
   for (let gy = 0; gy < rows; gy++) {
     const basePy = py1 + gy * cellPx;
     for (let gx = 0; gx < cols; gx++) {
