@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies & Python virtual environments
+node_modules
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+
+# Build outputs & caches
+dist
+dist-ssr
+build
+.next
+out
+.cache
+.vite
+.turbo
+.parcel-cache
+.eslintcache
+coverage
+*.tsbuildinfo
+*.local
+.gecola-shared
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

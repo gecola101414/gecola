@@ -4,7 +4,6 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
-import { analyzePlanWithGemini } from './api/bim/analyze-plan.ts';
 
 function getCliArg(name: string): string | undefined {
   const idx = process.argv.indexOf(name);
@@ -69,6 +68,8 @@ interface OnlineClient {
   userName: string;
   channel: string;
   connectedAt: string;
+  accountType: 'account' | 'altri';
+  isArmedForces: boolean;
 }
 
 function ensureStorageDirs() {
@@ -131,14 +132,27 @@ function broadcastEvent(payload: Record<string, unknown>) {
 }
 
 function getOnlineOperatorsList() {
-  const byUser = new Map<string, { userId: string; userName: string; channel: string; connectedAt: string }>();
+  const byUser = new Map<
+    string,
+    {
+      userId: string;
+      userName: string;
+      channel: string;
+      connectedAt: string;
+      accountType: 'account' | 'altri';
+      isArmedForces: boolean;
+    }
+  >();
   for (const c of onlineClients.values()) {
-    if (!byUser.has(c.userId)) {
-      byUser.set(c.userId, {
+    const key = c.accountType === 'altri' ? `${c.userId}_${c.clientId}` : c.userId;
+    if (!byUser.has(key)) {
+      byUser.set(key, {
         userId: c.userId,
         userName: c.userName,
         channel: c.channel,
         connectedAt: c.connectedAt,
+        accountType: c.accountType,
+        isArmedForces: c.isArmedForces,
       });
     }
   }
@@ -368,6 +382,8 @@ wss.on('connection', (ws) => {
     userName: 'Operatore',
     channel: 'generale',
     connectedAt: new Date().toISOString(),
+    accountType: 'account',
+    isArmedForces: false,
   });
 
   ws.send(
@@ -389,6 +405,8 @@ wss.on('connection', (ws) => {
         client.userId = String(data.userId || clientId).slice(0, 80);
         client.userName = String(data.userName || 'Operatore').trim().slice(0, 80) || 'Operatore';
         client.channel = String(data.channel || 'generale').trim() || 'generale';
+        client.accountType = data.accountType === 'altri' || data.isArmedForces ? 'altri' : 'account';
+        client.isArmedForces = Boolean(data.isArmedForces || data.accountType === 'altri');
         broadcastPresence();
         return;
       }
@@ -441,13 +459,6 @@ server.on('upgrade', (request, socket, head) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, mode: IS_PROD ? 'prod' : 'dev' });
-});
-
-// ---------------- API: GEMINI VISION ARCHITECTURAL BIM RECONSTRUCTOR ----------------
-
-app.post('/api/bim/analyze-plan', async (req, res) => {
-  const result = await analyzePlanWithGemini(req.body);
-  res.status(result.status).json(result.payload);
 });
 
 // ---------------- VITE DEV MIDDLEWARE / PROD STATIC ----------------

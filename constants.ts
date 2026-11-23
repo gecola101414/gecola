@@ -54,41 +54,9 @@ export const WBS_SUGGESTIONS = [
   "Pulizia e Collaudo Finale"
 ];
 
-export const LABOR_CATALOG = [
-  { description: "Operaio Specializzato", unit: "h", price: 35.50 },
-  { description: "Operaio Qualificato", unit: "h", price: 32.15 },
-  { description: "Operaio Comune", unit: "h", price: 28.30 },
-  { description: "Capocantiere / Tecnico IV liv.", unit: "h", price: 42.00 },
-  { description: "Autista / Meccanico", unit: "h", price: 33.50 }
-];
-
-export const EQUIPMENT_CATALOG = [
-  { description: "Escavatore cingolato 15-20t", unit: "h", price: 55.00 },
-  { description: "Mini-escavatore 1.5t", unit: "h", price: 25.00 },
-  { description: "Gru a torre braccio 40-50m", unit: "h", price: 38.00 },
-  { description: "Autocarro ribaltabile 10t", unit: "h", price: 32.00 },
-  { description: "Pompa per calcestruzzo braccio 24m", unit: "h", price: 110.00 },
-  { description: "Ponteggio metallico (Noleggio/Mese)", unit: "mq", price: 1.80 },
-  { description: "Betoniera a bicchiere", unit: "h", price: 4.50 },
-  { description: "Motocompressore 3000 l/min", unit: "h", price: 12.00 },
-  { description: "Trabattello in alluminio h 6m", unit: "h", price: 3.50 }
-];
-
-export const MATERIAL_CATALOG = [
-  { description: "Calcestruzzo C25/30 XC2 Rck 30", unit: "m³", price: 125.00 },
-  { description: "Calcestruzzo C30/37 XC3 Rck 37", unit: "m³", price: 138.00 },
-  { description: "Malta cementizia M5 (sacco 25kg)", unit: "cad", price: 4.50 },
-  { description: "Acciaio B450C in barre per armatura", unit: "kg", price: 1.15 },
-  { description: "Rete elettrosaldata Ø6 10x10", unit: "kg", price: 1.35 },
-  { description: "Blocchi laterizio forato sp. 8cm", unit: "m²", price: 12.50 },
-  { description: "Blocchi laterizio forato sp. 12cm", unit: "m²", price: 15.80 },
-  { description: "Intonaco premiscelato base calce/cem", unit: "kg", price: 0.32 },
-  { description: "Pittura lavabile per interni (fustino 14l)", unit: "cad", price: 65.00 },
-  { description: "Collante cementizio per pavimenti C2TE", unit: "kg", price: 0.85 },
-  { description: "Gres porcellanato standard 30x60", unit: "m²", price: 24.00 },
-  { description: "Pannello recinzione mobile 2.00x3.50m", unit: "cad", price: 45.00 },
-  { description: "Basamento in calcestruzzo per recinzione", unit: "cad", price: 8.50 }
-];
+export const LABOR_CATALOG: Array<{ description: string; unit: string; price: number }> = [];
+export const EQUIPMENT_CATALOG: Array<{ description: string; unit: string; price: number }> = [];
+export const MATERIAL_CATALOG: Array<{ description: string; unit: string; price: number }> = [];
 
 export const REBAR_WEIGHTS = [
   { diameter: 6, weight: 0.222 }, { diameter: 8, weight: 0.395 }, { diameter: 10, weight: 0.617 },
@@ -158,6 +126,7 @@ export const PROJECT_INFO: ProjectInfo = {
   client: 'Nome Committente',
   designer: 'Ing. Domenico Gimondo',
   location: 'Località Cantiere',
+  province: '',
   date: new Date().toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }),
   priceList: 'Prezzario Regionale 2025', 
   region: 'Lombardia',
@@ -189,6 +158,466 @@ export const CATEGORIES: Category[] = [
   { id: 'cat_s05', code: 'S.05', name: 'PSC - Misure Preventive e Primo Soccorso', isEnabled: true, isLocked: false, type: 'safety' },
 ];
 
-export const INITIAL_ARTICLES: Article[] = [];
+export const INITIAL_ARTICLES: Article[] = [
+  // WBS.01 - Apprestamenti e Impianto di Cantiere (5 voci)
+  {
+    id: 'art_01',
+    categoryCode: 'WBS.01',
+    code: 'LOM261.1C.00.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Installazione cartello di cantiere norma di legge con indicazione estremi autorizzazione edilizia e nominativi tecnici',
+    unit: 'cad',
+    unitPrice: 180.00,
+    laborRate: 30.0,
+    measurements: [{ id: 'm_01', description: 'Cartello unico ingresso cantiere', type: 'positive', multiplier: 1, length: 1 }],
+    quantity: 1,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_02',
+    categoryCode: 'WBS.01',
+    code: 'LOM261.1C.00.010.0200',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Nolo recinzione mobile di cantiere in rete metallica zincata h 2.00m compreso basamenti in calcestruzzo',
+    unit: 'm',
+    unitPrice: 24.50,
+    laborRate: 35.0,
+    measurements: [{ id: 'm_02', description: 'Perimetro fronte strada e cortile', type: 'positive', multiplier: 1, length: 120 }],
+    quantity: 120,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_03',
+    categoryCode: 'WBS.01',
+    code: 'LOM261.1C.00.010.0300',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Allacciamento provvisorio ai pubblici servizi di acqua, energia elettrica e fognatura',
+    unit: 'a corpo',
+    unitPrice: 2450.00,
+    laborRate: 40.0,
+    measurements: [{ id: 'm_03', description: 'Allacci provvisori completi', type: 'positive', multiplier: 1, length: 1 }],
+    quantity: 1,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_04',
+    categoryCode: 'WBS.01',
+    code: 'NP.01',
+    priceListSource: 'Voce definita dall\'utente',
+    description: 'Allestimento container uso ufficio direzione lavori e spogliatoio operai coibentato con impianto clima',
+    unit: 'cad',
+    unitPrice: 3500.00,
+    laborRate: 45.0,
+    measurements: [{ id: 'm_04', description: 'Container spogliatoio e ufficio DL', type: 'positive', multiplier: 1, length: 2 }],
+    quantity: 2,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_05',
+    categoryCode: 'WBS.01',
+    code: 'LOM261.1C.00.010.0500',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Oneri per pulizie giornaliere di cantiere, rimozione detriti e smaltimento differenziato rifiuti',
+    unit: 'mese',
+    unitPrice: 1200.00,
+    laborRate: 70.0,
+    measurements: [{ id: 'm_05', description: 'Durata stimata cantiere', type: 'positive', multiplier: 6, length: 1 }],
+    quantity: 6,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+
+  // WBS.02 - Demolizioni, Rimozioni e Scavi (5 voci)
+  {
+    id: 'art_06',
+    categoryCode: 'WBS.02',
+    code: 'LOM261.2C.01.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Demolizione di pavimenti interni in ceramica o gres compreso sottofondo e massetto sottostante',
+    unit: 'm²',
+    unitPrice: 28.50,
+    laborRate: 65.0,
+    measurements: [{ id: 'm_06', description: 'Piano terra e primo piano', type: 'positive', multiplier: 1, length: 340 }],
+    quantity: 340,
+    displayMode: 0,
+    soaCategory: 'OG3'
+  },
+  {
+    id: 'art_07',
+    categoryCode: 'WBS.02',
+    code: 'LOM261.2C.01.010.0200',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Demolizione di tramezzature in laterizio forato di spessore fino a 10 cm con trasporto a rifiuto',
+    unit: 'm²',
+    unitPrice: 19.80,
+    laborRate: 70.0,
+    measurements: [{ id: 'm_07', description: 'Tramezzi interni da rimuovere', type: 'positive', multiplier: 1, length: 185 }],
+    quantity: 185,
+    displayMode: 0,
+    soaCategory: 'OG3'
+  },
+  {
+    id: 'art_08',
+    categoryCode: 'WBS.02',
+    code: 'LOM261.2C.02.020.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Scavo di splateamento o di sezione obblicata in terreno di qualsiasi natura con mezzo meccanico',
+    unit: 'm³',
+    unitPrice: 22.00,
+    laborRate: 30.0,
+    measurements: [{ id: 'm_08', description: 'Scavo sbancamento fondazioni', type: 'positive', multiplier: 1, length: 450 }],
+    quantity: 450,
+    displayMode: 0,
+    soaCategory: 'OG3'
+  },
+  {
+    id: 'art_09',
+    categoryCode: 'WBS.02',
+    code: 'NP.02',
+    priceListSource: 'Voce definita dall\'utente',
+    description: 'Rimozione e trasporto a pubbliche discariche autorizzate di materiali di risulta speciali e pericolosi',
+    unit: 't',
+    unitPrice: 85.00,
+    laborRate: 50.0,
+    measurements: [{ id: 'm_09', description: 'Smaltimento materiali speciali', type: 'positive', multiplier: 1, length: 12.5 }],
+    quantity: 12.5,
+    displayMode: 0,
+    soaCategory: 'OG3'
+  },
+  {
+    id: 'art_10',
+    categoryCode: 'WBS.02',
+    code: 'LOM261.2C.02.030.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Rinterro e costipamento meccanico di scavi con materiale idoneo proveniente da cava o recuperato',
+    unit: 'm³',
+    unitPrice: 18.50,
+    laborRate: 35.0,
+    measurements: [{ id: 'm_10', description: 'Rinterro perimetrale fondazioni', type: 'positive', multiplier: 1, length: 280 }],
+    quantity: 280,
+    displayMode: 0,
+    soaCategory: 'OG3'
+  },
+
+  // WBS.03 - Opere Murarie, Tramezzi e Sottofondi (6 voci)
+  {
+    id: 'art_11',
+    categoryCode: 'WBS.03',
+    code: 'LOM261.3C.01.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Getto di calcestruzzo in fondazione Rck 30/37 compreso fornitura, posa, vibrazione e stagionatura',
+    unit: 'm³',
+    unitPrice: 145.00,
+    laborRate: 25.0,
+    measurements: [{ id: 'm_11', description: 'Platea e plinti di fondazione', type: 'positive', multiplier: 1, length: 110 }],
+    quantity: 110,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_12',
+    categoryCode: 'WBS.03',
+    code: 'LOM261.3C.01.020.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Fornitura e posa in opera di acciaio ad aderenza migliorata B450C in barre tonde sagomate',
+    unit: 'kg',
+    unitPrice: 1.45,
+    laborRate: 22.0,
+    measurements: [{ id: 'm_12', description: 'Armatura strutturale fondazioni e pilastri', type: 'positive', multiplier: 1, length: 8500 }],
+    quantity: 8500,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_13',
+    categoryCode: 'WBS.03',
+    code: 'LOM261.3C.03.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Muratura di tamponamento perimetrale in blocchi termoisolanti in laterizio alleggerito spessore 30 cm',
+    unit: 'm²',
+    unitPrice: 78.00,
+    laborRate: 45.0,
+    measurements: [{ id: 'm_13', description: 'Tamponamenti esterni piani terra e primo', type: 'positive', multiplier: 1, length: 420 }],
+    quantity: 420,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_14',
+    categoryCode: 'WBS.03',
+    code: 'LOM261.3C.04.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Realizzazione di tramezzi interni in laterizio alveolato spessore 10 cm intonacati su due lati',
+    unit: 'm²',
+    unitPrice: 48.50,
+    laborRate: 50.0,
+    measurements: [{ id: 'm_14', description: 'Divisioni interne appartamenti', type: 'positive', multiplier: 1, length: 310 }],
+    quantity: 310,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_15',
+    categoryCode: 'WBS.03',
+    code: 'NP.03',
+    priceListSource: 'Voce definita dall\'utente',
+    description: 'Sottofondo alleggerito in argilla espansa e legante idraulico ad alta resistenza spessore medio 10 cm',
+    unit: 'm²',
+    unitPrice: 26.00,
+    laborRate: 40.0,
+    measurements: [{ id: 'm_15', description: 'Sottofondi isolanti piani', type: 'positive', multiplier: 1, length: 550 }],
+    quantity: 550,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+  {
+    id: 'art_16',
+    categoryCode: 'WBS.03',
+    code: 'LOM261.3C.05.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Massetto autolivellante in anidrite o cementizio per posa pavimenti ad alta conducibilità termica',
+    unit: 'm²',
+    unitPrice: 32.00,
+    laborRate: 35.0,
+    measurements: [{ id: 'm_16', description: 'Massetto radiante per pavimenti', type: 'positive', multiplier: 1, length: 550 }],
+    quantity: 550,
+    displayMode: 0,
+    soaCategory: 'OG1'
+  },
+
+  // WBS.04 - Impianti Idrico-Termici, Clima e Gas (5 voci)
+  {
+    id: 'art_17',
+    categoryCode: 'WBS.04',
+    code: 'LOM261.4C.01.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Posa in opera di tubazioni in multistrato preisolato per adduzione acqua calda e fredda sanitaria',
+    unit: 'm',
+    unitPrice: 28.00,
+    laborRate: 50.0,
+    measurements: [{ id: 'm_17', description: 'Distribuzione idrica bagni e cucine', type: 'positive', multiplier: 1, length: 240 }],
+    quantity: 240,
+    displayMode: 0,
+    soaCategory: 'OS3'
+  },
+  {
+    id: 'art_18',
+    categoryCode: 'WBS.04',
+    code: 'LOM261.4C.02.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Installazione di impianto di riscaldamento a pavimento radiante completo di pannelli bugnati e collettori',
+    unit: 'm²',
+    unitPrice: 45.00,
+    laborRate: 45.0,
+    measurements: [{ id: 'm_18', description: 'Superficie radiante totale', type: 'positive', multiplier: 1, length: 520 }],
+    quantity: 520,
+    displayMode: 0,
+    soaCategory: 'OS3'
+  },
+  {
+    id: 'art_19',
+    categoryCode: 'WBS.04',
+    code: 'LOM261.4C.03.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Montaggio e collegamento di pompa di calore aria-acqua inverter ad alta efficienza energetica',
+    unit: 'cad',
+    unitPrice: 8500.00,
+    laborRate: 30.0,
+    measurements: [{ id: 'm_19', description: 'Generatore principale pompa di calore', type: 'positive', multiplier: 1, length: 2 }],
+    quantity: 2,
+    displayMode: 0,
+    soaCategory: 'OS3'
+  },
+  {
+    id: 'art_20',
+    categoryCode: 'WBS.04',
+    code: 'NP.04',
+    priceListSource: 'Voce definita dall\'utente',
+    description: 'Installazione sistema di ventilazione meccanica controllata (VMC) puntuale con recupero di calore entalpico',
+    unit: 'cad',
+    unitPrice: 750.00,
+    laborRate: 40.0,
+    measurements: [{ id: 'm_20', description: 'Unità VMC locali soggiorno e camere', type: 'positive', multiplier: 1, length: 6 }],
+    quantity: 6,
+    displayMode: 0,
+    soaCategory: 'OS3'
+  },
+  {
+    id: 'art_21',
+    categoryCode: 'WBS.04',
+    code: 'LOM261.4C.04.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Fornitura e posa di radiatori scaldasalviette in acciaio verniciato bianco per locali bagno',
+    unit: 'cad',
+    unitPrice: 220.00,
+    laborRate: 25.0,
+    measurements: [{ id: 'm_21', description: 'Scaldasalviette bagni', type: 'positive', multiplier: 1, length: 5 }],
+    quantity: 5,
+    displayMode: 0,
+    soaCategory: 'OS3'
+  },
+
+  // WBS.05 - Impianti Elettrici, Domotici e Speciali (5 voci)
+  {
+    id: 'art_22',
+    categoryCode: 'WBS.05',
+    code: 'LOM261.5C.01.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Posa sottotraccia di corrugati flessibili autoestinguenti di varia sezione con infilaggio cavi cordati',
+    unit: 'm',
+    unitPrice: 8.50,
+    laborRate: 60.0,
+    measurements: [{ id: 'm_22', description: 'Linee elettriche forza motrice e luce', type: 'positive', multiplier: 1, length: 1200 }],
+    quantity: 1200,
+    displayMode: 0,
+    soaCategory: 'OS30'
+  },
+  {
+    id: 'art_23',
+    categoryCode: 'WBS.05',
+    code: 'LOM261.5C.02.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Montaggio di scatole di derivazione, frutti interruttori, prese e placche serie civile alta gamma',
+    unit: 'cad',
+    unitPrice: 24.00,
+    laborRate: 55.0,
+    measurements: [{ id: 'm_23', description: 'Punti luce e prese complessivi', type: 'positive', multiplier: 1, length: 180 }],
+    quantity: 180,
+    displayMode: 0,
+    soaCategory: 'OS30'
+  },
+  {
+    id: 'art_24',
+    categoryCode: 'WBS.05',
+    code: 'LOM261.5C.03.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Installazione di quadro elettrico generale di piano precablato con interruttori magnetotermici e differenziali',
+    unit: 'cad',
+    unitPrice: 650.00,
+    laborRate: 40.0,
+    measurements: [{ id: 'm_24', description: 'Quadri elettrici generali appartamenti', type: 'positive', multiplier: 1, length: 3 }],
+    quantity: 3,
+    displayMode: 0,
+    soaCategory: 'OS30'
+  },
+  {
+    id: 'art_25',
+    categoryCode: 'WBS.05',
+    code: 'NP.05',
+    priceListSource: 'Voce definita dall\'utente',
+    description: 'Realizzazione impianto domotico avanzato KNX per gestione centralizzata luci, tapparelle e termoregolazione',
+    unit: 'a corpo',
+    unitPrice: 4800.00,
+    laborRate: 70.0,
+    measurements: [{ id: 'm_25', description: 'Impianto domotico completo', type: 'positive', multiplier: 1, length: 1 }],
+    quantity: 1,
+    displayMode: 0,
+    soaCategory: 'OS30'
+  },
+  {
+    id: 'art_26',
+    categoryCode: 'WBS.05',
+    code: 'LOM261.5C.04.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Impianto di rilevazione fumi ed evacuazione antincendio normato UNI 9795 con centralina e sensori ottici',
+    unit: 'punto',
+    unitPrice: 85.00,
+    laborRate: 50.0,
+    measurements: [{ id: 'm_26', description: 'Punti rivelazione fumi', type: 'positive', multiplier: 1, length: 24 }],
+    quantity: 24,
+    displayMode: 0,
+    soaCategory: 'OS30'
+  },
+
+  // WBS.06 - Finiture Interne, Esterne e Serramenti (6 voci)
+  {
+    id: 'art_27',
+    categoryCode: 'WBS.06',
+    code: 'LOM261.6C.01.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Posa in opera di pavimenti in gres porcellanato di prima scelta formato 60x60 cm con collante ad alte prestazioni',
+    unit: 'm²',
+    unitPrice: 42.00,
+    laborRate: 65.0,
+    measurements: [{ id: 'm_27', description: 'Pavimenti interni generali', type: 'positive', multiplier: 1, length: 480 }],
+    quantity: 480,
+    displayMode: 0,
+    soaCategory: 'OS7'
+  },
+  {
+    id: 'art_28',
+    categoryCode: 'WBS.06',
+    code: 'LOM261.6C.02.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Rivestimento pareti bagni e cucine in ceramica smaltata o gres formati vari fino ad altezza 2.20m',
+    unit: 'm²',
+    unitPrice: 48.00,
+    laborRate: 60.0,
+    measurements: [{ id: 'm_28', description: 'Rivestimenti bagni e cucine', type: 'positive', multiplier: 1, length: 145 }],
+    quantity: 145,
+    displayMode: 0,
+    soaCategory: 'OS7'
+  },
+  {
+    id: 'art_29',
+    categoryCode: 'WBS.06',
+    code: 'LOM261.6C.03.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Tinteggiatura interna con idropittura lavabile traspirante antimuffa a due mani su intonaco trattato',
+    unit: 'm²',
+    unitPrice: 12.50,
+    laborRate: 75.0,
+    measurements: [{ id: 'm_29', description: 'Pareti e soffitti interni', type: 'positive', multiplier: 1, length: 1250 }],
+    quantity: 1250,
+    displayMode: 0,
+    soaCategory: 'OS7'
+  },
+  {
+    id: 'art_30',
+    categoryCode: 'WBS.06',
+    code: 'LOM261.6C.04.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Fornitura e posa di infissi esterni in PVC con triplo vetro basso-emissivo e persiane in alluminio',
+    unit: 'm²',
+    unitPrice: 320.00,
+    laborRate: 35.0,
+    measurements: [{ id: 'm_30', description: 'Finestre e porte-finestre', type: 'positive', multiplier: 1, length: 95 }],
+    quantity: 95,
+    displayMode: 0,
+    soaCategory: 'OS7'
+  },
+  {
+    id: 'art_31',
+    categoryCode: 'WBS.06',
+    code: 'LOM261.6C.05.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Posa di porte interne tamburate cieche con coprifili telescopici e maniglieria finitura satinata',
+    unit: 'cad',
+    unitPrice: 280.00,
+    laborRate: 45.0,
+    measurements: [{ id: 'm_31', description: 'Porte interne appartamenti', type: 'positive', multiplier: 1, length: 22 }],
+    quantity: 22,
+    displayMode: 0,
+    soaCategory: 'OS7'
+  },
+  {
+    id: 'art_32',
+    categoryCode: 'WBS.06',
+    code: 'LOM261.6C.06.010.0100',
+    priceListSource: 'Prezzario Lombardia 2025',
+    description: 'Realizzazione di cappotto termico esterno in EPS bianco spessore 12 cm completo di rasatura armata e finitura',
+    unit: 'm²',
+    unitPrice: 68.00,
+    laborRate: 55.0,
+    measurements: [{ id: 'm_32', description: 'Facciate esterne cappotto termico', type: 'positive', multiplier: 1, length: 380 }],
+    quantity: 380,
+    displayMode: 0,
+    soaCategory: 'OS7'
+  }
+];
 
 export const INITIAL_ANALYSES: PriceAnalysis[] = [];
