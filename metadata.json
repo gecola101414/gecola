@@ -1,1 +1,6 @@
-{"name":"GeCoLa_2026_001_D","description":"A professional construction estimate application (Computo Metrico Estimativo) tailored for Italian standards, featuring dynamic calculations, categorization, and AI-assisted item generation. Visitor limit increased to 15 items.","requestFramePermissions":["microphone"],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
+{
+  "name": "Gecola Studio Launcher",
+  "description": "Automatic launchpad and interactive portal for gecola.ai.studio",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
