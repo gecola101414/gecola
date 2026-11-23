@@ -258,7 +258,7 @@ function App() {
     }, 2500);
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       clearTimeout(failsafeTimer);
-      if (firebaseUser) {
+      if (firebaseUser && !firebaseUser.isAnonymous) {
         setUser(firebaseUser as FirebaseUser);
       } else if (isNewProjectTab) {
         setUser('visitor');
@@ -336,7 +336,10 @@ function App() {
     }
   };
 
+  const [isArmedForcesSession, setIsArmedForcesSession] = useState(false);
+
   const handleVisitorLogin = () => {
+    setIsArmedForcesSession(isArmedForcesIp);
     setUser('visitor');
     setArticles([]);
     setAnalyses([]);
@@ -352,6 +355,7 @@ function App() {
   };
 
   const handleArmedForcesLogin = () => {
+    setIsArmedForcesSession(true);
     setUser('visitor');
     setArticles([]);
     setAnalyses([]);
@@ -367,6 +371,7 @@ function App() {
   };
 
   const handleMilanoDemoLogin = () => {
+    setIsArmedForcesSession(isArmedForcesIp);
     setUser('visitor');
     setProjectInfo((prev) => ({
       ...prev,
@@ -2969,6 +2974,8 @@ function App() {
   };
 
   const isRegisteredUser = Boolean(user && user !== 'visitor');
+  const isArmedForcesUser = !isRegisteredUser && Boolean(isArmedForcesIp || isArmedForcesSession);
+  const currentAccountType: 'account' | 'altri' = isRegisteredUser ? 'account' : 'altri';
   const currentOperatorId =
     user && user !== 'visitor' && (user as FirebaseUser).uid
       ? (user as FirebaseUser).uid
@@ -2991,8 +2998,8 @@ function App() {
     if (projectInfo.designer && projectInfo.designer.trim() && projectInfo.designer !== 'Ing. Progettista') {
       return projectInfo.designer.trim();
     }
-    return isArmedForcesIp ? 'Operatore Forze Armate' : 'Operatore GeCoLa';
-  }, [customOperatorName, user, projectInfo.designer, isArmedForcesIp]);
+    return isArmedForcesIp || isArmedForcesSession ? 'Operatore Forze Armate' : 'Operatore GeCoLa';
+  }, [customOperatorName, user, projectInfo.designer, isArmedForcesIp, isArmedForcesSession]);
 
   const projectChatChannelId = useMemo(() => {
     const slug = (projectInfo.title || 'progetto')
@@ -3009,12 +3016,12 @@ function App() {
     try {
       localStorage.setItem(`gecola_operator_name_${currentOperatorId}`, cleaned);
     } catch {}
-    collabSessionRef.current?.updatePresence(cleaned, activeChatChannel);
+    collabSessionRef.current?.updatePresence(cleaned, activeChatChannel, currentAccountType, isArmedForcesUser);
   };
 
-  // Unified real-time sync for Team Chat + Shared Folder (ONLY for registered authenticated users)
+  // Unified real-time sync for Team Chat + Shared Folder (for registered accounts + Forze Armate presence tracking under "Altri")
   useEffect(() => {
-    if (!isRegisteredUser) {
+    if (!isRegisteredUser && !isArmedForcesUser) {
       setIsSharedFolderModalOpen(false);
       setIsChatDrawerOpen(false);
       setSharedFilesCount(0);
@@ -3024,11 +3031,17 @@ function App() {
       setIsCollabConnected(false);
       return;
     }
+    if (!isRegisteredUser) {
+      setIsSharedFolderModalOpen(false);
+      setIsChatDrawerOpen(false);
+    }
     resetCollabBackendCache();
     const session = startCollabSession({
       userId: currentOperatorId,
       userName: currentOperatorName,
       channel: activeChatChannel,
+      accountType: currentAccountType,
+      isArmedForces: isArmedForcesUser,
       onStatusChange: (status) => {
         setCollabStatus(status);
         setIsCollabConnected(status.connected);
@@ -3043,7 +3056,7 @@ function App() {
           if (prev.some((m) => m.id === incoming.id)) return prev;
           return [...prev, incoming];
         });
-        if (!isChatOpenRef.current && incoming.senderId !== currentOperatorId) {
+        if (isRegisteredUser && !isChatOpenRef.current && incoming.senderId !== currentOperatorId) {
           setUnreadChatCount((c) => c + 1);
           playUISound('toggle');
         }
@@ -3069,11 +3082,16 @@ function App() {
         collabSessionRef.current = null;
       }
     };
-  }, [isRegisteredUser, currentOperatorId]);
+  }, [isRegisteredUser, isArmedForcesUser, currentAccountType, currentOperatorId]);
 
   useEffect(() => {
-    collabSessionRef.current?.updatePresence(currentOperatorName, activeChatChannel);
-  }, [currentOperatorName, activeChatChannel]);
+    collabSessionRef.current?.updatePresence(
+      currentOperatorName,
+      activeChatChannel,
+      currentAccountType,
+      isArmedForcesUser
+    );
+  }, [currentOperatorName, activeChatChannel, currentAccountType, isArmedForcesUser]);
 
   const applySharedProjectPayload = (data: any, meta?: SharedFileMeta) => {
     if (!data?.gecolaData) {

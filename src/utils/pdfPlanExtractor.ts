@@ -489,6 +489,16 @@ export function detectRoomsOnPage(tokens: PlanToken[], detectedHeightM?: number)
   return blocks;
 }
 
+export async function extractPageSnapVerticesOnDemand(doc: any, pageNumber: number): Promise<SnapVertex[]> {
+  try {
+    const page = await doc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    return await extractPageSnapVertices(page, viewport);
+  } catch {
+    return [];
+  }
+}
+
 export async function analyzePdfPlanPage(
   doc: any,
   pageNumber: number,
@@ -503,11 +513,27 @@ export async function analyzePdfPlanPage(
   let detectedScaleDenominator: number | undefined;
   let detectedHeightM: number | undefined;
   let pageTitle: string | undefined;
+  let totalRawTextItems = 0;
 
   let idx = 0;
   for (const it of content.items as any[]) {
     const rawStr = (it.str || '').trim();
     if (!rawStr) continue;
+    totalRawTextItems++;
+
+    const classified = classifyPlanToken(rawStr, quoteUnit);
+
+    if (classified.kind === 'scale' && classified.numericValue) {
+      detectedScaleDenominator = classified.numericValue;
+    }
+    if (classified.kind === 'height' && classified.numericValue && !detectedHeightM) {
+      detectedHeightM = classified.numericValue;
+    }
+
+    // Scarta subito tutti i testi generici ('other') per mantenere solo le misure utili all'auto-calibrazione e i nomi vano
+    if (classified.kind === 'other') {
+      continue;
+    }
 
     const tx = Util.transform(viewport.transform, it.transform);
     const angleRad = Math.atan2(tx[1], tx[0]);
@@ -515,12 +541,14 @@ export async function analyzePdfPlanPage(
     const orientation = normalizeOrientation(angleDeg);
 
     const fontHeight = Math.max(6, Math.hypot(tx[2], tx[3]) || it.height || 8);
-    const advanceWidth = Math.max(8, (it.width || rawStr.length * fontHeight * 0.55) * (Math.hypot(tx[0], tx[1]) / Math.hypot(it.transform[0], it.transform[1]) || 1));
+    const advanceWidth = Math.max(
+      8,
+      (it.width || rawStr.length * fontHeight * 0.55) *
+        (Math.hypot(tx[0], tx[1]) / Math.hypot(it.transform[0], it.transform[1]) || 1)
+    );
 
-    // Calcola il rettangolo visivo reale nello spazio viewport (sia per testo orizzontale che verticale a -90/+90°)
     const cos = Math.cos(angleRad);
     const sin = Math.sin(angleRad);
-    // Origine baseline tx[4], tx[5]
     const bx = tx[4];
     const by = tx[5];
     const corners = [
@@ -529,7 +557,6 @@ export async function analyzePdfPlanPage(
       [bx - fontHeight * sin, by + fontHeight * cos],
       [bx + advanceWidth * cos - fontHeight * sin, by + advanceWidth * sin + fontHeight * cos],
     ];
-    // Nota: per testo standard y cresce verso il basso nello schermo, ma l'ascent va in -perp (-sin, cos vs +sin, -cos)
     const cornersAscent = [
       [bx, by],
       [bx + advanceWidth * cos, by + advanceWidth * sin],
@@ -547,14 +574,6 @@ export async function analyzePdfPlanPage(
     const w = Math.max(8, x2 - x1);
     const h = Math.max(8, y2 - y1);
 
-    const classified = classifyPlanToken(rawStr, quoteUnit);
-
-    if (classified.kind === 'scale' && classified.numericValue) {
-      detectedScaleDenominator = classified.numericValue;
-    }
-    if (classified.kind === 'height' && classified.numericValue && !detectedHeightM) {
-      detectedHeightM = classified.numericValue;
-    }
     if (!pageTitle && fontHeight >= 11 && rawStr.length >= 6 && !rawStr.toLowerCase().includes('scala')) {
       pageTitle = rawStr;
     }
@@ -578,7 +597,6 @@ export async function analyzePdfPlanPage(
   }
 
   const rooms = detectRoomsOnPage(tokens, detectedHeightM);
-  const snapVertices = await extractPageSnapVertices(page, viewport);
 
   return {
     pageNumber,
@@ -586,11 +604,11 @@ export async function analyzePdfPlanPage(
     height: viewport.height,
     tokens,
     rooms,
-    snapVertices,
+    snapVertices: [],
     detectedScaleDenominator,
     detectedHeightM,
     pageTitle,
-    isLikelyScanned: tokens.length === 0,
+    isLikelyScanned: totalRawTextItems === 0,
   };
 }
 

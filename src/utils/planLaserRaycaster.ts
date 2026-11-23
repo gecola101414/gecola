@@ -1,7 +1,7 @@
 import { PlanBBox } from './pdfPlanExtractor';
 
 export type LaserSensitivity = 'thin' | 'medium' | 'thick';
-export type LaserMode = 'single' | 'dual' | 'area';
+export type LaserMode = 'single' | 'dual' | 'cross' | 'area';
 
 export interface PlanLumaGrid {
   width: number;
@@ -35,6 +35,25 @@ export interface VirtualLaserShot {
   angleDeg: number;
 }
 
+export interface VirtualLaserCrossShot {
+  emitter: LaserPoint;
+  pLeft: LaserPoint;
+  pRight: LaserPoint;
+  pTop: LaserPoint;
+  pBottom: LaserPoint;
+  hitWallLeft: boolean;
+  hitWallRight: boolean;
+  hitWallTop: boolean;
+  hitWallBottom: boolean;
+  dLeftPt: number;
+  dRightPt: number;
+  dTopPt: number;
+  dBottomPt: number;
+  spanXPt: number;
+  spanYPt: number;
+  areaPt2: number;
+}
+
 export interface VirtualLaserAreaResult {
   origin: LaserPoint;
   cursor: LaserPoint;
@@ -48,7 +67,7 @@ export interface VirtualLaserAreaResult {
   cellCount: number;
 }
 
-interface PixelRect {
+export interface LaserPixelRect {
   x1: number;
   y1: number;
   x2: number;
@@ -106,13 +125,13 @@ function getSensitivityParams(sensitivity: LaserSensitivity): {
   return { threshold: 158, minConsecutiveSteps: 3, usePerpProbe: true };
 }
 
-function toPixelIgnoreRects(grid: PlanLumaGrid, ignoreBboxes?: PlanBBox[]): PixelRect[] {
+export function buildLaserIgnoreRects(grid: PlanLumaGrid, ignoreBboxes?: PlanBBox[]): LaserPixelRect[] {
   if (!ignoreBboxes || ignoreBboxes.length === 0) return [];
   const scaleX = grid.width / grid.pageWidthPt;
   const scaleY = grid.height / grid.pageHeightPt;
   const maxW = grid.width * 0.24;
   const maxH = grid.height * 0.24;
-  const out: PixelRect[] = [];
+  const out: LaserPixelRect[] = [];
   for (const b of ignoreBboxes) {
     const x1 = b.x1 * scaleX - 1;
     const y1 = b.y1 * scaleY - 1;
@@ -127,7 +146,7 @@ function toPixelIgnoreRects(grid: PlanLumaGrid, ignoreBboxes?: PlanBBox[]): Pixe
   return out;
 }
 
-function isInsideIgnoredRect(px: number, py: number, rects: PixelRect[]): boolean {
+function isInsideIgnoredRect(px: number, py: number, rects: LaserPixelRect[]): boolean {
   for (let i = 0; i < rects.length; i++) {
     const r = rects[i];
     if (px >= r.x1 && px <= r.x2 && py >= r.y1 && py <= r.y2) {
@@ -147,7 +166,7 @@ export function castSingleLaserRay(
   dirX: number,
   dirY: number,
   sensitivity: LaserSensitivity = 'medium',
-  ignoreRects: PixelRect[] = []
+  ignoreRects: LaserPixelRect[] = []
 ): LaserRayHit {
   const len = Math.hypot(dirX, dirY);
   if (len < 1e-6) {
@@ -310,8 +329,9 @@ export function computeVirtualLaserShot(params: {
   orthoLock: boolean;
   sensitivity: LaserSensitivity;
   ignoreBboxes?: PlanBBox[];
+  precomputedIgnoreRects?: LaserPixelRect[];
 }): VirtualLaserShot | null {
-  const { grid, mode, originPt, cursorPt, orthoLock, sensitivity, ignoreBboxes } = params;
+  const { grid, mode, originPt, cursorPt, orthoLock, sensitivity, ignoreBboxes, precomputedIgnoreRects } = params;
   if (!originPt) return null;
 
   let vx = cursorPt.x - originPt.x;
@@ -332,7 +352,7 @@ export function computeVirtualLaserShot(params: {
     vy /= cursorDist;
   }
 
-  const ignoreRects = toPixelIgnoreRects(grid, ignoreBboxes);
+  const ignoreRects = precomputedIgnoreRects ?? buildLaserIgnoreRects(grid, ignoreBboxes);
   const angleDeg = Math.round(((Math.atan2(vy, vx) * 180) / Math.PI + 360) % 360);
 
   if (mode === 'dual') {
@@ -382,6 +402,59 @@ export function computeVirtualLaserShot(params: {
 }
 
 /**
+ * Computes a 4-way perpendicular Cross Laser shot ('cross') from `emitterPt`:
+ * - Fires 2 opposing horizontal rays (Left + Right) to measure total room side 1 (spanXPt)
+ * - Fires 2 opposing vertical rays (Up + Down) perpendicular to the first axis to measure total room side 2 (spanYPt)
+ * Stays active in real time as the mouse moves, so clicking once transfers both Lunghezza and Larghezza into the measurement schedule.
+ */
+export function computeVirtualLaserCross(params: {
+  grid: PlanLumaGrid;
+  emitterPt: LaserPoint | null;
+  sensitivity: LaserSensitivity;
+  ignoreBboxes?: PlanBBox[];
+  precomputedIgnoreRects?: LaserPixelRect[];
+}): VirtualLaserCrossShot | null {
+  const { grid, emitterPt, sensitivity, ignoreBboxes, precomputedIgnoreRects } = params;
+  if (!emitterPt) return null;
+
+  const ignoreRects = precomputedIgnoreRects ?? buildLaserIgnoreRects(grid, ignoreBboxes);
+
+  const hitLeft = castSingleLaserRay(grid, emitterPt, -1, 0, sensitivity, ignoreRects);
+  const hitRight = castSingleLaserRay(grid, emitterPt, 1, 0, sensitivity, ignoreRects);
+  const hitTop = castSingleLaserRay(grid, emitterPt, 0, -1, sensitivity, ignoreRects);
+  const hitBottom = castSingleLaserRay(grid, emitterPt, 0, 1, sensitivity, ignoreRects);
+
+  const dLeftPt = hitLeft.distPt;
+  const dRightPt = hitRight.distPt;
+  const dTopPt = hitTop.distPt;
+  const dBottomPt = hitBottom.distPt;
+
+  const spanXPt = dLeftPt + dRightPt;
+  const spanYPt = dTopPt + dBottomPt;
+
+  if (spanXPt < 1 && spanYPt < 1) return null;
+
+  return {
+    emitter: emitterPt,
+    pLeft: hitLeft.hitPt,
+    pRight: hitRight.hitPt,
+    pTop: hitTop.hitPt,
+    pBottom: hitBottom.hitPt,
+    hitWallLeft: hitLeft.hitWall,
+    hitWallRight: hitRight.hitWall,
+    hitWallTop: hitTop.hitWall,
+    hitWallBottom: hitBottom.hitWall,
+    dLeftPt,
+    dRightPt,
+    dTopPt,
+    dBottomPt,
+    spanXPt,
+    spanYPt,
+    areaPt2: spanXPt * spanYPt,
+  };
+}
+
+/**
  * Helper: picks a robust wall boundary value from an array of ray hits while rejecting
  * narrow doorway outliers (rays that slipped through an open door far beyond the room wall).
  */
@@ -409,13 +482,14 @@ export function computeVirtualLaserArea(params: {
   cursorPt: LaserPoint;
   sensitivity: LaserSensitivity;
   ignoreBboxes?: PlanBBox[];
+  precomputedIgnoreRects?: LaserPixelRect[];
 }): VirtualLaserAreaResult | null {
-  const { grid, originPt, cursorPt, sensitivity, ignoreBboxes } = params;
+  const { grid, originPt, cursorPt, sensitivity, ignoreBboxes, precomputedIgnoreRects } = params;
   if (Math.hypot(cursorPt.x - originPt.x, cursorPt.y - originPt.y) < 2) return null;
 
   const scaleX = grid.width / grid.pageWidthPt;
   const scaleY = grid.height / grid.pageHeightPt;
-  const ignoreRects = toPixelIgnoreRects(grid, ignoreBboxes);
+  const ignoreRects = precomputedIgnoreRects ?? buildLaserIgnoreRects(grid, ignoreBboxes);
   const { threshold } = getSensitivityParams(sensitivity);
   const { width, height, luma } = grid;
 

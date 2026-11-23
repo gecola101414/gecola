@@ -90,6 +90,26 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
     [messages, activeChannel]
   );
 
+  const { accountOperators, altriOperators } = useMemo(() => {
+    const accounts: OnlineOperator[] = [];
+    const altri: OnlineOperator[] = [];
+    for (const op of operators) {
+      const isAltri =
+        op.accountType === 'altri' ||
+        op.isArmedForces === true ||
+        op.userName.toLowerCase().includes('forze armate');
+      if (isAltri) {
+        altri.push(op);
+      } else {
+        accounts.push(op);
+      }
+    }
+    return { accountOperators: accounts, altriOperators: altri };
+  }, [operators]);
+
+  const accountOnlineCount = operators.length === 0 ? 1 : accountOperators.length;
+  const altriOnlineCount = altriOperators.length;
+
   useEffect(() => {
     if (isOpen) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -145,15 +165,15 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
     <div className="fixed inset-y-0 right-0 z-[210] w-full sm:w-[400px] bg-white shadow-2xl border-l border-slate-200 flex flex-col">
       {/* Header */}
       <div className="bg-slate-900 px-4 py-3.5 text-white border-b border-slate-800 shrink-0">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="p-1.5 bg-blue-600 rounded-lg shrink-0">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+            <div className="p-1.5 bg-blue-600 rounded-lg shrink-0 mt-0.5">
               <MessageSquare className="w-4 h-4 text-white" />
             </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-bold leading-tight truncate">Chat Studio & Cantiere</h3>
-              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <span className="inline-flex items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold leading-tight truncate">Chat Studio & Cantiere</h3>
+                <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
                   {isConnected ? (
                     <Wifi className="w-3 h-3 text-emerald-400" />
                   ) : (
@@ -169,16 +189,35 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
                           : 'Locale Browser'}
                   </span>
                 </span>
-                <span aria-hidden="true">·</span>
-                <button
-                  type="button"
-                  onClick={() => setShowOperators((v) => !v)}
-                  className="inline-flex items-center gap-1 text-slate-300 hover:text-white cursor-pointer"
-                >
-                  <Users className="w-3 h-3" />
-                  <span className="font-mono tabular-nums">{Math.max(1, operators.length)} online</span>
-                </button>
               </div>
+
+              {/* Contatore presenze: Account collegati + sotto Altri */}
+              <button
+                type="button"
+                onClick={() => setShowOperators((v) => !v)}
+                className="mt-1.5 w-full max-w-[240px] flex flex-col gap-0.5 bg-slate-800/90 hover:bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-left transition-colors cursor-pointer"
+                title="Clicca per mostrare o nascondere l'elenco collegati"
+              >
+                <div className="flex items-center justify-between gap-3 text-[11px] text-slate-200">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <Users className="w-3 h-3 text-emerald-400 shrink-0" />
+                    <span className="font-semibold">Account collegati:</span>
+                  </span>
+                  <span className="font-mono font-bold tabular-nums text-emerald-400">
+                    {accountOnlineCount}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-[11px] text-slate-300 pl-3.5 border-t border-slate-700/60 pt-0.5">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    <span className="font-semibold">Altri:</span>
+                  </span>
+                  <span className="font-mono font-bold tabular-nums text-amber-300">
+                    {altriOnlineCount}
+                  </span>
+                </div>
+              </button>
             </div>
           </div>
 
@@ -242,20 +281,44 @@ const TeamChatDrawer: React.FC<TeamChatDrawerProps> = ({
 
         {/* Online operators list */}
         {showOperators && (
-          <div className="mt-2 p-2 bg-slate-800/80 rounded-lg border border-slate-700 text-xs space-y-1">
-            <div className="text-[11px] font-semibold text-slate-400">Operatori collegati</div>
-            {operators.length === 0 ? (
-              <div className="text-slate-300 text-xs">{currentUserName} (tu)</div>
-            ) : (
-              operators.map((op) => (
-                <div key={op.userId} className="flex items-center justify-between text-slate-200">
-                  <span className="truncate">
-                    {op.userName} {op.userId === currentUserId ? '(tu)' : ''}
-                  </span>
-                  <span className="text-[10px] text-emerald-400">Attivo</span>
-                </div>
-              ))
-            )}
+          <div className="mt-2 p-2.5 bg-slate-800/80 rounded-lg border border-slate-700 text-xs space-y-2">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-400">
+                <span>Account collegati</span>
+                <span className="font-mono tabular-nums">{accountOnlineCount}</span>
+              </div>
+              {accountOperators.length === 0 ? (
+                <div className="text-slate-300 text-xs">{currentUserName} (tu)</div>
+              ) : (
+                accountOperators.map((op, idx) => (
+                  <div key={`${op.userId}_${idx}`} className="flex items-center justify-between text-slate-200">
+                    <span className="truncate">
+                      {op.userName} {op.userId === currentUserId ? '(tu)' : ''}
+                    </span>
+                    <span className="text-[10px] text-emerald-400">Account</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-1.5 border-t border-slate-700/80 space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-semibold text-amber-300">
+                <span>Altri</span>
+                <span className="font-mono tabular-nums">{altriOnlineCount}</span>
+              </div>
+              {altriOperators.length === 0 ? (
+                <div className="text-slate-400 text-[11px] italic">Nessun altro collegato al momento</div>
+              ) : (
+                altriOperators.map((op, idx) => (
+                  <div key={`altri_${op.userId}_${idx}`} className="flex items-center justify-between text-slate-200">
+                    <span className="truncate">
+                      {op.userName} {op.userId === currentUserId ? '(tu)' : ''}
+                    </span>
+                    <span className="text-[10px] text-amber-300">Attivo</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -63,7 +63,7 @@ async function initSingleWorker(): Promise<Worker> {
   const w = await createWorker('ita', 1, paths);
   await w.setParameters({
     tessedit_pageseg_mode: PSM.SPARSE_TEXT,
-    user_defined_dpi: '260',
+    user_defined_dpi: '180',
   });
   return w;
 }
@@ -186,44 +186,20 @@ function boxIou(a: PlanBBox, b: PlanBBox): number {
 }
 
 /**
- * Converte la matrice binarizzata/grigia del canvas riducendo i puntini isolati 1px tipici delle scansioni.
+ * Binarizzazione ultra-rapida in un singolo passaggio per estrazione quote numeriche.
  */
 function preprocessCanvasInPlace(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   const imgData = ctx.getImageData(0, 0, w, h);
   const d = imgData.data;
-  const lum = new Uint8Array(w * h);
+  const totalBytes = d.length;
 
-  for (let i = 0, p = 0; i < lum.length; i++, p += 4) {
+  for (let p = 0; p < totalBytes; p += 4) {
     const gray = (d[p] * 77 + d[p + 1] * 150 + d[p + 2] * 29) >> 8;
-    lum[i] = gray < 185 ? 0 : 255;
-  }
-
-  // Despeckle rapido 1px: rimuove pixel neri completamente isolati (<= 1 vicino nero su 8)
-  for (let y = 1; y < h - 1; y++) {
-    const rowOff = y * w;
-    for (let x = 1; x < w - 1; x++) {
-      const idx = rowOff + x;
-      let val = lum[idx];
-      if (val === 0) {
-        let nb = 0;
-        if (lum[idx - 1] === 0) nb++;
-        if (lum[idx + 1] === 0) nb++;
-        if (lum[idx - w] === 0) nb++;
-        if (lum[idx + w] === 0) nb++;
-        if (lum[idx - w - 1] === 0) nb++;
-        if (lum[idx - w + 1] === 0) nb++;
-        if (lum[idx + w - 1] === 0) nb++;
-        if (lum[idx + w + 1] === 0) nb++;
-        if (nb <= 1) {
-          val = 255;
-        }
-      }
-      const p = idx * 4;
-      d[p] = val;
-      d[p + 1] = val;
-      d[p + 2] = val;
-      d[p + 3] = 255;
-    }
+    const val = gray < 185 ? 0 : 255;
+    d[p] = val;
+    d[p + 1] = val;
+    d[p + 2] = val;
+    d[p + 3] = 255;
   }
 
   ctx.putImageData(imgData, 0, 0);
@@ -512,6 +488,11 @@ export function buildAnalysisFromRawTokens(
       pageTitle = str;
     }
 
+    // Conserva solo le misure utili per auto-calibrazione (quote, scale, altezze, superfici) e i nomi dei vani
+    if (classified.kind === 'other' && c.source !== 'manual') {
+      return;
+    }
+
     const w = Math.max(10, c.x2 - c.x1);
     const h = Math.max(8, c.y2 - c.y1);
 
@@ -697,41 +678,15 @@ async function recognizeCanvasParallel(
   if (signal?.aborted) throw new Error('Scansione annullata');
 
   const horizLines = extractHorizLinesFromData(r0.data, renderScale);
-  let vertLines = extractVertLinesFrom90CW(r90.data, renderScale, procCanvas.width, procCanvas.height);
+  const vertLines = extractVertLinesFrom90CW(r90.data, renderScale, procCanvas.width, procCanvas.height);
 
-  // Controlla se abbiamo trovato quote numeriche verticali a 90° CW; se quasi assenti (< 2)
-  // e ci sono quote orizzontali, verifica rapidamente l'orientamento opposto (-90° / 270°).
-  const vertNumericCount = vertLines
-    .flat()
-    .filter((w) => /^\d{1,4}(?:[.,]\d{1,3})?$/.test(w.text) && w.conf >= 42).length;
-  const horizNumericCount = horizLines
-    .flat()
-    .filter((w) => /^\d{1,4}(?:[.,]\d{1,3})?$/.test(w.text) && w.conf >= 45).length;
-
-  if (vertNumericCount < 2 && horizNumericCount >= 2) {
-    onProgress?.({
-      phase: 'vertical',
-      label: 'Verifica quote verticali orientate dall’alto verso il basso...',
-      progress: 78,
-    });
-    const rot270Canvas = buildRotatedCanvas90CCW(procCanvas);
-    const r270 = await wVert.recognize(rot270Canvas, {}, { blocks: true });
-    if (signal?.aborted) throw new Error('Scansione annullata');
-    const vert270Lines = extractVertLinesFrom90CCW(r270.data, renderScale, procCanvas.width, procCanvas.height);
-    const vert270NumericCount = vert270Lines
-      .flat()
-      .filter((w) => /^\d{1,4}(?:[.,]\d{1,3})?$/.test(w.text) && w.conf >= 42).length;
-    if (vert270NumericCount > vertNumericCount) {
-      vertLines = [...vertLines, ...vert270Lines];
-    }
-  }
-
-  onProgress?.({ phase: 'postprocess', label: 'Ricostruzione vani e campi editabili...', progress: 94 });
+  onProgress?.({ phase: 'postprocess', label: 'Calibrazione automatica sulle misure rilevate...', progress: 94 });
   return postProcessOcrWords(horizLines, vertLines, pageNumber, quoteUnit);
 }
 
 /**
- * Esegue OCR parallelo riutilizzando direttamente il canvas già renderizzato durante la fase di visualizzazione.
+ * Esegue OCR Turbo focalizzato sulle misure per auto-calibrazione, riutilizzando il canvas renderizzato
+ * ridimensionato a max 1480px sul lato lungo per tempi di risposta rapidissimi anche su tavole A0/A1.
  */
 export async function runPlanPageOcrFromCanvas(
   sourceCanvas: HTMLCanvasElement,
@@ -741,12 +696,13 @@ export async function runPlanPageOcrFromCanvas(
   onProgress?: (p: OcrScanProgress) => void,
   signal?: AbortSignal
 ): Promise<OcrScanResult> {
-  onProgress?.({ phase: 'prepare', label: 'Analisi OCR in rendering...', progress: 12 });
+  onProgress?.({ phase: 'prepare', label: 'Rilevamento rapido quote per auto-calibrazione...', progress: 15 });
 
-  const targetW = Math.min(2250, Math.max(1750, sourceCanvas.width));
-  const scaleFactor = sourceCanvas.width > 2400 || sourceCanvas.width < 1650 ? targetW / sourceCanvas.width : 1;
-  const w = Math.round(sourceCanvas.width * scaleFactor);
-  const h = Math.round(sourceCanvas.height * scaleFactor);
+  const maxSide = Math.max(sourceCanvas.width, sourceCanvas.height, 1);
+  const targetMaxSide = 1480;
+  const scaleFactor = maxSide > targetMaxSide ? targetMaxSide / maxSide : 1;
+  const w = Math.max(1, Math.round(sourceCanvas.width * scaleFactor));
+  const h = Math.max(1, Math.round(sourceCanvas.height * scaleFactor));
 
   const procCanvas = document.createElement('canvas');
   procCanvas.width = w;
@@ -771,13 +727,12 @@ export async function runPlanPageOcr(
   onProgress?: (p: OcrScanProgress) => void,
   signal?: AbortSignal
 ): Promise<OcrScanResult> {
-  onProgress?.({ phase: 'prepare', label: 'Preparazione tavola ad alta risoluzione...', progress: 8 });
+  onProgress?.({ phase: 'prepare', label: 'Rilevamento rapido quote per auto-calibrazione...', progress: 10 });
 
   const page = await pdfDoc.getPage(pageNumber);
   const vp1 = page.getViewport({ scale: 1 });
-  const targetWidth = 2150;
-  const maxDimScale = 3100 / Math.max(vp1.width, vp1.height);
-  const renderScale = Math.max(2.0, Math.min(4.0, targetWidth / vp1.width, maxDimScale));
+  const maxDimScale = 1480 / Math.max(vp1.width, vp1.height, 1);
+  const renderScale = Math.max(1.1, Math.min(2.2, maxDimScale));
   const vp = page.getViewport({ scale: renderScale });
 
   const canvas = document.createElement('canvas');

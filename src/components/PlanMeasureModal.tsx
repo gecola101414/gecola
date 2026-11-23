@@ -41,12 +41,9 @@ import {
   Target,
   Volume2,
   VolumeX,
-  Box,
-  Cuboid,
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
-  Tag,
 } from 'lucide-react';
 import { Article } from '../types';
 import {
@@ -55,6 +52,7 @@ import {
   buildMeasurementsFromRoom,
   classifyPlanToken,
   DetectedRoomBlock,
+  extractPageSnapVerticesOnDemand,
   inferDefaultModeForArticle,
   loadPdfPlanDocument,
   MeasureExtractionMode,
@@ -85,7 +83,9 @@ import {
   uint8ToBase64,
 } from '../utils/planProjectStorage';
 import {
+  buildLaserIgnoreRects,
   computeVirtualLaserArea,
+  computeVirtualLaserCross,
   computeVirtualLaserShot,
   extractCanvasLumaGrid,
   LaserMode,
@@ -93,25 +93,12 @@ import {
   LaserSensitivity,
   PlanLumaGrid,
   playLaserBeep,
+  VirtualLaserCrossShot,
 } from '../utils/planLaserRaycaster';
 import {
   autoCalibratePlanFromQuotes,
   AutoCalibrationStatus,
 } from '../utils/planAutoCalibration';
-import {
-  extractSignificantQuotes,
-  SignificantQuoteItem,
-} from '../utils/planCleanGeometry';
-import {
-  BimObject,
-  BimObjectKind,
-  cleanArchitecturalWalls,
-  extractPlanBimModel,
-  PlanBimModel,
-  splitWallsAroundOpenings,
-} from '../utils/planBimExtractor';
-import { analyzePlanBimWithAi } from '../utils/planBimAiClient';
-import { Plan3DViewer } from './Plan3DViewer';
 
 export interface PlanMeasureExportRow {
   description: string;
@@ -303,11 +290,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     };
   }, [openCadMenu]);
 
-  // Strumenti CAD viewport & OCR editabile
-  const [activeTool, setActiveTool] = useState<ActiveTool>('highlight');
+  // Strumenti CAD viewport & OCR editabile (Laser a Croce attivo di default, overlay HTML e OSNAP spenti per fluidità 60fps su tavole A0/A1)
+  const [activeTool, setActiveTool] = useState<ActiveTool>('laser');
   const [zoom, setZoom] = useState<number>(1);
   const [showOverlayTokens, setShowOverlayTokens] = useState<boolean>(true);
-  const [showEditableOverlay, setShowEditableOverlay] = useState<boolean>(true);
+  const [showEditableOverlay, setShowEditableOverlay] = useState<boolean>(false);
   const [isScanningOcr, setIsScanningOcr] = useState<boolean>(false);
   const [ocrProgress, setOcrProgress] = useState<OcrScanProgress | null>(null);
   const ocrAbortRef = useRef<AbortController | null>(null);
@@ -316,7 +303,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
   const [editingTokenText, setEditingTokenText] = useState<string>('');
   const [newTokenDraft, setNewTokenDraft] = useState<{ x: number; y: number; text: string; vertical: boolean } | null>(null);
-  const [osnapEnabled, setOsnapEnabled] = useState<boolean>(true);
+  const [osnapEnabled, setOsnapEnabled] = useState<boolean>(false);
+  const [isLaserCalibrating, setIsLaserCalibrating] = useState<boolean>(false);
   const [cursorPt, setCursorPt] = useState<{ x: number; y: number } | null>(null);
   const [snappedVertex, setSnappedVertex] = useState<SnapVertex | null>(null);
 
@@ -355,16 +343,17 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   // Quota picker singolo (L + W pairing quando nessuna casella è evidenziata)
   const [pendingLengthPick, setPendingLengthPick] = useState<{ val: number; label: string } | null>(null);
 
-  // Righello, Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Areale m²), Calibrazione & Poligono + Segni persistenti (Righello/Poligono)
+  // Righello, Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Croce L×Larg., Areale m²), Calibrazione & Poligono + Segni persistenti
   const [rulerStart, setRulerStart] = useState<{ x: number; y: number } | null>(null);
   const [laserOrigin, setLaserOrigin] = useState<LaserPoint | null>(null);
-  const [laserMode, setLaserMode] = useState<LaserMode>('single');
+  const [laserMode, setLaserMode] = useState<LaserMode>('cross');
   const [laserOrtho, setLaserOrtho] = useState<boolean>(true);
   const [laserSensitivity, setLaserSensitivity] = useState<LaserSensitivity>('medium');
   const [laserIgnoreText, setLaserIgnoreText] = useState<boolean>(true);
   const [laserSoundEnabled, setLaserSoundEnabled] = useState<boolean>(true);
   const [isShiftPressed, setIsShiftPressed] = useState<boolean>(false);
   const [laserFlashShot, setLaserFlashShot] = useState<{ p1: LaserPoint; p2: LaserPoint; meters: number } | null>(null);
+  const [laserCrossFlash, setLaserCrossFlash] = useState<VirtualLaserCrossShot | null>(null);
   const [laserAreaFlash, setLaserAreaFlash] = useState<{
     svgFillPath: string;
     svgBorderPath: string;
@@ -375,10 +364,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const canvasLumaRef = useRef<PlanLumaGrid | null>(null);
   const [lumaVersion, setLumaVersion] = useState<number>(0);
 
-  // Vista 2D Pianta / 3D Pareti / BIM Editabile + Auto-Calibrazione H/V
-  const [viewMode, setViewMode] = useState<'2d' | '3d' | 'bim'>('2d');
-  const [showQuotesIn3D, setShowQuotesIn3D] = useState<boolean>(false);
-  const [wall3DSensitivity, setWall3DSensitivity] = useState<LaserSensitivity>('medium');
+  // Auto-Calibrazione H/V sulla tavola 2D
   const [autoCalibState, setAutoCalibState] = useState<{
     status: AutoCalibrationStatus;
     message: string;
@@ -388,25 +374,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   }>({ status: 'idle', message: '', matchedH: 0, matchedV: 0 });
   const manualCalibratedPagesRef = useRef<Set<number>>(new Set());
   const autoCalibRunKeyRef = useRef<string>('');
-  const [bimModelState, setBimModelState] = useState<PlanBimModel>({
-    walls: [],
-    doors: [],
-    windows: [],
-    pillars: [],
-    rooms: [],
-    planWidthM: 10,
-    planHeightM: 10,
-    boundsM: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
-  });
-  const aiBimCacheRef = useRef<Map<string, PlanBimModel>>(new Map());
-  const aiAutoAttemptedRef = useRef<Set<string>>(new Set());
-  const aiBimAbortRef = useRef<AbortController | null>(null);
-  const bimUndoStackRef = useRef<PlanBimModel[]>([]);
-  const bimRedoStackRef = useRef<PlanBimModel[]>([]);
-  const [bimHistoryCounts, setBimHistoryCounts] = useState<{ undo: number; redo: number }>({ undo: 0, redo: 0 });
-  const [aiBimOverride, setAiBimOverride] = useState<{ key: string; model: PlanBimModel } | null>(null);
-  const [isAnalyzingAiBim, setIsAnalyzingAiBim] = useState<boolean>(false);
-  const [aiBimError, setAiBimError] = useState<string | null>(null);
 
   const [polygonPts, setPolygonPts] = useState<Array<{ x: number; y: number }>>([]);
   const [calibrationDraft, setCalibrationDraft] = useState<{ distPt: number; realMetersStr: string } | null>(null);
@@ -546,13 +513,12 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     }
   }, [activeTool]);
 
-  // Cleanup timer lampeggio, laser flash, AI BIM & eventuale OCR attivo
+  // Cleanup timer lampeggio, laser flash & eventuale OCR attivo
   useEffect(() => {
     return () => {
       if (flashTimerRef.current) window.clearInterval(flashTimerRef.current);
       if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
       if (ocrAbortRef.current) ocrAbortRef.current.abort();
-      if (aiBimAbortRef.current) aiBimAbortRef.current.abort();
     };
   }, []);
 
@@ -780,7 +746,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         const baseAnalysis = pageAnalysesRef.current[pageNum];
         const canReuseCanvas =
           preRenderedCanvas &&
-          preRenderedCanvas.width >= 1500 &&
+          preRenderedCanvas.width >= 900 &&
           baseAnalysis &&
           baseAnalysis.width > 0;
 
@@ -826,15 +792,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           setDefaultHeightM(result.detectedHeightM);
         }
 
-        setShowEditableOverlay(true);
-        setShowOverlayTokens(true);
-        if (result.tokens.length > 0) {
-          const vertCount = result.tokens.filter((t) => t.orientation === 'vertical').length;
+        const dimCount = result.tokens.filter((t) => t.kind === 'dimension').length;
+        if (dimCount > 0) {
           setLastFeedback(
-            `OCR completato: ${result.tokens.length} campi editabili (${vertCount} verticali) e ${result.rooms.length} vani riconosciuti. Doppio clic su qualsiasi quota per modificarla.`
+            `Rilevate ${dimCount} quote utili per auto-calibrazione scala · Usa subito il Laser a Croce per misurare i vani!`
           );
         } else {
-          setLastFeedback('Nessun numero o testo nitido rilevato: usa Modifica/Testo per aggiungerli oppure Righello / Poligono.');
+          setLastFeedback('Nessuna quota numerica standard rilevata: usa "Calibra col Laser (1 clic)" per tarare subito la tavola.');
         }
       } catch (err: any) {
         if (err?.message === 'Scansione annullata' || controller.signal.aborted) {
@@ -1128,7 +1092,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       ocrScannedPagesRef.current.clear();
       manualCalibratedPagesRef.current.clear();
       autoCalibRunKeyRef.current = '';
-      setViewMode('2d');
       setAutoCalibState({ status: 'idle', message: '', matchedH: 0, matchedV: 0 });
       setPageAnalyses({});
       setCustomMetersPerPt(null);
@@ -1137,30 +1100,22 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       try {
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        const pdfBase64 = bytes.byteLength <= 18 * 1024 * 1024 ? uint8ToBase64(bytes) : undefined;
+        // Evita serializzazione base64 sincrona su file grandi (>4.5MB) per apertura istantanea di tavole A0/A1
+        const pdfBase64 = bytes.byteLength <= 4.5 * 1024 * 1024 ? uint8ToBase64(bytes) : undefined;
         const doc = await loadPdfPlanDocument(bytes);
-        const initialScanCount = Math.min(doc.numPages, 8);
-        const analysesMap: Record<number, PlanPageAnalysis> = {};
-        let firstRichPage = 1;
-        let foundRich = false;
+        // Analizza subito solo Pagina 1 (le altre pagine vengono analizzate istantaneamente al cambio pagina)
+        const firstRichPage = 1;
+        const analysis = await analyzePdfPlanPage(doc, 1, quoteUnit);
+        const analysesMap: Record<number, PlanPageAnalysis> = { 1: analysis };
         let detectedScale = 100;
         let detectedH = 3.0;
-
-        for (let p = 1; p <= initialScanCount; p++) {
-          const analysis = await analyzePdfPlanPage(doc, p, quoteUnit);
-          analysesMap[p] = analysis;
-          if (analysis.detectedHeightM && analysis.detectedHeightM > 0) {
-            detectedH = analysis.detectedHeightM;
-            setDefaultHeightM(analysis.detectedHeightM);
-          }
-          if (analysis.detectedScaleDenominator) {
-            detectedScale = analysis.detectedScaleDenominator;
-            setScaleDenominator(analysis.detectedScaleDenominator);
-          }
-          if (!foundRich && (analysis.rooms.length > 0 || analysis.tokens.length > 5)) {
-            firstRichPage = p;
-            foundRich = true;
-          }
+        if (analysis.detectedHeightM && analysis.detectedHeightM > 0) {
+          detectedH = analysis.detectedHeightM;
+          setDefaultHeightM(analysis.detectedHeightM);
+        }
+        if (analysis.detectedScaleDenominator) {
+          detectedScale = analysis.detectedScaleDenominator;
+          setScaleDenominator(analysis.detectedScaleDenominator);
         }
 
         const newSheetId = `sheet_${uid()}_${Date.now().toString(36)}`;
@@ -1389,9 +1344,10 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           setPageAnalyses((prev) => ({ ...prev, [currentPage]: pageAnalysis! }));
         }
 
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        // Mantieni sempre alta risoluzione minima (1.8x) per precisione Laser Virtuale & estrazione BIM
-        const renderScale = Math.min(3.5, Math.max(1.8, zoom * dpr));
+        // Risoluzione fissa calibrata sul lato lungo (~2500px max):
+        // evita canvas da 50-98 Megapixel sulle tavole A0/A1 e scorpora lo zoom dal re-rendering PDF!
+        const maxPageSidePt = Math.max(pageAnalysis.width, pageAnalysis.height, 1);
+        const renderScale = Math.min(2.4, Math.max(0.85, 2500 / maxPageSidePt));
         const viewport = page.getViewport({ scale: renderScale });
 
         const canvas = canvasRef.current;
@@ -1413,11 +1369,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
         if (cancelled) return;
 
-        // Estrae e memorizza in cache la mappa di luminanza per il raycasting in tempo reale del Laser Virtuale
+        // Estrae una sola volta per pagina la mappa di luminanza per il raycasting a 60fps del Laser Virtuale
         canvasLumaRef.current = extractCanvasLumaGrid(canvas, pageAnalysis.width, pageAnalysis.height);
         setLumaVersion((v) => v + 1);
 
-        // OCR integrato nella fase di rendering: parte subito riusando il canvas se ad alta risoluzione
+        // OCR Turbo solo-misure integrato nella fase di rendering per tavole scansionate prive di quote vettoriali
         const hasOcrTokens = pageAnalysis.tokens.some((t) => t.source === 'ocr');
         if (pageAnalysis.isLikelyScanned && !hasOcrTokens && !ocrScannedPagesRef.current.has(currentPage)) {
           void handleRunOcrForPage(pdfDoc, currentPage, quoteUnit, canvas);
@@ -1443,7 +1399,29 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         } catch {}
       }
     };
-  }, [pdfDoc, isLoadingPdf, currentPage, zoom, isOpen, quoteUnit, handleRunOcrForPage]);
+  }, [pdfDoc, isLoadingPdf, currentPage, isOpen, quoteUnit, handleRunOcrForPage]);
+
+  // Carica i vertici OSNAP vettoriali solo su richiesta se l'utente attiva la calamita OSNAP
+  useEffect(() => {
+    if (!osnapEnabled || !pdfDoc || isLoadingPdf) return;
+    const cur = pageAnalysesRef.current[currentPage];
+    if (!cur || (cur.snapVertices && cur.snapVertices.length > 0)) return;
+    let cancelled = false;
+    (async () => {
+      const verts = await extractPageSnapVerticesOnDemand(pdfDoc, currentPage);
+      if (cancelled || verts.length === 0) return;
+      setPageAnalyses((prev) => {
+        const base = prev[currentPage];
+        if (!base) return prev;
+        const updated = { ...base, snapVertices: verts };
+        pageAnalysesRef.current = { ...pageAnalysesRef.current, [currentPage]: updated };
+        return { ...prev, [currentPage]: updated };
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [osnapEnabled, pdfDoc, currentPage, isLoadingPdf]);
 
   // Scorciatoie tastiera
   useEffect(() => {
@@ -1999,6 +1977,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         if (laserSoundEnabled) playLaserBeep();
 
         setLaserAreaFlash(null);
+        setLaserCrossFlash(null);
         setLaserFlashShot({ p1, p2, meters: distM });
         if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
         laserFlashTimerRef.current = window.setTimeout(() => setLaserFlashShot(null), 480);
@@ -2043,11 +2022,132 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       };
 
       const grid = canvasLumaRef.current;
-      const ignoreBboxes =
-        laserIgnoreText && currentAnalysis ? currentAnalysis.tokens.map((t) => t.bbox) : undefined;
       const effectiveOrtho = isShiftPressed ? !laserOrtho : laserOrtho;
 
-      // Primo clic comune a tutti e 3 i laser: posiziona il punto di partenza (origine)
+      // MODALITÀ LASER CROCE (2 RAGGI PERPENDICOLARI SX+DX e SU+GIÙ ATTIVI AL MOVIMENTO DEL MOUSE -> 1 CLIC TRASFERISCE LUNG. E LARG. NELL'ABACO MISURE)
+      if (laserMode === 'cross') {
+        if (!grid) {
+          setLastFeedback('Attendi il completamento del rendering della piantina per usare il Laser a Croce.');
+          return;
+        }
+        const crossRes = computeVirtualLaserCross({
+          grid,
+          emitterPt: pt,
+          sensitivity: laserSensitivity,
+          precomputedIgnoreRects: cachedLaserIgnoreRects,
+        });
+        if (!crossRes) {
+          setLastFeedback('Impossibile rilevare i due lati della stanza in questo punto.');
+          return;
+        }
+        const spanXM = Math.round(crossRes.spanXPt * metersPerPt * 100) / 100;
+        const spanYM = Math.round(crossRes.spanYPt * metersPerPt * 100) / 100;
+        if (spanXM <= 0.02 || spanYM <= 0.02) return;
+
+        if (laserSoundEnabled) playLaserBeep();
+
+        setLaserFlashShot(null);
+        setLaserAreaFlash(null);
+        setLaserCrossFlash(crossRes);
+        if (laserFlashTimerRef.current) window.clearTimeout(laserFlashTimerRef.current);
+        laserFlashTimerRef.current = window.setTimeout(() => setLaserCrossFlash(null), 550);
+
+        // CALIBRAZIONE RAPIDA COL LASER IN 1 CLIC: usa il raggio orizzontale (Sx↔Dx) tra le due pareti
+        if (isLaserCalibrating) {
+          setIsLaserCalibrating(false);
+          setCalibrationDraft({
+            distPt: crossRes.spanXPt,
+            realMetersStr: spanXM > 0.1 ? spanXM.toFixed(2) : '4.00',
+          });
+          setLastFeedback(
+            `Raggio orizzontale parete-parete rilevato (${spanXM.toFixed(2)} m stimati): inserisci la misura reale in metri e premi Invio`
+          );
+          return;
+        }
+
+        const areaM2 = Math.round(spanXM * spanYM * 100) / 100;
+        const perimM = Math.round((spanXM + spanYM) * 2 * 100) / 100;
+
+        let roomName = 'Vano da laser a croce';
+        if (currentAnalysis) {
+          let bestD = 115;
+          for (const rt of currentAnalysis.tokens) {
+            if (rt.kind !== 'room') continue;
+            const d = Math.hypot(rt.cx - pt.x, rt.cy - pt.y);
+            if (d < bestD) {
+              bestD = d;
+              roomName = rt.str;
+            }
+          }
+        }
+
+        const exportL = metersToUnit(spanXM, exportUnit);
+        const exportW = metersToUnit(spanYM, exportUnit);
+        const exportH =
+          extractionMode === 'walls_perim_h' || extractionMode === 'volume'
+            ? metersToUnit(defaultHeightM, exportUnit)
+            : undefined;
+        const crossNote = `Laser Croce ${spanXM.toFixed(2)} × ${spanYM.toFixed(2)} m (${areaM2.toFixed(2)} m²)`;
+
+        // Se l'utente aveva selezionato una riga/casella nell'abaco misure, compila Lunghezza e Larghezza su quella riga
+        if (activeCell) {
+          const targetRowId = activeCell.rowId;
+          setQueuedRows((prev) =>
+            prev.map((r) => {
+              if (r.id !== targetRowId) return r;
+              return {
+                ...r,
+                description: r.description?.trim() ? r.description : roomName,
+                length:
+                  extractionMode === 'walls_perim_h'
+                    ? metersToUnit(perimM, exportUnit)
+                    : exportL,
+                width:
+                  extractionMode === 'walls_perim_h' || extractionMode === 'linear'
+                    ? r.width
+                    : exportW,
+                height: r.height ?? exportH,
+                isDirectArea: false,
+                sourceNote: crossNote,
+              };
+            })
+          );
+          triggerCellBlink(targetRowId, 'width');
+          setActiveCell(null);
+          setLastFeedback(
+            `Laser Croce → ${roomName}: Lung. ${spanXM.toFixed(2)} m × Larg. ${spanYM.toFixed(2)} m (${areaM2.toFixed(2)} m²) trasferiti nell'abaco misure`
+          );
+          return;
+        }
+
+        // Altrimenti crea direttamente un nuovo rigo nell'Abaco Misure con Lunghezza e Larghezza compilate e mantiene il laser attivo
+        const newId = uid();
+        const newDraft: InternalMeasureDraft = {
+          id: newId,
+          description: roomName,
+          type: 'positive',
+          multiplier: undefined,
+          length:
+            extractionMode === 'walls_perim_h'
+              ? metersToUnit(perimM, exportUnit)
+              : exportL,
+          width:
+            extractionMode === 'walls_perim_h' || extractionMode === 'linear'
+              ? undefined
+              : exportW,
+          height: exportH,
+          isDirectArea: false,
+          sourceNote: crossNote,
+        };
+        setQueuedRows((prev) => [...prev, newDraft]);
+        triggerCellBlink(newId, 'width');
+        setLastFeedback(
+          `Laser Croce → ${roomName}: Lung. ${spanXM.toFixed(2)} m × Larg. ${spanYM.toFixed(2)} m (${areaM2.toFixed(2)} m²) trasferiti nell'abaco misure · Sposta il mouse per il prossimo vano`
+        );
+        return;
+      }
+
+      // Primo clic per 1 Raggio, 2 Raggi (Sx+Dx) e Areale: posiziona il punto di partenza (origine)
       if (!laserOrigin) {
         setLaserOrigin(pt);
         if (laserMode === 'area') {
@@ -2072,7 +2172,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         return;
       }
 
-      // Secondo clic — LASER 3 (AREALE m²): acquisisce la superficie espansa senza salvare poligoni in pianta
+      // Secondo clic — LASER AREALE (m²): acquisisce la superficie espansa senza salvare poligoni in pianta
       if (laserMode === 'area') {
         const origin = laserOrigin;
         setLaserOrigin(null);
@@ -2085,7 +2185,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           originPt: origin,
           cursorPt: pt,
           sensitivity: laserSensitivity,
-          ignoreBboxes,
+          precomputedIgnoreRects: cachedLaserIgnoreRects,
         });
         if (!areaRes) {
           setLastFeedback('Nessuna superficie rilevata tra i due punti: prova a posizionarti dentro il vano.');
@@ -2098,6 +2198,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
         if (laserSoundEnabled) playLaserBeep();
 
         setLaserFlashShot(null);
+        setLaserCrossFlash(null);
         setLaserAreaFlash({
           svgFillPath: areaRes.svgFillPath,
           svgBorderPath: areaRes.svgBorderPath,
@@ -2158,10 +2259,21 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           cursorPt: pt,
           orthoLock: effectiveOrtho,
           sensitivity: laserSensitivity,
-          ignoreBboxes,
+          precomputedIgnoreRects: cachedLaserIgnoreRects,
         });
         if (shot) {
           const distM = Math.round(shot.distPt * metersPerPt * 100) / 100;
+          if (isLaserCalibrating && shot.distPt > 4) {
+            setIsLaserCalibrating(false);
+            setCalibrationDraft({
+              distPt: shot.distPt,
+              realMetersStr: distM > 0.1 ? distM.toFixed(2) : '4.00',
+            });
+            setLastFeedback(
+              `Distanza laser rilevata (${distM.toFixed(2)} m stimati): inserisci la misura reale in metri e premi Invio`
+            );
+            return;
+          }
           if (shot.mode === 'dual') {
             const d1M = Math.round(shot.d1Pt * metersPerPt * 100) / 100;
             const d2M = Math.round(shot.d2Pt * metersPerPt * 100) / 100;
@@ -2491,7 +2603,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   // Standard CAD 2D senza barre di scorrimento: la rotella fa zoom fluido ancorato esattamente sul cursore
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container || !pdfDoc || viewMode !== '2d') return;
+    if (!container || !pdfDoc) return;
 
     const onNativeWheel = (e: WheelEvent) => {
       e.preventDefault();
@@ -2504,7 +2616,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     return () => {
       container.removeEventListener('wheel', onNativeWheel);
     };
-  }, [pdfDoc, viewMode, zoomAroundViewportPoint]);
+  }, [pdfDoc, zoomAroundViewportPoint]);
 
   // Standard CAD 2D: pan infinito fluido ovunque nella tavola (rotella premuta, Spazio o strumento Mano)
   useEffect(() => {
@@ -2596,8 +2708,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       scaleDenom: derivedDenom || scaleDenominator,
     });
     setCalibrationDraft(null);
-    setLastFeedback(`Scala calibrata: ${meters.toFixed(2)} m (~1:${derivedDenom})`);
-    setActiveTool('ruler');
+    setIsLaserCalibrating(false);
+    setLastFeedback(`Scala calibrata: ${meters.toFixed(2)} m (~1:${derivedDenom}) · Laser pronto!`);
+    setActiveTool('laser');
   };
 
   // Auto-calibrazione su richiesta o automatica sulla base delle quote orizzontali e verticali censite
@@ -2698,473 +2811,6 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     executeAutoCalibration,
   ]);
 
-  // 1. Quote significative e nomi vano per il layer opzionale "Quote & Misure" in 3D/BIM (senza alterare la pianta)
-  const significantQuotes = useMemo<SignificantQuoteItem[]>(() => {
-    return extractSignificantQuotes(currentAnalysis?.tokens || [], metersPerPt);
-  }, [currentAnalysis?.tokens, metersPerPt]);
-
-  // 2. ESTRAZIONE ARCHITETTONICA AD ALTA PRECISIONE (Muri Perimetrali, Tramezzi, Porte, Finestre, Pilastri, Vani)
-  // Lavora direttamente sulla griglia PDF originale ad alta risoluzione, ignorando scritte, quote e linee di misura!
-  const extractedBimModel = useMemo<PlanBimModel>(() => {
-    const gridToUse = canvasLumaRef.current;
-    if (!pdfDoc || lumaVersion === 0 || !gridToUse) {
-      return {
-        walls: [],
-        doors: [],
-        windows: [],
-        pillars: [],
-        rooms: [],
-        planWidthM: 10,
-        planHeightM: 10,
-        boundsM: { minX: 0, maxX: 10, minY: 0, maxY: 10 },
-      };
-    }
-    return extractPlanBimModel(
-      gridToUse,
-      metersPerPt,
-      currentAnalysis?.tokens || [],
-      currentAnalysis?.rooms || [],
-      defaultHeightM,
-      wall3DSensitivity
-    );
-  }, [
-    pdfDoc,
-    lumaVersion,
-    metersPerPt,
-    currentAnalysis?.tokens,
-    currentAnalysis?.rooms,
-    wall3DSensitivity,
-  ]);
-
-  const currentPlanBimKey = useMemo(
-    () => `${currentSheetId || 'local'}_${currentPage}_${metersPerPt.toFixed(6)}`,
-    [currentSheetId, currentPage, metersPerPt]
-  );
-
-  const activeAiBimModel = useMemo(
-    () => (aiBimOverride && aiBimOverride.key === currentPlanBimKey ? aiBimOverride.model : null),
-    [aiBimOverride, currentPlanBimKey]
-  );
-
-  const runAiBimReconstruction = useCallback(
-    async (forceRefresh = false) => {
-      const sourceCanvas = canvasRef.current;
-      if (!pdfDoc || !sourceCanvas || sourceCanvas.width === 0 || sourceCanvas.height === 0) {
-        setAiBimError('Attendi il caricamento completo della planimetria PDF prima di ricostruire il modello.');
-        return;
-      }
-
-      if (!forceRefresh) {
-        const cached = aiBimCacheRef.current.get(currentPlanBimKey);
-        if (cached) {
-          setAiBimError(null);
-          setAiBimOverride({ key: currentPlanBimKey, model: cached });
-          return;
-        }
-      }
-
-      if (aiBimAbortRef.current) {
-        aiBimAbortRef.current.abort();
-      }
-      const controller = new AbortController();
-      aiBimAbortRef.current = controller;
-      aiAutoAttemptedRef.current.add(currentPlanBimKey);
-
-      setIsAnalyzingAiBim(true);
-      setAiBimError(null);
-
-      try {
-        const planW =
-          currentAnalysis && currentAnalysis.width > 0
-            ? currentAnalysis.width * metersPerPt
-            : extractedBimModel.planWidthM;
-        const planH =
-          currentAnalysis && currentAnalysis.height > 0
-            ? currentAnalysis.height * metersPerPt
-            : extractedBimModel.planHeightM;
-
-        const aiModel = await analyzePlanBimWithAi(
-          sourceCanvas,
-          planW,
-          planH,
-          metersPerPt,
-          defaultHeightM,
-          currentAnalysis?.rooms || [],
-          controller.signal
-        );
-
-        if (controller.signal.aborted) return;
-
-        aiBimCacheRef.current.set(currentPlanBimKey, aiModel);
-        setAiBimOverride({ key: currentPlanBimKey, model: aiModel });
-        setLastFeedback(
-          `Modello 3D/BIM pulito ricostruito: ${aiModel.walls.length} muri, ${aiModel.doors.length} porte, ${aiModel.windows.length} finestre, ${aiModel.pillars.length} pilastri, ${aiModel.rooms.length} vani`
-        );
-      } catch (err: any) {
-        if (controller.signal.aborted || err?.name === 'AbortError') return;
-        console.error('Errore ricostruzione AI BIM:', err);
-        setAiBimError(
-          err?.message || 'Ricostruzione architettonica pulita non riuscita. Riprova o usa il rilevamento locale.'
-        );
-      } finally {
-        if (aiBimAbortRef.current === controller) {
-          aiBimAbortRef.current = null;
-        }
-        setIsAnalyzingAiBim(false);
-      }
-    },
-    [
-      pdfDoc,
-      currentPlanBimKey,
-      currentAnalysis,
-      metersPerPt,
-      extractedBimModel.planWidthM,
-      extractedBimModel.planHeightM,
-      defaultHeightM,
-    ]
-  );
-
-  // Avvia automaticamente la ricostruzione architettonica pulita la prima volta che si entra in 3D o BIM
-  useEffect(() => {
-    if (!pdfDoc || lumaVersion === 0) return;
-    if (viewMode !== '3d' && viewMode !== 'bim') return;
-
-    const cached = aiBimCacheRef.current.get(currentPlanBimKey);
-    if (cached) {
-      setAiBimOverride((prev) => (prev?.key === currentPlanBimKey ? prev : { key: currentPlanBimKey, model: cached }));
-      return;
-    }
-
-    if (aiAutoAttemptedRef.current.has(currentPlanBimKey)) return;
-    void runAiBimReconstruction(false);
-  }, [pdfDoc, lumaVersion, viewMode, currentPlanBimKey, runAiBimReconstruction]);
-
-  // Sincronizza il modello BIM editabile dando priorità al modello pulito AI quando presente
-  useEffect(() => {
-    const baseModel = activeAiBimModel ?? extractedBimModel;
-    bimUndoStackRef.current = [];
-    bimRedoStackRef.current = [];
-    setBimHistoryCounts({ undo: 0, redo: 0 });
-    setBimModelState({
-      ...baseModel,
-      walls: baseModel.walls.map((w) => ({ ...w, heightM: defaultHeightM })),
-      pillars: baseModel.pillars.map((p) => ({ ...p, heightM: defaultHeightM })),
-      rooms: baseModel.rooms.map((r) => ({ ...r, heightM: defaultHeightM })),
-    });
-  }, [activeAiBimModel, extractedBimModel]);
-
-  // Aggiorna altezza pareti & pilastri live quando cambia H (defaultHeightM)
-  useEffect(() => {
-    setBimModelState((prev) => ({
-      ...prev,
-      walls: prev.walls.map((w) => ({ ...w, heightM: defaultHeightM })),
-      pillars: prev.pillars.map((p) => ({ ...p, heightM: defaultHeightM })),
-      rooms: prev.rooms.map((r) => ({ ...r, heightM: defaultHeightM })),
-    }));
-  }, [defaultHeightM]);
-
-  const applyBimEdit = useCallback((updater: (prev: PlanBimModel) => PlanBimModel, feedback?: string) => {
-    setBimModelState((prev) => {
-      const next = updater(prev);
-      if (next === prev) return prev;
-      bimUndoStackRef.current = [...bimUndoStackRef.current.slice(-29), prev];
-      bimRedoStackRef.current = [];
-      setBimHistoryCounts({ undo: bimUndoStackRef.current.length, redo: 0 });
-      return next;
-    });
-    if (feedback) setLastFeedback(feedback);
-  }, []);
-
-  const handleUndoBim = useCallback(() => {
-    setBimModelState((prev) => {
-      if (bimUndoStackRef.current.length === 0) return prev;
-      const previous = bimUndoStackRef.current[bimUndoStackRef.current.length - 1];
-      bimUndoStackRef.current = bimUndoStackRef.current.slice(0, -1);
-      bimRedoStackRef.current = [...bimRedoStackRef.current.slice(-29), prev];
-      setBimHistoryCounts({ undo: bimUndoStackRef.current.length, redo: bimRedoStackRef.current.length });
-      return previous;
-    });
-    setLastFeedback('Modifica 3D/BIM annullata');
-  }, []);
-
-  const handleRedoBim = useCallback(() => {
-    setBimModelState((prev) => {
-      if (bimRedoStackRef.current.length === 0) return prev;
-      const restored = bimRedoStackRef.current[bimRedoStackRef.current.length - 1];
-      bimRedoStackRef.current = bimRedoStackRef.current.slice(0, -1);
-      bimUndoStackRef.current = [...bimUndoStackRef.current.slice(-29), prev];
-      setBimHistoryCounts({ undo: bimUndoStackRef.current.length, redo: bimRedoStackRef.current.length });
-      return restored;
-    });
-    setLastFeedback('Modifica 3D/BIM ripristinata');
-  }, []);
-
-  // Modifica in tempo reale di un oggetto BIM (Parete, Porta, Finestra, Pilastro, Vano)
-  const handleUpdateBimObject = useCallback(
-    (updated: BimObject) => {
-      applyBimEdit((prev) => {
-        if (updated.kind === 'wall') {
-          return {
-            ...prev,
-            walls: prev.walls.map((w) => {
-              if (w.id !== updated.id) return w;
-              // Se è cambiata la lunghezza dal pannello BIM, aggiorna coerentemente gli estremi x1/y1/x2/y2
-              if (Math.abs(w.lengthM - updated.lengthM) > 0.001) {
-                const ang =
-                  typeof updated.angleRad === 'number'
-                    ? updated.angleRad
-                    : Math.atan2(w.y2M - w.y1M, w.x2M - w.x1M);
-                const half = updated.lengthM * 0.5;
-                const ux = Math.cos(ang);
-                const uy = Math.sin(ang);
-                return {
-                  ...updated,
-                  x1M: Math.round((updated.cxM - ux * half) * 100) / 100,
-                  y1M: Math.round((updated.cyM - uy * half) * 100) / 100,
-                  x2M: Math.round((updated.cxM + ux * half) * 100) / 100,
-                  y2M: Math.round((updated.cyM + uy * half) * 100) / 100,
-                  angleRad: ang,
-                };
-              }
-              return updated;
-            }),
-          };
-        }
-        if (updated.kind === 'door') {
-          return { ...prev, doors: prev.doors.map((d) => (d.id === updated.id ? updated : d)) };
-        }
-        if (updated.kind === 'window') {
-          return { ...prev, windows: prev.windows.map((wn) => (wn.id === updated.id ? updated : wn)) };
-        }
-        if (updated.kind === 'pillar') {
-          return { ...prev, pillars: prev.pillars.map((p) => (p.id === updated.id ? updated : p)) };
-        }
-        return { ...prev, rooms: prev.rooms.map((r) => (r.id === updated.id ? updated : r)) };
-      });
-    },
-    [applyBimEdit]
-  );
-
-  // Eliminazione di un oggetto BIM in 1 clic
-  const handleDeleteBimObject = useCallback(
-    (id: string, kind: BimObjectKind) => {
-      applyBimEdit((prev) => {
-        if (kind === 'wall') return { ...prev, walls: prev.walls.filter((w) => w.id !== id) };
-        if (kind === 'door') return { ...prev, doors: prev.doors.filter((d) => d.id !== id) };
-        if (kind === 'window') return { ...prev, windows: prev.windows.filter((wn) => wn.id !== id) };
-        if (kind === 'pillar') return { ...prev, pillars: prev.pillars.filter((p) => p.id !== id) };
-        return { ...prev, rooms: prev.rooms.filter((r) => r.id !== id) };
-      }, 'Oggetto rimosso dal modello 3D/BIM (Ctrl+Z per annullare)');
-    },
-    [applyBimEdit]
-  );
-
-  // Eliminazione multipla in 1 colpo (Riquadro Gomma o Multi-Selezione)
-  const handleDeleteMultipleBimObjects = useCallback(
-    (items: Array<{ id: string; kind: BimObjectKind }>) => {
-      if (items.length === 0) return;
-      const dropIds = new Set(items.map((it) => it.id));
-      applyBimEdit(
-        (prev) => ({
-          ...prev,
-          walls: prev.walls.filter((w) => !dropIds.has(w.id)),
-          doors: prev.doors.filter((d) => !dropIds.has(d.id)),
-          windows: prev.windows.filter((wn) => !dropIds.has(wn.id)),
-          pillars: prev.pillars.filter((p) => !dropIds.has(p.id)),
-          rooms: prev.rooms.filter((r) => !dropIds.has(r.id)),
-        }),
-        `Rimossi ${items.length} oggetti dal modello 3D/BIM (Ctrl+Z per annullare)`
-      );
-    },
-    [applyBimEdit]
-  );
-
-  // Aggiunta manuale CAD di un nuovo Muro, Porta (con foro automatico!), Finestra (con foro automatico!) o Pilastro
-  const handleAddBimObject = useCallback(
-    (newObj: BimObject) => {
-      applyBimEdit((prev) => {
-        if (newObj.kind === 'wall') {
-          const nextWalls = [...prev.walls, newObj];
-          const minX = Math.min(prev.boundsM.minX, newObj.x1M, newObj.x2M);
-          const maxX = Math.max(prev.boundsM.maxX, newObj.x1M, newObj.x2M);
-          const minY = Math.min(prev.boundsM.minY, newObj.y1M, newObj.y2M);
-          const maxY = Math.max(prev.boundsM.maxY, newObj.y1M, newObj.y2M);
-          return {
-            ...prev,
-            walls: nextWalls,
-            boundsM: prev.walls.length === 0
-              ? {
-                  minX: Math.min(newObj.x1M, newObj.x2M),
-                  maxX: Math.max(newObj.x1M, newObj.x2M),
-                  minY: Math.min(newObj.y1M, newObj.y2M),
-                  maxY: Math.max(newObj.y1M, newObj.y2M),
-                }
-              : { minX, maxX, minY, maxY },
-          };
-        }
-        if (newObj.kind === 'door') {
-          const carvedWalls = splitWallsAroundOpenings(prev.walls, [newObj], []);
-          return { ...prev, walls: carvedWalls, doors: [...prev.doors, newObj] };
-        }
-        if (newObj.kind === 'window') {
-          const carvedWalls = splitWallsAroundOpenings(prev.walls, [], [newObj]);
-          return { ...prev, walls: carvedWalls, windows: [...prev.windows, newObj] };
-        }
-        if (newObj.kind === 'pillar') {
-          return { ...prev, pillars: [...prev.pillars, newObj] };
-        }
-        return { ...prev, rooms: [...prev.rooms, newObj] };
-      }, `Aggiunto ${newObj.name} al modello 3D/BIM`);
-    },
-    [applyBimEdit]
-  );
-
-  // Pulizia automatica rapida 1-clic (frammenti corti o muri doppi / gradini scale)
-  const handleCleanBimModel = useCallback(
-    (action: 'short_fragments' | 'dedup_and_stairs') => {
-      if (action === 'short_fragments') {
-        applyBimEdit((prev) => {
-          const kept = prev.walls.filter((w) => w.lengthM >= 0.65);
-          if (kept.length === prev.walls.length) return prev;
-          return { ...prev, walls: kept };
-        }, 'Puliti i frammenti di parete corti (< 0,65 m)');
-        return;
-      }
-      applyBimEdit((prev) => {
-        const cleanedWalls = splitWallsAroundOpenings(
-          cleanArchitecturalWalls(prev.walls),
-          prev.doors,
-          prev.windows
-        );
-        return { ...prev, walls: cleanedWalls };
-      }, 'Pulizia automatica applicata (muri doppi uniti e gradini rimossi)');
-    },
-    [applyBimEdit]
-  );
-
-  const totalBimObjectsCount =
-    bimModelState.walls.length +
-    bimModelState.doors.length +
-    bimModelState.windows.length +
-    bimModelState.pillars.length +
-    bimModelState.rooms.length;
-
-  // Converte qualsiasi oggetto BIM in riga computo pronta per il BoQ
-  const bimObjectToDraft = useCallback(
-    (obj: BimObject, sides: 1 | 2): InternalMeasureDraft => {
-      const id = uid();
-      if (obj.kind === 'wall') {
-        const areaM2 = Math.round(obj.lengthM * obj.heightM * sides * 100) / 100;
-        return {
-          id,
-          description: sides === 2 ? `${obj.name} (2 lati)` : obj.name,
-          type: 'positive',
-          multiplier: sides > 1 ? sides : undefined,
-          length: metersToUnit(obj.lengthM, exportUnit),
-          height: metersToUnit(obj.heightM, exportUnit),
-          sourceNote: `BIM ${obj.category} · ${obj.material} · ${areaM2.toFixed(2)} m²`,
-        };
-      }
-      if (obj.kind === 'door') {
-        const areaM2 = Math.round(obj.widthM * obj.heightM * 100) / 100;
-        return {
-          id,
-          description: `${obj.name} (${obj.doorType})`,
-          type: 'positive',
-          multiplier: extractionMode === 'count' ? 1 : undefined,
-          length: extractionMode === 'count' ? undefined : metersToUnit(obj.widthM, exportUnit),
-          height: extractionMode === 'count' ? undefined : metersToUnit(obj.heightM, exportUnit),
-          sourceNote: `BIM Porta ${obj.widthM.toFixed(2)}×${obj.heightM.toFixed(2)} m (${areaM2.toFixed(2)} m²)`,
-        };
-      }
-      if (obj.kind === 'window') {
-        const areaM2 = Math.round(obj.widthM * obj.heightM * 100) / 100;
-        return {
-          id,
-          description: `${obj.name} (${obj.windowType})`,
-          type: 'positive',
-          multiplier: extractionMode === 'count' ? 1 : undefined,
-          length: extractionMode === 'count' ? undefined : metersToUnit(obj.widthM, exportUnit),
-          height: extractionMode === 'count' ? undefined : metersToUnit(obj.heightM, exportUnit),
-          sourceNote: `BIM Infisso ${obj.widthM.toFixed(2)}×${obj.heightM.toFixed(2)} m (${areaM2.toFixed(2)} m²)`,
-        };
-      }
-      if (obj.kind === 'pillar') {
-        const volM3 = Math.round(obj.widthM * obj.depthM * obj.heightM * 100) / 100;
-        return {
-          id,
-          description: `${obj.name} (${obj.material})`,
-          type: 'positive',
-          length: metersToUnit(obj.widthM, exportUnit),
-          width: metersToUnit(obj.depthM, exportUnit),
-          height: metersToUnit(obj.heightM, exportUnit),
-          sourceNote: `BIM Pilastro ${obj.widthM.toFixed(2)}×${obj.depthM.toFixed(2)}×${obj.heightM.toFixed(2)} m (${volM3.toFixed(2)} m³)`,
-        };
-      }
-      // Room / Pavimento
-      return {
-        id,
-        description: `${obj.name} (${obj.finish})`,
-        type: 'positive',
-        length: obj.areaM2,
-        isDirectArea: true,
-        sourceNote: `BIM Vano · Sup. ${obj.areaM2.toFixed(2)} m² · Perim. ${obj.perimeterM.toFixed(2)} m`,
-      };
-    },
-    [exportUnit, extractionMode]
-  );
-
-  // Computo diretto di 1 oggetto cliccato nel 3D o nel BIM Inspector
-  const handleComputeBimObject = useCallback(
-    (obj: BimObject, sides: 1 | 2) => {
-      if (activeCell) {
-        if (obj.kind === 'wall') {
-          if (activeCell.field === 'height') {
-            insertValueIntoActiveCell(obj.heightM, `Altezza ${obj.name}`, false);
-            return;
-          }
-          if (activeCell.field === 'length' && extractionMode === 'linear') {
-            insertValueIntoActiveCell(obj.lengthM, `Lung. ${obj.name}`, false);
-            return;
-          }
-          const areaM2 = Math.round(obj.lengthM * obj.heightM * sides * 100) / 100;
-          insertValueIntoActiveCell(areaM2, `${obj.name} (${sides} ${sides === 2 ? 'lati' : 'lato'})`, true);
-          return;
-        }
-        if (obj.kind === 'door' || obj.kind === 'window') {
-          const areaM2 = Math.round(obj.widthM * obj.heightM * 100) / 100;
-          insertValueIntoActiveCell(areaM2, `BIM ${obj.name}`, true);
-          return;
-        }
-        if (obj.kind === 'pillar') {
-          const volM3 = Math.round(obj.widthM * obj.depthM * obj.heightM * 100) / 100;
-          insertValueIntoActiveCell(volM3, `BIM ${obj.name} (m³)`, true);
-          return;
-        }
-        insertValueIntoActiveCell(obj.areaM2, `BIM ${obj.name}`, true);
-        return;
-      }
-
-      const draft = bimObjectToDraft(obj, sides);
-      setQueuedRows((prev) => [...prev, draft]);
-      triggerCellBlink(draft.id, 'length');
-      setLastFeedback(`Oggetto BIM computato: ${draft.description}`);
-    },
-    [activeCell, extractionMode, insertValueIntoActiveCell, bimObjectToDraft, triggerCellBlink]
-  );
-
-  // Computo multiplo di oggetti selezionati nel 3D o nel BIM
-  const handleComputeMultipleBimObjects = useCallback(
-    (objs: BimObject[], sides: 1 | 2) => {
-      if (objs.length === 0) return;
-      const drafts = objs.map((o) => bimObjectToDraft(o, sides));
-      setQueuedRows((prev) => [...prev, ...drafts]);
-      triggerCellBlink(drafts[drafts.length - 1].id, 'length');
-      setLastFeedback(`Aggiunti ${objs.length} oggetti BIM al computo metrico`);
-    },
-    [bimObjectToDraft, triggerCellBlink]
-  );
-
   // Calcola totali parziali e totale complessivo esattamente come il computo principale
   const computedRows = useMemo(() => {
     let runningSubtotal = 0;
@@ -3204,12 +2850,30 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     onClose();
   };
 
+  // Pre-calcola una sola volta per pagina i rettangoli pixel da saltare col Laser (zero allocazioni durante il movimento del mouse a 60fps!)
+  const cachedLaserIgnoreRects = useMemo(() => {
+    if (!laserIgnoreText || !currentAnalysis) return [];
+    const grid = canvasLumaRef.current;
+    if (!grid) return [];
+    return buildLaserIgnoreRects(
+      grid,
+      currentAnalysis.tokens.map((t) => t.bbox)
+    );
+  }, [laserIgnoreText, currentAnalysis, lumaVersion]);
+
   // Calcolo in tempo reale dei 2 Laser lineari (1 Raggio & 2 Raggi Sx+Dx sommati)
   const liveLaserShot = useMemo(() => {
-    if (activeTool !== 'laser' || laserMode === 'area' || !laserOrigin || !cursorPt || !currentAnalysis) return null;
+    if (
+      activeTool !== 'laser' ||
+      (laserMode !== 'single' && laserMode !== 'dual') ||
+      !laserOrigin ||
+      !cursorPt ||
+      !currentAnalysis
+    ) {
+      return null;
+    }
     const grid = canvasLumaRef.current;
     if (!grid) return null;
-    const ignoreBboxes = laserIgnoreText ? currentAnalysis.tokens.map((t) => t.bbox) : undefined;
     const effectiveOrtho = isShiftPressed ? !laserOrtho : laserOrtho;
     return computeVirtualLaserShot({
       grid,
@@ -3218,7 +2882,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
       cursorPt,
       orthoLock: effectiveOrtho,
       sensitivity: laserSensitivity,
-      ignoreBboxes,
+      precomputedIgnoreRects: cachedLaserIgnoreRects,
     });
   }, [
     activeTool,
@@ -3226,25 +2890,45 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     currentAnalysis,
     laserMode,
     laserOrigin,
-    laserIgnoreText,
+    cachedLaserIgnoreRects,
     isShiftPressed,
     laserOrtho,
     laserSensitivity,
     lumaVersion,
   ]);
 
-  // Calcolo in tempo reale del Laser 3 Areale (scansione superficie m² & perimetro tra Punto 1 e Punto 2)
+  // Calcolo in tempo reale del Laser a Croce (2 raggi perpendicolari Sx+Dx e Su+Giù sempre attivi mentre sposti il mouse!)
+  const liveLaserCross = useMemo(() => {
+    if (activeTool !== 'laser' || laserMode !== 'cross' || !cursorPt || !currentAnalysis) return null;
+    const grid = canvasLumaRef.current;
+    if (!grid) return null;
+    return computeVirtualLaserCross({
+      grid,
+      emitterPt: cursorPt,
+      sensitivity: laserSensitivity,
+      precomputedIgnoreRects: cachedLaserIgnoreRects,
+    });
+  }, [
+    activeTool,
+    cursorPt,
+    currentAnalysis,
+    laserMode,
+    cachedLaserIgnoreRects,
+    laserSensitivity,
+    lumaVersion,
+  ]);
+
+  // Calcolo in tempo reale del Laser Areale (scansione superficie m² & perimetro tra Punto 1 e Punto 2)
   const liveLaserArea = useMemo(() => {
     if (activeTool !== 'laser' || laserMode !== 'area' || !laserOrigin || !cursorPt || !currentAnalysis) return null;
     const grid = canvasLumaRef.current;
     if (!grid) return null;
-    const ignoreBboxes = laserIgnoreText ? currentAnalysis.tokens.map((t) => t.bbox) : undefined;
     return computeVirtualLaserArea({
       grid,
       originPt: laserOrigin,
       cursorPt,
       sensitivity: laserSensitivity,
-      ignoreBboxes,
+      precomputedIgnoreRects: cachedLaserIgnoreRects,
     });
   }, [
     activeTool,
@@ -3252,7 +2936,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
     currentAnalysis,
     laserMode,
     laserOrigin,
-    laserIgnoreText,
+    cachedLaserIgnoreRects,
     laserSensitivity,
     lumaVersion,
   ]);
@@ -3273,6 +2957,14 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
   const liveLaserD2Meters = liveLaserShot
     ? Math.round(liveLaserShot.d2Pt * metersPerPt * 100) / 100
     : 0;
+
+  const liveLaserCrossXM = liveLaserCross
+    ? Math.round(liveLaserCross.spanXPt * metersPerPt * 100) / 100
+    : 0;
+  const liveLaserCrossYM = liveLaserCross
+    ? Math.round(liveLaserCross.spanYPt * metersPerPt * 100) / 100
+    : 0;
+  const liveLaserCrossAreaM2 = Math.round(liveLaserCrossXM * liveLaserCrossYM * 100) / 100;
 
   const liveLaserAreaM2 = liveLaserArea
     ? Math.round(liveLaserArea.areaPt2 * metersPerPt * metersPerPt * 100) / 100
@@ -3452,82 +3144,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
               ref={cadMenuBarRef}
               className="relative z-40 bg-slate-900 border-b border-slate-700/80 px-2.5 py-1 flex items-center justify-between gap-2 shrink-0 select-none"
             >
-              {/* SINISTRA: SELETTORE VISTA 2D / 3D / BIM + STRUMENTI RAPIDI & MENU A TENDINA AUTOCAD */}
+              {/* SINISTRA: STRUMENTI RAPIDI 2D & MENU A TENDINA AUTOCAD */}
               <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                <div className="flex items-center gap-0.5 bg-slate-950 p-0.5 rounded-md border border-slate-700 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewMode('2d');
-                      setOpenCadMenu(null);
-                    }}
-                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === '2d'
-                        ? 'bg-slate-200 text-slate-950 shadow-sm'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                    }`}
-                    title="Vista 2D della piantina PDF"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>2D Pianta</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewMode('3d');
-                      setOpenCadMenu(null);
-                    }}
-                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === '3d'
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'text-amber-300 hover:text-white hover:bg-amber-950/60'
-                    }`}
-                    title="Modello 3D pulito con pareti estruse all'altezza dichiarata H"
-                  >
-                    <Box className="w-3.5 h-3.5" />
-                    <span>3D</span>
-                    {bimModelState.walls.length > 0 && (
-                      <span
-                        className={`px-1 rounded text-[10px] font-mono tabular-nums ${
-                          viewMode === '3d' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-500/20 text-amber-200'
-                        }`}
-                      >
-                        {bimModelState.walls.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewMode('bim');
-                      setOpenCadMenu(null);
-                    }}
-                    className={`px-2 py-1 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === 'bim'
-                        ? 'bg-cyan-500 text-slate-950 shadow-sm'
-                        : 'text-cyan-300 hover:text-white hover:bg-cyan-950/60'
-                    }`}
-                    title="Modello BIM interattivo da PDF: individua ed edita Muri, Porte, Finestre, Pilastri e Vani"
-                  >
-                    <Cuboid className="w-3.5 h-3.5" />
-                    <span>BIM</span>
-                    {totalBimObjectsCount > 0 && (
-                      <span
-                        className={`px-1 rounded text-[10px] font-mono tabular-nums ${
-                          viewMode === 'bim' ? 'bg-slate-950/20 text-slate-950' : 'bg-cyan-500/20 text-cyan-200'
-                        }`}
-                      >
-                        {totalBimObjectsCount}
-                      </span>
-                    )}
-                  </button>
-                </div>
-
-                {viewMode === '2d' && (
-                  <>
-                    <div className="h-4 w-px bg-slate-700/80 shrink-0" />
-
-                    {/* STRUMENTI PRINCIPALI DI MISURA RAPIDA */}
+                    {/* STRUMENTI PRINCIPALI DI MISURA RAPIDA 2D */}
                     <div className="flex items-center gap-0.5 bg-slate-950/80 p-0.5 rounded-md border border-slate-800 shrink-0">
                       <button
                         type="button"
@@ -3588,7 +3207,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                           setPolygonPts([]);
                           setOpenCadMenu(null);
                           setLastFeedback(
-                            laserMode === 'area'
+                            laserMode === 'cross'
+                              ? 'Laser a Croce (Lung.×Larg.) attivo: muovi il mouse nella stanza (i 2 raggi perpendicolari restano attivi) e fai 1 clic per trasferire Lunghezza e Larghezza nell’Abaco Misure'
+                              : laserMode === 'area'
                               ? 'Laser Areale attivo: clicca il 1° punto nel vano, spostati verso il 2° punto per espandere la superficie e clicca per acquisire'
                               : laserMode === 'dual'
                               ? 'Laser 2 Raggi (Sx+Dx) attivo: clicca dentro la stanza, sposta il mouse su un lato per sommare le due pareti e clicca'
@@ -3600,7 +3221,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                             ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-400/60'
                             : 'text-red-300 hover:text-white hover:bg-red-950/60'
                         }`}
-                        title="Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Areale m²)"
+                        title="Laser Virtuale (1 Raggio, 2 Raggi Sx+Dx, Croce Lung.×Larg., Areale m²)"
                       >
                         <Target className="w-3.5 h-3.5" />
                         <span>Laser</span>
@@ -4274,11 +3895,9 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                         </div>
                       )}
                     </div>
-                  </>
-                )}
               </div>
 
-              {/* DESTRA: STATO OCR LIVE + ZOOM (IN 2D) OPPURE UNITÀ RIPORTATA (IN 3D/BIM) */}
+              {/* DESTRA: STATO OCR LIVE + ZOOM 2D */}
               <div className="flex items-center gap-1.5 shrink-0">
                 {isScanningOcr && (
                   <button
@@ -4296,68 +3915,41 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   </button>
                 )}
 
-                {viewMode === '2d' ? (
-                  <div className="flex items-center bg-slate-950 rounded-md border border-slate-700 p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => zoomAroundViewportPoint(zoomRef.current * 0.82)}
-                      className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
-                      title="Zoom Indietro"
-                    >
-                      <ZoomOut className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="px-1.5 text-[11px] font-mono tabular-nums text-slate-200 min-w-[42px] text-center">
-                      {Math.round(zoom * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => zoomAroundViewportPoint(zoomRef.current * 1.22)}
-                      className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
-                      title="Zoom Avanti"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleFitToViewport}
-                      className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800 border-l border-slate-700 ml-0.5 pl-1.5"
-                      title="Adatta e centra tavola"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className="flex items-center bg-slate-950 rounded-md border border-emerald-500/35 p-0.5 text-[11px]"
-                      title="Unità riportata nelle caselle del computo"
-                    >
-                      <span className="px-1.5 text-[10px] font-semibold text-emerald-300">Riporta:</span>
-                      {(['m', 'cm', 'mm'] as QuoteUnit[]).map((u) => (
-                        <button
-                          key={u}
-                          type="button"
-                          onClick={() => handleChangeExportUnit(u)}
-                          className={`px-1.5 py-0.5 rounded font-mono font-semibold transition-colors ${
-                            exportUnit === u ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          {u}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="hidden xl:inline text-[11px] font-mono tabular-nums text-slate-400 px-1">
-                      1:{scaleDenominator}
-                      {customMetersPerPt !== null ? ' · Calibrata' : ''}
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center bg-slate-950 rounded-md border border-slate-700 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => zoomAroundViewportPoint(zoomRef.current * 0.82)}
+                    className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
+                    title="Zoom Indietro"
+                  >
+                    <ZoomOut className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="px-1.5 text-[11px] font-mono tabular-nums text-slate-200 min-w-[42px] text-center">
+                    {Math.round(zoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => zoomAroundViewportPoint(zoomRef.current * 1.22)}
+                    className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800"
+                    title="Zoom Avanti"
+                  >
+                    <ZoomIn className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFitToViewport}
+                    className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-800 border-l border-slate-700 ml-0.5 pl-1.5"
+                    title="Adatta e centra tavola"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* SUB-BAR CONTESTUALE LASER VIRTUALE (3 MODALITÀ: 1 RAGGIO, 2 RAGGI SX+DX, AREALE m²) */}
-          {pdfDoc && viewMode === '2d' && activeTool === 'laser' && (
+          {/* SUB-BAR CONTESTUALE LASER VIRTUALE (4 MODALITÀ: 1 RAGGIO, 2 RAGGI SX+DX, CROCE LUNG.×LARG., AREALE m²) */}
+          {pdfDoc && activeTool === 'laser' && (
             <div className="bg-slate-900/95 border-b border-red-900/60 px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[11px] font-bold text-red-400 flex items-center gap-1 whitespace-nowrap shrink-0">
@@ -4365,7 +3957,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   Laser
                 </span>
 
-                {/* 3 Modalità Laser */}
+                {/* 4 Modalità Laser */}
                 <div className="flex items-center bg-slate-950 rounded-md p-0.5 border border-slate-700">
                   <button
                     type="button"
@@ -4400,6 +3992,21 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      setLaserMode('cross');
+                      setLaserOrigin(null);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                      laserMode === 'cross'
+                        ? 'bg-red-600 text-white shadow-sm ring-1 ring-red-400/60'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                    title="Laser a Croce (Lunghezza × Larghezza): i 2 raggi perpendicolari (Sx+Dx e Su+Giù) restano sempre attivi mentre muovi il mouse. Con 1 clic trasferisce Lunghezza e Larghezza nell'Abaco Misure"
+                  >
+                    Croce (Lung.×Larg.)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
                       setLaserMode('area');
                       setLaserOrigin(null);
                     }}
@@ -4408,13 +4015,13 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                         ? 'bg-red-600 text-white'
                         : 'text-slate-300 hover:text-white'
                     }`}
-                    title="Laser 3 Areale: clicca un punto e spostati verso il secondo → espande il laser su tutte le pareti e calcola i m²"
+                    title="Laser 4 Areale: clicca un punto e spostati verso il secondo → espande il laser su tutte le pareti e calcola i m²"
                   >
                     Areale (m²)
                   </button>
                 </div>
 
-                {laserMode !== 'area' && (
+                {(laserMode === 'single' || laserMode === 'dual') && (
                   <button
                     type="button"
                     onClick={() => setLaserOrtho((v) => !v)}
@@ -4482,10 +4089,38 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 >
                   {laserSoundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isLaserCalibrating;
+                    setIsLaserCalibrating(next);
+                    if (next) {
+                      setLastFeedback(
+                        'Calibrazione col Laser attiva: clicca dentro un vano (usa il raggio orizzontale Sx↔Dx) per impostare la misura reale in metri'
+                      );
+                    } else {
+                      setLastFeedback(null);
+                    }
+                  }}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-bold border flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    isLaserCalibrating
+                      ? 'bg-amber-500 text-slate-950 border-amber-300 animate-pulse'
+                      : 'bg-slate-950 border-amber-500/50 text-amber-300 hover:bg-amber-950/60'
+                  }`}
+                  title="Tara la scala della tavola in 1 clic sparando il laser tra due pareti di distanza nota"
+                >
+                  <Crosshair className="w-3 h-3" />
+                  <span>{isLaserCalibrating ? 'Clicca nel vano per calibrare...' : 'Calibra col Laser (1 clic)'}</span>
+                </button>
               </div>
 
               <div className="text-[11px] text-slate-400 whitespace-nowrap">
-                {laserMode === 'area'
+                {isLaserCalibrating
+                  ? 'Punta il Laser tra due pareti di larghezza nota e fai 1 clic per inserire la misura reale in metri'
+                  : laserMode === 'cross'
+                  ? 'Muovi il mouse nel vano (i 2 raggi perpendicolari restano attivi) · 1 Clic trasferisce Lunghezza e Larghezza nell’Abaco Misure'
+                  : laserMode === 'area'
                   ? laserOrigin
                     ? 'Muoviti verso il 2° punto per espandere la superficie · Clic acquisisce in cella · Esc/Dx annulla'
                     : 'Clicca il 1° punto dentro il vano → muoviti verso il 2° punto per calcolare i m²'
@@ -4501,7 +4136,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           )}
 
           {/* SUB-BAR CONTESTUALE PENNINO COLORATO / TESTO SU PIANTINA */}
-          {pdfDoc && viewMode === '2d' && (activeTool === 'pen' || activeTool === 'text_note') && (
+          {pdfDoc && (activeTool === 'pen' || activeTool === 'text_note') && (
             <div className="bg-slate-900/95 border-b border-slate-700/80 px-3 py-1.5 flex items-center justify-between gap-3 flex-wrap shrink-0 text-xs">
               {activeTool === 'pen' ? (
                 <div className="flex items-center gap-2.5 flex-wrap">
@@ -4678,8 +4313,11 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
           {/* BARRA CONTESTUALE ATTIVA (solo quando serve in 2D o scansione OCR attiva) */}
           {pdfDoc &&
             (isScanningOcr ||
-              (viewMode === '2d' &&
-                (calibrationDraft || polygonPts.length > 0 || pendingLengthPick || activeCell || lastFeedback))) && (
+              calibrationDraft ||
+              polygonPts.length > 0 ||
+              pendingLengthPick ||
+              activeCell ||
+              lastFeedback) && (
             <div className="bg-slate-950/90 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex items-center gap-2.5 min-w-0 text-slate-200 flex-wrap flex-1">
                 {isScanningOcr && ocrProgress ? (
@@ -4792,10 +4430,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* BANNER AUTO-CALIBRAZIONE: in 3D/BIM mostra solo avviso se calibrazione manuale richiesta, lasciando il disegno al centro */}
-          {pdfDoc &&
-            autoCalibState.status !== 'idle' &&
-            (viewMode === '2d' || autoCalibState.status === 'needs_manual') && (
+          {/* BANNER AUTO-CALIBRAZIONE */}
+          {pdfDoc && autoCalibState.status !== 'idle' && (
             <div
               className={`px-3 py-1.5 border-b flex items-center justify-between gap-3 flex-wrap text-xs shrink-0 ${
                 autoCalibState.status === 'needs_manual'
@@ -4820,22 +4456,39 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
 
               <div className="flex items-center gap-1.5 shrink-0">
                 {autoCalibState.status === 'needs_manual' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewMode('2d');
-                      setActiveTool('calibrate');
-                      setRulerStart(null);
-                      setLaserOrigin(null);
-                      setLastFeedback(
-                        'Calibrazione manuale attiva: clicca 2 punti di una misura nota sulla piantina'
-                      );
-                    }}
-                    className="px-2.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] flex items-center gap-1 whitespace-nowrap"
-                  >
-                    <Crosshair className="w-3 h-3" />
-                    <span>Calibra ora</span>
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTool('laser');
+                        setLaserMode('cross');
+                        setIsLaserCalibrating(true);
+                        setLastFeedback(
+                          'Calibrazione col Laser attiva: clicca dentro una stanza per tarare la scala usando il raggio orizzontale Sx↔Dx'
+                        );
+                      }}
+                      className="px-2.5 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] flex items-center gap-1 whitespace-nowrap"
+                    >
+                      <Target className="w-3 h-3" />
+                      <span>Calibra col Laser (1 clic)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTool('calibrate');
+                        setIsLaserCalibrating(false);
+                        setRulerStart(null);
+                        setLaserOrigin(null);
+                        setLastFeedback(
+                          'Calibrazione 2 punti attiva: clicca i 2 estremi di una misura nota sulla piantina'
+                        );
+                      }}
+                      className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 border border-amber-400/50 text-amber-200 font-semibold text-[11px] flex items-center gap-1 whitespace-nowrap"
+                    >
+                      <Crosshair className="w-3 h-3" />
+                      <span>2 Punti</span>
+                    </button>
+                  </>
                 )}
                 {autoCalibState.status !== 'pending_ocr' && (
                   <button
@@ -4852,42 +4505,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
             </div>
           )}
 
-          {/* VIEWPORT PDF 2D (PAN + ZOOM CAD SENZA BARRE DI SCORRIMENTO) / MODELLO 3D / MODELLO BIM */}
+          {/* VIEWPORT PDF 2D (PAN + ZOOM CAD SENZA BARRE DI SCORRIMENTO) */}
           <div className="flex-1 relative flex min-h-0 overflow-hidden">
-            {pdfDoc && (viewMode === '3d' || viewMode === 'bim') && (
-              <Plan3DViewer
-                mode={viewMode}
-                bimModel={bimModelState}
-                onUpdateBimObject={handleUpdateBimObject}
-                onDeleteBimObject={handleDeleteBimObject}
-                onDeleteMultipleBimObjects={handleDeleteMultipleBimObjects}
-                onAddBimObject={handleAddBimObject}
-                onCleanBimModel={handleCleanBimModel}
-                onUndoBim={handleUndoBim}
-                onRedoBim={handleRedoBim}
-                canUndoBim={bimHistoryCounts.undo > 0}
-                canRedoBim={bimHistoryCounts.redo > 0}
-                wallHeightM={defaultHeightM}
-                onWallHeightChange={(newH) => setDefaultHeightM(newH)}
-                cleanFloorCanvas={canvasRef.current}
-                significantQuotes={significantQuotes}
-                showQuotesLayer={showQuotesIn3D}
-                onToggleQuotesLayer={() => setShowQuotesIn3D((v) => !v)}
-                lumaVersion={lumaVersion}
-                sensitivity={wall3DSensitivity}
-                onSensitivityChange={setWall3DSensitivity}
-                onComputeBimObject={handleComputeBimObject}
-                onComputeMultipleBimObjects={handleComputeMultipleBimObjects}
-                activeCellLabel={activeCell ? FIELD_LABEL_IT[activeCell.field] : null}
-                isAnalyzingAi={isAnalyzingAiBim}
-                aiError={aiBimError}
-                onDismissAiError={() => setAiBimError(null)}
-                onRequestAiRebuild={() => void runAiBimReconstruction(true)}
-                onUseLocalModel={() => setAiBimOverride(null)}
-                hasAiModel={activeAiBimModel !== null}
-              />
-            )}
-
             {/* Zero barre di scorrimento: navigazione CAD pura con solo Pan (rotella premuta / Spazio / Mano) e Zoom sul cursore */}
             <div
               ref={scrollContainerRef}
@@ -4922,11 +4541,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                 const file = e.dataTransfer.files?.[0];
                 if (file) void handleLoadPdfFile(file);
               }}
-              className={`${
-                viewMode !== '2d' && pdfDoc
-                  ? 'hidden'
-                  : 'flex-1 overflow-hidden relative select-none'
-              } ${
+              className={`flex-1 overflow-hidden relative select-none ${
                 isPanning || isSpacePressed || activeTool === 'pan'
                   ? isPanning
                     ? 'cursor-grabbing'
@@ -4982,6 +4597,7 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                   if (activeTool === 'laser' && laserOrigin) {
                     e.preventDefault();
                     setLaserOrigin(null);
+                    return;
                   }
                 }}
                 onMouseLeave={() => {
@@ -5241,8 +4857,8 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                           );
                         })}
 
-                    {/* LASER VIRTUALE — MIRINO PRE-ORIGINE (TUTTE E 3 LE MODALITÀ) */}
-                    {activeTool === 'laser' && !laserOrigin && cursorPt && (
+                    {/* LASER VIRTUALE — MIRINO PRE-ORIGINE (PER 1 RAGGIO, 2 RAGGI E AREALE) */}
+                    {activeTool === 'laser' && laserMode !== 'cross' && !laserOrigin && cursorPt && (
                       <g>
                         <circle
                           cx={cursorPt.x}
@@ -5288,6 +4904,242 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                           />
                         )}
                         <circle cx={cursorPt.x} cy={cursorPt.y} r={2.4 / zoom} fill="#ff1a3c" />
+                      </g>
+                    )}
+
+                    {/* LASER A CROCE PERPENDICOLARE (LUNGHEZZA × LARGHEZZA IN TEMPO REALE AL MOVIMENTO DEL MOUSE) */}
+                    {activeTool === 'laser' && laserMode === 'cross' && liveLaserCross && (
+                      <g>
+                        {/* Riquadro tratteggiato del vano individuato dai 2 raggi perpendicolari */}
+                        <rect
+                          x={Math.min(liveLaserCross.pLeft.x, liveLaserCross.pRight.x)}
+                          y={Math.min(liveLaserCross.pTop.y, liveLaserCross.pBottom.y)}
+                          width={Math.abs(liveLaserCross.pRight.x - liveLaserCross.pLeft.x)}
+                          height={Math.abs(liveLaserCross.pBottom.y - liveLaserCross.pTop.y)}
+                          fill="rgba(239, 68, 68, 0.09)"
+                          stroke="#ef4444"
+                          strokeOpacity={0.45}
+                          strokeWidth={1 / zoom}
+                          strokeDasharray={`${4 / zoom} ${3 / zoom}`}
+                        />
+
+                        {/* RAGGIO ORIZZONTALE (SINISTRA ↔ DESTRA = LUNGHEZZA) */}
+                        <line
+                          x1={liveLaserCross.pLeft.x}
+                          y1={liveLaserCross.pLeft.y}
+                          x2={liveLaserCross.pRight.x}
+                          y2={liveLaserCross.pRight.y}
+                          stroke="#ff1a3c"
+                          strokeOpacity={0.25}
+                          strokeWidth={7.5 / zoom}
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={liveLaserCross.pLeft.x}
+                          y1={liveLaserCross.pLeft.y}
+                          x2={liveLaserCross.pRight.x}
+                          y2={liveLaserCross.pRight.y}
+                          stroke="#ff1a3c"
+                          strokeWidth={1.9 / zoom}
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={liveLaserCross.pLeft.x}
+                          y1={liveLaserCross.pLeft.y}
+                          x2={liveLaserCross.pRight.x}
+                          y2={liveLaserCross.pRight.y}
+                          stroke="#fff1f2"
+                          strokeOpacity={0.92}
+                          strokeWidth={0.65 / zoom}
+                          strokeLinecap="round"
+                        />
+
+                        {/* RAGGIO VERTICALE PERPENDICOLARE (ALTO ↕ BASSO = LARGHEZZA) */}
+                        <line
+                          x1={liveLaserCross.pTop.x}
+                          y1={liveLaserCross.pTop.y}
+                          x2={liveLaserCross.pBottom.x}
+                          y2={liveLaserCross.pBottom.y}
+                          stroke="#ff1a3c"
+                          strokeOpacity={0.25}
+                          strokeWidth={7.5 / zoom}
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={liveLaserCross.pTop.x}
+                          y1={liveLaserCross.pTop.y}
+                          x2={liveLaserCross.pBottom.x}
+                          y2={liveLaserCross.pBottom.y}
+                          stroke="#ff1a3c"
+                          strokeWidth={1.9 / zoom}
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={liveLaserCross.pTop.x}
+                          y1={liveLaserCross.pTop.y}
+                          x2={liveLaserCross.pBottom.x}
+                          y2={liveLaserCross.pBottom.y}
+                          stroke="#fff1f2"
+                          strokeOpacity={0.92}
+                          strokeWidth={0.65 / zoom}
+                          strokeLinecap="round"
+                        />
+
+                        {/* 4 Punti di impatto sulle pareti (Sinistra, Destra, Alto, Basso) */}
+                        {[
+                          { pt: liveLaserCross.pLeft, hit: liveLaserCross.hitWallLeft },
+                          { pt: liveLaserCross.pRight, hit: liveLaserCross.hitWallRight },
+                          { pt: liveLaserCross.pTop, hit: liveLaserCross.hitWallTop },
+                          { pt: liveLaserCross.pBottom, hit: liveLaserCross.hitWallBottom },
+                        ].map((w, idx) => (
+                          <g key={idx} transform={`translate(${w.pt.x}, ${w.pt.y})`}>
+                            <circle
+                              r={6.5 / zoom}
+                              fill={w.hit ? '#ff1a3c' : '#f59e0b'}
+                              fillOpacity={0.22}
+                            />
+                            <circle
+                              r={2.9 / zoom}
+                              fill={w.hit ? '#ff1a3c' : '#f59e0b'}
+                              stroke="#ffffff"
+                              strokeWidth={0.9 / zoom}
+                            />
+                          </g>
+                        ))}
+
+                        {/* Emettitore centrale sul cursore */}
+                        <circle
+                          cx={liveLaserCross.emitter.x}
+                          cy={liveLaserCross.emitter.y}
+                          r={5.5 / zoom}
+                          fill="#0f172a"
+                          fillOpacity={0.9}
+                          stroke="#ff1a3c"
+                          strokeWidth={1.5 / zoom}
+                        />
+                        <circle
+                          cx={liveLaserCross.emitter.x}
+                          cy={liveLaserCross.emitter.y}
+                          r={2.1 / zoom}
+                          fill="#fff1f2"
+                        />
+
+                        {/* Etichetta asse Orizzontale (Lunghezza) */}
+                        {(() => {
+                          const hx = (liveLaserCross.pLeft.x + liveLaserCross.pRight.x) / 2;
+                          const hy = liveLaserCross.emitter.y - 13 / zoom;
+                          const txt = `Lung. ${liveLaserCrossXM.toFixed(2)} m`;
+                          const bw = Math.max(64, txt.length * 5.4 + 12) / zoom;
+                          const bh = 14.5 / zoom;
+                          return (
+                            <g transform={`translate(${hx}, ${hy})`}>
+                              <rect
+                                x={-bw / 2}
+                                y={-bh / 2}
+                                width={bw}
+                                height={bh}
+                                rx={3 / zoom}
+                                fill="#0f172a"
+                                fillOpacity={0.9}
+                                stroke="#ef4444"
+                                strokeWidth={0.9 / zoom}
+                              />
+                              <text
+                                textAnchor="middle"
+                                dominantBaseline="central"
+                                fill="#fecdd3"
+                                fontSize={7.8 / zoom}
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                              >
+                                {txt}
+                              </text>
+                            </g>
+                          );
+                        })()}
+
+                        {/* Etichetta asse Verticale (Larghezza) */}
+                        {(() => {
+                          const vx = liveLaserCross.emitter.x + 40 / zoom;
+                          const vy = (liveLaserCross.pTop.y + liveLaserCross.pBottom.y) / 2;
+                          const txt = `Larg. ${liveLaserCrossYM.toFixed(2)} m`;
+                          const bw = Math.max(64, txt.length * 5.4 + 12) / zoom;
+                          const bh = 14.5 / zoom;
+                          return (
+                            <g transform={`translate(${vx}, ${vy})`}>
+                              <rect
+                                x={-bw / 2}
+                                y={-bh / 2}
+                                width={bw}
+                                height={bh}
+                                rx={3 / zoom}
+                                fill="#0f172a"
+                                fillOpacity={0.9}
+                                stroke="#ef4444"
+                                strokeWidth={0.9 / zoom}
+                              />
+                              <text
+                                textAnchor="middle"
+                                dominantBaseline="central"
+                                fill="#fecdd3"
+                                fontSize={7.8 / zoom}
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                              >
+                                {txt}
+                              </text>
+                            </g>
+                          );
+                        })()}
+
+                        {/* Display principale Laser a Croce: Lunghezza × Larghezza = m² */}
+                        {(() => {
+                          const mainText = `${liveLaserCrossXM.toFixed(2)} × ${liveLaserCrossYM.toFixed(2)} m (${liveLaserCrossAreaM2.toFixed(2)} m²)`;
+                          const boxW = Math.max(124, mainText.length * 5.6 + 18) / zoom;
+                          const boxH = 19 / zoom;
+                          const locked =
+                            liveLaserCross.hitWallLeft &&
+                            liveLaserCross.hitWallRight &&
+                            liveLaserCross.hitWallTop &&
+                            liveLaserCross.hitWallBottom;
+                          return (
+                            <g
+                              transform={`translate(${liveLaserCross.emitter.x}, ${
+                                liveLaserCross.emitter.y + 20 / zoom
+                              })`}
+                            >
+                              <rect
+                                x={-boxW / 2}
+                                y={-boxH / 2}
+                                width={boxW}
+                                height={boxH}
+                                rx={4 / zoom}
+                                fill="#090d16"
+                                fillOpacity={0.95}
+                                stroke={locked ? '#ef4444' : '#f59e0b'}
+                                strokeWidth={1.25 / zoom}
+                              />
+                              <circle
+                                cx={-boxW / 2 + 7 / zoom}
+                                cy={0}
+                                r={2.4 / zoom}
+                                fill={locked ? '#ff1a3c' : '#f59e0b'}
+                              />
+                              <text
+                                textAnchor="middle"
+                                dominantBaseline="central"
+                                x={4 / zoom}
+                                y={0}
+                                fill="#ffffff"
+                                fontSize={8.6 / zoom}
+                                fontFamily="monospace"
+                                fontWeight="bold"
+                              >
+                                {mainText}
+                              </text>
+                            </g>
+                          );
+                        })()}
                       </g>
                     )}
 
@@ -5697,6 +5549,39 @@ export const PlanMeasureModal: React.FC<PlanMeasureModalProps> = ({
                           fill="none"
                           stroke="#ffffff"
                           strokeWidth={2.2 / zoom}
+                          strokeLinecap="round"
+                        />
+                      </g>
+                    )}
+
+                    {laserCrossFlash && (
+                      <g>
+                        <rect
+                          x={Math.min(laserCrossFlash.pLeft.x, laserCrossFlash.pRight.x)}
+                          y={Math.min(laserCrossFlash.pTop.y, laserCrossFlash.pBottom.y)}
+                          width={Math.abs(laserCrossFlash.pRight.x - laserCrossFlash.pLeft.x)}
+                          height={Math.abs(laserCrossFlash.pBottom.y - laserCrossFlash.pTop.y)}
+                          fill="#fb7185"
+                          fillOpacity={0.28}
+                          stroke="#ffffff"
+                          strokeWidth={2 / zoom}
+                        />
+                        <line
+                          x1={laserCrossFlash.pLeft.x}
+                          y1={laserCrossFlash.pLeft.y}
+                          x2={laserCrossFlash.pRight.x}
+                          y2={laserCrossFlash.pRight.y}
+                          stroke="#ffffff"
+                          strokeWidth={2.5 / zoom}
+                          strokeLinecap="round"
+                        />
+                        <line
+                          x1={laserCrossFlash.pTop.x}
+                          y1={laserCrossFlash.pTop.y}
+                          x2={laserCrossFlash.pBottom.x}
+                          y2={laserCrossFlash.pBottom.y}
+                          stroke="#ffffff"
+                          strokeWidth={2.5 / zoom}
                           strokeLinecap="round"
                         />
                       </g>

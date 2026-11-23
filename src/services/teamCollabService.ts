@@ -8,6 +8,7 @@ import {
   query,
   limitToLast,
 } from 'firebase/database';
+import { signInAnonymously } from 'firebase/auth';
 import {
   ref as storageRef,
   uploadBytes,
@@ -76,6 +77,8 @@ export interface OnlineOperator {
   userName: string;
   channel: string;
   connectedAt: string;
+  accountType?: 'account' | 'altri';
+  isArmedForces?: boolean;
 }
 
 export interface SharedFolderListing {
@@ -103,6 +106,8 @@ export interface CollabSessionCallbacks {
   userId: string;
   userName: string;
   channel: string;
+  accountType?: 'account' | 'altri';
+  isArmedForces?: boolean;
   onStatusChange: (status: CollabStatusInfo) => void;
   onMessagesReplace: (messages: ChatMessage[]) => void;
   onMessageAdded: (message: ChatMessage) => void;
@@ -112,7 +117,12 @@ export interface CollabSessionCallbacks {
 }
 
 export interface CollabSessionHandle {
-  updatePresence: (userName: string, channel: string) => void;
+  updatePresence: (
+    userName: string,
+    channel: string,
+    accountType?: 'account' | 'altri',
+    isArmedForces?: boolean
+  ) => void;
   sendMessage: (params: {
     id?: string;
     channel: string;
@@ -133,7 +143,7 @@ export const RECOMMENDED_FIREBASE_RTDB_RULES = `{
       }
     },
     "sharedChat": { ".read": "auth != null", ".write": "auth != null" },
-    "sharedPresence": { ".read": "auth != null", ".write": "auth != null" },
+    "sharedPresence": { ".read": true, ".write": true },
     "sharedStorageMeta": { ".read": "auth != null", ".write": "auth != null" },
     "sharedStoragePayloads": { ".read": "auth != null", ".write": "auth != null" }
   }
@@ -219,7 +229,9 @@ const BC_NAME = 'gecola_team_collab_sync';
 type LocalBusEvent =
   | { type: 'shared:updated' }
   | { type: 'chat:message'; message: ChatMessage }
-  | { type: 'chat:deleted'; messageId: string };
+  | { type: 'chat:deleted'; messageId: string }
+  | { type: 'presence:heartbeat'; operator: OnlineOperator & { lastSeen: number } }
+  | { type: 'presence:leave'; userId: string };
 
 const localEventListeners = new Set<(ev: LocalBusEvent) => void>();
 let localBroadcastChannel: BroadcastChannel | null = null;
@@ -463,10 +475,24 @@ async function probeExpressServer(): Promise<boolean> {
 async function probeFirebaseDatabase(): Promise<{ ok: boolean; permissionDenied: boolean }> {
   if (!db) return { ok: false, permissionDenied: false };
   try {
-    await withTimeout(get(dbRef(db, 'sharedStorageMeta/folders')), 4500, 'Firebase RTDB');
+    await withTimeout(get(dbRef(db, 'sharedPresence')), 4000, 'Firebase RTDB Presence');
     return { ok: true, permissionDenied: false };
-  } catch (err) {
-    return { ok: false, permissionDenied: isPermissionDeniedError(err) };
+  } catch (firstErr) {
+    try {
+      await withTimeout(get(dbRef(db, 'sharedStorageMeta/folders')), 4000, 'Firebase RTDB');
+      return { ok: true, permissionDenied: false };
+    } catch (err) {
+      if (isPermissionDeniedError(err) && auth && !auth.currentUser) {
+        try {
+          await withTimeout(signInAnonymously(auth), 3500, 'Firebase Anon Auth');
+          await withTimeout(get(dbRef(db, 'sharedPresence')), 3500, 'Firebase RTDB Presence Retry');
+          return { ok: true, permissionDenied: false };
+        } catch {
+          // ignore if anonymous auth is disabled in console
+        }
+      }
+      return { ok: false, permissionDenied: isPermissionDeniedError(firstErr) || isPermissionDeniedError(err) };
+    }
   }
 }
 
@@ -931,8 +957,12 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
   let activeMode: CollabBackendMode = 'local';
   let currentUserName = callbacks.userName;
   let currentChannel = callbacks.channel;
+  let currentAccountType: 'account' | 'altri' =
+    callbacks.accountType || (callbacks.isArmedForces ? 'altri' : 'account');
+  let currentIsArmedForces = Boolean(callbacks.isArmedForces || currentAccountType === 'altri');
   let wsRef: WebSocket | null = null;
   let firebasePushPresence: (() => void) | null = null;
+  let localPushPresence: (() => void) | null = null;
   let reconnectTimer: number | null = null;
   let cleanupFns: Array<() => void> = [];
 
@@ -945,18 +975,62 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
   const startLocalMode = () => {
     activeMode = 'local';
     ensureLocalBroadcastChannel();
+    const localPeers = new Map<string, OnlineOperator & { lastSeen: number }>();
 
-    const syncLocalOperator = () => {
-      callbacks.onOperatorsChange([
-        {
-          userId: callbacks.userId,
-          userName: currentUserName,
-          channel: currentChannel,
-          connectedAt: new Date().toISOString(),
-        },
-      ]);
+    const emitOperatorsList = () => {
+      if (disposed) return;
+      const now = Date.now();
+      localPeers.set(callbacks.userId, {
+        userId: callbacks.userId,
+        userName: currentUserName,
+        channel: currentChannel,
+        connectedAt: new Date().toISOString(),
+        accountType: currentAccountType,
+        isArmedForces: currentIsArmedForces,
+        lastSeen: now,
+      });
+      const activeList: OnlineOperator[] = [];
+      for (const [k, peer] of localPeers.entries()) {
+        if (now - peer.lastSeen > 60_000 && k !== callbacks.userId) {
+          localPeers.delete(k);
+          continue;
+        }
+        activeList.push({
+          userId: peer.userId,
+          userName: peer.userName,
+          channel: peer.channel,
+          connectedAt: peer.connectedAt,
+          accountType: peer.accountType,
+          isArmedForces: peer.isArmedForces,
+        });
+      }
+      callbacks.onOperatorsChange(activeList);
     };
-    syncLocalOperator();
+
+    const broadcastMyPresence = () => {
+      if (disposed) return;
+      const me: OnlineOperator & { lastSeen: number } = {
+        userId: callbacks.userId,
+        userName: currentUserName,
+        channel: currentChannel,
+        connectedAt: new Date().toISOString(),
+        accountType: currentAccountType,
+        isArmedForces: currentIsArmedForces,
+        lastSeen: Date.now(),
+      };
+      localPeers.set(callbacks.userId, me);
+      emitLocalEvent({ type: 'presence:heartbeat', operator: me });
+      emitOperatorsList();
+    };
+
+    localPushPresence = broadcastMyPresence;
+    broadcastMyPresence();
+    const hb = window.setInterval(broadcastMyPresence, 15000);
+    cleanupFns.push(() => {
+      window.clearInterval(hb);
+      localPushPresence = null;
+      emitLocalEvent({ type: 'presence:leave', userId: callbacks.userId });
+    });
 
     localFetchChatMessages()
       .then((msgs) => {
@@ -982,6 +1056,16 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
             if (!disposed) callbacks.onSharedUpdated(res.files.length);
           })
           .catch(() => {});
+      } else if (ev.type === 'presence:heartbeat' && ev.operator) {
+        const isNewPeer = !localPeers.has(ev.operator.userId);
+        localPeers.set(ev.operator.userId, { ...ev.operator, lastSeen: Date.now() });
+        emitOperatorsList();
+        if (isNewPeer && ev.operator.userId !== callbacks.userId) {
+          broadcastMyPresence();
+        }
+      } else if (ev.type === 'presence:leave' && ev.userId) {
+        localPeers.delete(ev.userId);
+        emitOperatorsList();
       }
     };
     localEventListeners.add(onLocalEv);
@@ -997,6 +1081,7 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
     const clientSessionKey = makeId('cl');
     const presenceNode = dbRef(db, `sharedPresence/${clientSessionKey}`);
     const connectedRef = dbRef(db, '.info/connected');
+    let triedAnonSignIn = false;
 
     const writePresence = () => {
       if (disposed || !db) return;
@@ -1004,10 +1089,22 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
         userId: callbacks.userId,
         userName: currentUserName,
         channel: currentChannel,
+        accountType: currentAccountType,
+        isArmedForces: currentIsArmedForces,
         connectedAt: new Date().toISOString(),
         lastSeen: Date.now(),
-      }).catch((err) => {
+      }).catch(async (err) => {
         if (isPermissionDeniedError(err)) {
+          if (!triedAnonSignIn && auth && !auth.currentUser) {
+            triedAnonSignIn = true;
+            try {
+              await signInAnonymously(auth);
+              writePresence();
+              return;
+            } catch {
+              // ignore if anonymous auth is not enabled
+            }
+          }
           degradeToLocalOnPermissionError(err);
         }
       });
@@ -1047,25 +1144,35 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
               userName: currentUserName,
               channel: currentChannel,
               connectedAt: new Date().toISOString(),
+              accountType: currentAccountType,
+              isArmedForces: currentIsArmedForces,
             },
           ]);
           return;
         }
         const cutoff = Date.now() - 90_000;
         const byUser = new Map<string, OnlineOperator>();
-        for (const item of Object.values(raw)) {
+        for (const [sessionKey, item] of Object.entries(raw)) {
           if (!item || typeof item !== 'object') continue;
           const lastSeen = Number(item.lastSeen) || 0;
           if (lastSeen && lastSeen < cutoff) continue;
-          const uid = String(item.userId || item.clientId || '');
+          const uid = String(item.userId || item.clientId || sessionKey);
           const uname = String(item.userName || item.name || 'Operatore');
           if (!uid) continue;
-          if (!byUser.has(uid)) {
-            byUser.set(uid, {
+          const isAltri =
+            item.accountType === 'altri' ||
+            item.isArmedForces === true ||
+            item.role === 'FORZE_ARMATE' ||
+            uname.toLowerCase().includes('forze armate');
+          const dedupKey = isAltri ? `${uid}_${sessionKey}` : uid;
+          if (!byUser.has(dedupKey)) {
+            byUser.set(dedupKey, {
               userId: uid,
               userName: uname,
               channel: String(item.channel || 'generale'),
               connectedAt: String(item.connectedAt || new Date(lastSeen || Date.now()).toISOString()),
+              accountType: isAltri ? 'altri' : 'account',
+              isArmedForces: isAltri,
             });
           }
         }
@@ -1074,6 +1181,12 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
       () => {}
     );
     cleanupFns.push(unsubPresence);
+
+    // Se è una sessione "Altri" (Forze Armate senza account Firebase), serve solo il tracking presenza:
+    // evitiamo di sottoscrivere nodi protetti da auth!=null (sharedChat/sharedStorageMeta) che degraderebbero la sessione
+    if (currentAccountType === 'altri' && !auth?.currentUser) {
+      return;
+    }
 
     let initializedMessages = false;
     let knownMsgIds = new Set<string>();
@@ -1110,7 +1223,7 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
         }
       },
       (err) => {
-        if (isPermissionDeniedError(err)) {
+        if (isPermissionDeniedError(err) && currentAccountType === 'account') {
           degradeToLocalOnPermissionError(err);
           startLocalMode();
         }
@@ -1134,19 +1247,21 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
   const startServerMode = () => {
     activeMode = 'server';
 
-    fetchSharedFolderListing()
-      .then((res) => {
-        if (!disposed) callbacks.onSharedUpdated(res.files.length);
-      })
-      .catch(() => {});
+    if (currentAccountType === 'account') {
+      fetchSharedFolderListing()
+        .then((res) => {
+          if (!disposed) callbacks.onSharedUpdated(res.files.length);
+        })
+        .catch(() => {});
 
-    fetchChatHistory()
-      .then((res) => {
-        if (disposed) return;
-        callbacks.onMessagesReplace(res.messages || []);
-        callbacks.onOperatorsChange(res.operators || []);
-      })
-      .catch(() => {});
+      fetchChatHistory()
+        .then((res) => {
+          if (disposed) return;
+          callbacks.onMessagesReplace(res.messages || []);
+          callbacks.onOperatorsChange(res.operators || []);
+        })
+        .catch(() => {});
+    }
 
     const connectWs = () => {
       if (disposed) return;
@@ -1163,6 +1278,8 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
               userId: callbacks.userId,
               userName: currentUserName,
               channel: currentChannel,
+              accountType: currentAccountType,
+              isArmedForces: currentIsArmedForces,
             })
           );
         };
@@ -1230,9 +1347,16 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
   });
 
   return {
-    updatePresence(userName: string, channel: string) {
+    updatePresence(
+      userName: string,
+      channel: string,
+      accountType?: 'account' | 'altri',
+      isArmedForces?: boolean
+    ) {
       currentUserName = userName;
       currentChannel = channel;
+      if (accountType) currentAccountType = accountType;
+      if (typeof isArmedForces === 'boolean') currentIsArmedForces = isArmedForces;
       if (activeMode === 'server' && wsRef && wsRef.readyState === WebSocket.OPEN) {
         wsRef.send(
           JSON.stringify({
@@ -1240,19 +1364,14 @@ export function startCollabSession(callbacks: CollabSessionCallbacks): CollabSes
             userId: callbacks.userId,
             userName,
             channel,
+            accountType: currentAccountType,
+            isArmedForces: currentIsArmedForces,
           })
         );
       } else if (activeMode === 'firebase' && firebasePushPresence) {
         firebasePushPresence();
-      } else if (activeMode === 'local') {
-        callbacks.onOperatorsChange([
-          {
-            userId: callbacks.userId,
-            userName,
-            channel,
-            connectedAt: new Date().toISOString(),
-          },
-        ]);
+      } else if (activeMode === 'local' && localPushPresence) {
+        localPushPresence();
       }
     },
     async sendMessage(params) {

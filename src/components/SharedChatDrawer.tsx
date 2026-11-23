@@ -197,20 +197,28 @@ const SharedChatDrawer: React.FC<SharedChatDrawerProps> = ({
             <div className="flex items-center gap-2">
               <h3 className="font-bold text-sm truncate">Chat Condivisa GeCoLa</h3>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-emerald-100">
-              <span className="w-2 h-2 rounded-full bg-[#25D366] animate-pulse shrink-0" />
-              <span>
-                {onlineUsers.length} {onlineUsers.length === 1 ? 'collegato ora' : 'collegati ora'}
-              </span>
-              <span className="opacity-60">·</span>
-              <button
-                type="button"
-                onClick={() => setShowOnlineList((v) => !v)}
-                className="underline decoration-dotted hover:text-white inline-flex items-center gap-1"
-              >
-                <Users className="w-3 h-3" />
-                <span>{showOnlineList ? 'Nascondi' : 'Vedi utenti'}</span>
-              </button>
+            <div className="flex flex-col gap-0.5 text-[11px] text-emerald-100 mt-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#25D366] animate-pulse shrink-0" />
+                <span>
+                  Account collegati: <strong className="font-mono text-white">{onlineUsers.filter((u) => u.role !== 'FORZE_ARMATE').length}</strong>
+                </span>
+                <span className="opacity-60">·</span>
+                <button
+                  type="button"
+                  onClick={() => setShowOnlineList((v) => !v)}
+                  className="underline decoration-dotted hover:text-white inline-flex items-center gap-1"
+                >
+                  <Users className="w-3 h-3" />
+                  <span>{showOnlineList ? 'Nascondi' : 'Vedi utenti'}</span>
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 pl-3.5 text-amber-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-300 shrink-0" />
+                <span>
+                  Altri: <strong className="font-mono text-white">{onlineUsers.filter((u) => u.role === 'FORZE_ARMATE').length}</strong>
+                </span>
+              </div>
             </div>
           </div>
         </div>
